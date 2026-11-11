@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en" data-root="../../">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Multiphysics recipes · OneSimulation</title>
+<meta name="description" content="Multiphysics recipes – OneSimulation documentation: multiphysics simulation in Python.">
+<link rel="canonical" href="https://johmey.github.io/OneSimulation-Showcase/guide/6-worked-physics-and-service-recipes/15-multiphysics-recipes.html">
+<meta property="og:title" content="Multiphysics recipes · OneSimulation">
+<meta property="og:description" content="Multiphysics recipes – OneSimulation documentation: multiphysics simulation in Python.">
+<meta property="og:type" content="website">
+<link rel="stylesheet" href="../../assets/site.css">
+
+</head>
+<body>
+<header class="top">
+<a class="brand" href="../../index.html">OneSimulation <span>docs</span></a>
+<div class="search"><input id="q" type="search" placeholder="Search the docs" aria-label="Search the documentation" autocomplete="off"><div id="results" role="listbox"></div></div>
+<a class="top-link" href="https://github.com/JohMey/OneSimulation-Showcase/releases/tag/custom-equations-2026-11-11" target="_blank" rel="noopener">Free books</a>
+<a class="button small" href="https://johmey.gumroad.com/l/onesimulation-runtime-abo" target="_blank" rel="noopener">Try it free</a>
+</header>
+<div class="layout">
+<details class="menu"><summary>Menu</summary><nav class="side" aria-label="Documentation"><a class="" href="../../index.html">Overview</a><a class="" href="../../quickstart.html">Quickstart</a><p class="group">Examples</p><a class="" href="../../examples/index.html">Gallery: 16 physics modules</a><a class="" href="../../examples/method-swap.html">One model, five discretizations</a><a class="" href="../../examples/cantilever.html">A 3D cantilever</a><a class="" href="../../examples/custom-equation.html">Your own equation</a><p class="group">Guide</p><p class="part">Start here</p><a class="" href="../../guide/how-to-use-this-guide.html"><span class="num"></span> How to use this guide</a><p class="part">Part I · From model to notebook</p><a class="" href="../../guide/1-set-up-the-notebook.html"><span class="num">1</span> Set up the notebook</a><a class="" href="../../guide/2-transient-radiation-and-vibration.html"><span class="num">2</span> Transient radiation and vibration</a><a class="" href="../../guide/3-three-spatial-studies.html"><span class="num">3</span> Three spatial studies</a><a class="" href="../../guide/4-read-visualize-and-export-results.html"><span class="num">4</span> Read, visualize and export results</a><p class="part">Part II · Physics model selection</p><a class="" href="../../guide/5-build-a-first-case-in-each-physics-package/index.html"><span class="num">5</span> Build a first case in each physics package</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/index.html"><span class="num">6</span> Worked physics and service recipes</a><div class="sub"><a class="" href="../../guide/6-worked-physics-and-service-recipes/01-shared-cell-for-lumped-histories.html">Shared cell for lumped histories</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/02-shared-cell-for-one-dimensional-profiles.html">Shared cell for one-dimensional profiles</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/03-shared-cell-for-facade-configurations.html">Shared cell for facade configurations</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/04-acoustics-recipes.html">Acoustics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/05-biophysics-recipes.html">Biophysics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/06-chemistry-recipes.html">Chemistry recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/07-electromagnetics-recipes.html">Electromagnetics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/08-electrostatics-recipes.html">Electrostatics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/09-geotechnics-recipes.html">Geotechnics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/10-heat-transfer-recipes.html">Heat transfer recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/11-hydrodynamics-recipes.html">Hydrodynamics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/12-magnetohydrodynamics-recipes.html">Magnetohydrodynamics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/13-magnetostatics-recipes.html">Magnetostatics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/14-multibody-dynamics-recipes.html">Multibody dynamics recipes</a><a aria-current="page" class="" href="../../guide/6-worked-physics-and-service-recipes/15-multiphysics-recipes.html">Multiphysics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/16-optics-and-photonics-recipes.html">Optics and photonics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/17-plasma-physics-recipes.html">Plasma physics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/18-solid-mechanics-recipes.html">Solid mechanics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/19-systems-and-networks-recipes.html">Systems and networks recipes</a></div><p class="part">Part III · Select and combine numerical methods</p><a class="" href="../../guide/7-numerical-configuration-and-spatial-operators.html"><span class="num">7</span> Numerical configuration and spatial operators</a><a class="" href="../../guide/8-solvers-time-integration-and-coupled-fields.html"><span class="num">8</span> Solvers, time integration and coupled fields</a><a class="" href="../../guide/9-worked-numerical-comparisons/index.html"><span class="num">9</span> Worked numerical comparisons</a><a class="" href="../../guide/10-executable-numerical-recipes/index.html"><span class="num">10</span> Executable numerical recipes</a><a class="" href="../../guide/11-define-and-solve-your-own-equation.html"><span class="num">11</span> Define and solve your own equation</a><a class="" href="../../guide/12-diagnose-a-notebook-result.html"><span class="num">12</span> Diagnose a notebook result</a><a class="" href="../../guide/13-coverage-and-navigation-by-symbol/index.html"><span class="num">13</span> Coverage and navigation by symbol</a><p class="part">API reference</p><a class="" href="../../reference/a-physics-api-reference/index.html"><span class="num">A</span> Physics API reference</a><a class="" href="../../reference/b-numerical-api-reference/index.html"><span class="num">B</span> Numerical API reference</a><a class="" href="../../reference/c-exposed-operator-and-service-namespaces/index.html"><span class="num">C</span> Exposed operator and service namespaces</a><p class="group">Trust and terms</p><a class="" href="../../verification.html">Verification</a><a class="" href="../../plans.html">Plans and licence</a></nav></details>
+<div class="side-wrap"><nav class="side" aria-label="Documentation"><a class="" href="../../index.html">Overview</a><a class="" href="../../quickstart.html">Quickstart</a><p class="group">Examples</p><a class="" href="../../examples/index.html">Gallery: 16 physics modules</a><a class="" href="../../examples/method-swap.html">One model, five discretizations</a><a class="" href="../../examples/cantilever.html">A 3D cantilever</a><a class="" href="../../examples/custom-equation.html">Your own equation</a><p class="group">Guide</p><p class="part">Start here</p><a class="" href="../../guide/how-to-use-this-guide.html"><span class="num"></span> How to use this guide</a><p class="part">Part I · From model to notebook</p><a class="" href="../../guide/1-set-up-the-notebook.html"><span class="num">1</span> Set up the notebook</a><a class="" href="../../guide/2-transient-radiation-and-vibration.html"><span class="num">2</span> Transient radiation and vibration</a><a class="" href="../../guide/3-three-spatial-studies.html"><span class="num">3</span> Three spatial studies</a><a class="" href="../../guide/4-read-visualize-and-export-results.html"><span class="num">4</span> Read, visualize and export results</a><p class="part">Part II · Physics model selection</p><a class="" href="../../guide/5-build-a-first-case-in-each-physics-package/index.html"><span class="num">5</span> Build a first case in each physics package</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/index.html"><span class="num">6</span> Worked physics and service recipes</a><div class="sub"><a class="" href="../../guide/6-worked-physics-and-service-recipes/01-shared-cell-for-lumped-histories.html">Shared cell for lumped histories</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/02-shared-cell-for-one-dimensional-profiles.html">Shared cell for one-dimensional profiles</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/03-shared-cell-for-facade-configurations.html">Shared cell for facade configurations</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/04-acoustics-recipes.html">Acoustics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/05-biophysics-recipes.html">Biophysics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/06-chemistry-recipes.html">Chemistry recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/07-electromagnetics-recipes.html">Electromagnetics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/08-electrostatics-recipes.html">Electrostatics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/09-geotechnics-recipes.html">Geotechnics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/10-heat-transfer-recipes.html">Heat transfer recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/11-hydrodynamics-recipes.html">Hydrodynamics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/12-magnetohydrodynamics-recipes.html">Magnetohydrodynamics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/13-magnetostatics-recipes.html">Magnetostatics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/14-multibody-dynamics-recipes.html">Multibody dynamics recipes</a><a aria-current="page" class="" href="../../guide/6-worked-physics-and-service-recipes/15-multiphysics-recipes.html">Multiphysics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/16-optics-and-photonics-recipes.html">Optics and photonics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/17-plasma-physics-recipes.html">Plasma physics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/18-solid-mechanics-recipes.html">Solid mechanics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/19-systems-and-networks-recipes.html">Systems and networks recipes</a></div><p class="part">Part III · Select and combine numerical methods</p><a class="" href="../../guide/7-numerical-configuration-and-spatial-operators.html"><span class="num">7</span> Numerical configuration and spatial operators</a><a class="" href="../../guide/8-solvers-time-integration-and-coupled-fields.html"><span class="num">8</span> Solvers, time integration and coupled fields</a><a class="" href="../../guide/9-worked-numerical-comparisons/index.html"><span class="num">9</span> Worked numerical comparisons</a><a class="" href="../../guide/10-executable-numerical-recipes/index.html"><span class="num">10</span> Executable numerical recipes</a><a class="" href="../../guide/11-define-and-solve-your-own-equation.html"><span class="num">11</span> Define and solve your own equation</a><a class="" href="../../guide/12-diagnose-a-notebook-result.html"><span class="num">12</span> Diagnose a notebook result</a><a class="" href="../../guide/13-coverage-and-navigation-by-symbol/index.html"><span class="num">13</span> Coverage and navigation by symbol</a><p class="part">API reference</p><a class="" href="../../reference/a-physics-api-reference/index.html"><span class="num">A</span> Physics API reference</a><a class="" href="../../reference/b-numerical-api-reference/index.html"><span class="num">B</span> Numerical API reference</a><a class="" href="../../reference/c-exposed-operator-and-service-namespaces/index.html"><span class="num">C</span> Exposed operator and service namespaces</a><p class="group">Trust and terms</p><a class="" href="../../verification.html">Verification</a><a class="" href="../../plans.html">Plans and licence</a></nav></div>
+<main id="content"><p class="crumbs"><a href="../../index.html">Docs</a> › <a href="../../guide/6-worked-physics-and-service-recipes/index.html">Worked physics and service recipes</a> › Multiphysics recipes</p><h1><span class="num">6.15</span> Multiphysics recipes</h1><p>This section includes the field-based declarations and the independently callable multiphysics service configurations. The configuration keys in the service recipes belong to the indicated provider.</p>
+<h2 id="joule-heating-with-temperature-dependent-resistance"><span class="num">6.15.1</span> Joule heating with temperature-dependent resistance</h2>
+<p>Apply a voltage and use a linear resistance law around a stated reference temperature. The heating and current histories expose the electrical feedback.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.multiphysics</span><span class="w"> </span><span class="kn">import</span> <span class="n">HeatedResistor</span>
+
+<span class="n">domain</span> <span class="o">=</span> <span class="n">LumpedDomain</span><span class="p">()</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">HeatedResistor</span><span class="p">(</span>
+    <span class="n">domain</span><span class="o">=</span><span class="n">domain</span><span class="o">.</span><span class="n">system</span><span class="p">,</span>
+    <span class="n">resistance</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">heat_capacity</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+    <span class="n">applied_voltage</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">temperature_coefficient</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+    <span class="n">reference_temperature</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">t</span><span class="p">,</span> <span class="n">data</span> <span class="o">=</span> <span class="n">history_case</span><span class="p">(</span>
+    <span class="n">domain</span><span class="p">,</span>
+    <span class="n">model</span><span class="p">,</span>
+    <span class="nb">dict</span><span class="p">(</span><span class="n">temperature</span><span class="o">=</span><span class="mf">300.0</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;temperature&quot;</span><span class="p">,</span> <span class="s2">&quot;current&quot;</span><span class="p">,</span> <span class="s2">&quot;joule_power&quot;</span><span class="p">),</span>
+    <span class="n">end</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+    <span class="n">dt</span><span class="o">=</span><span class="mf">0.02</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="k">assert</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;temperature&quot;</span><span class="p">][</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">300</span> <span class="ow">and</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;current&quot;</span><span class="p">][</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;current&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">history_plot</span><span class="p">(</span>
+    <span class="s2">&quot;Joule heating with temperature-dependent resistance&quot;</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">data</span>
+<span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-heated-resistor.png"><img loading="lazy" src="../../figures/recipe-heated-resistor.png" alt="Figure computed with OneSimulation: recipe heated resistor"></a></figure>
+<h2 id="spring-loaded-piston-with-added-fluid-inertia"><span class="num">6.15.2</span> Spring-loaded piston with added fluid inertia</h2>
+<p>The liquid column contributes inertia to the piston balance. An initial displacement produces periodic motion and a changing interface pressure.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.multiphysics</span><span class="w"> </span><span class="kn">import</span> <span class="n">FluidColumnPiston</span>
+
+<span class="n">domain</span> <span class="o">=</span> <span class="n">LumpedDomain</span><span class="p">()</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">FluidColumnPiston</span><span class="p">(</span>
+    <span class="n">domain</span><span class="o">=</span><span class="n">domain</span><span class="o">.</span><span class="n">system</span><span class="p">,</span>
+    <span class="n">piston_mass</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">fluid_density</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">column_length</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">area</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">spring_stiffness</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">t</span><span class="p">,</span> <span class="n">data</span> <span class="o">=</span> <span class="n">history_case</span><span class="p">(</span>
+    <span class="n">domain</span><span class="p">,</span>
+    <span class="n">model</span><span class="p">,</span>
+    <span class="nb">dict</span><span class="p">(</span><span class="n">displacement</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span> <span class="n">velocity</span><span class="o">=</span><span class="mf">0.0</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;displacement&quot;</span><span class="p">,</span> <span class="s2">&quot;interface_pressure&quot;</span><span class="p">,</span> <span class="s2">&quot;stored_energy&quot;</span><span class="p">),</span>
+    <span class="n">end</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+    <span class="n">dt</span><span class="o">=</span><span class="mf">0.02</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">&quot;stored_energy&quot;</span><span class="p">],</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;stored_energy&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-8</span><span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">history_plot</span><span class="p">(</span><span class="s2">&quot;Spring-loaded piston with added fluid inertia&quot;</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-fluid-column-piston.png"><img loading="lazy" src="../../figures/recipe-fluid-column-piston.png" alt="Figure computed with OneSimulation: recipe fluid column piston"></a></figure>
+<h2 id="voice-coil-electromechanical-transient"><span class="num">6.15.3</span> Voice-coil electromechanical transient</h2>
+<p>A voltage drives current and therefore force on a damped spring mass. Motion generates back EMF through the same force factor.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.multiphysics</span><span class="w"> </span><span class="kn">import</span> <span class="n">VoiceCoil</span>
+
+<span class="n">domain</span> <span class="o">=</span> <span class="n">LumpedDomain</span><span class="p">()</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">VoiceCoil</span><span class="p">(</span>
+    <span class="n">domain</span><span class="o">=</span><span class="n">domain</span><span class="o">.</span><span class="n">system</span><span class="p">,</span>
+    <span class="n">resistance</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">inductance</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">force_factor</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
+    <span class="n">mass</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">spring_stiffness</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+    <span class="n">damping</span><span class="o">=</span><span class="mf">0.4</span><span class="p">,</span>
+    <span class="n">applied_voltage</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">t</span><span class="p">,</span> <span class="n">data</span> <span class="o">=</span> <span class="n">history_case</span><span class="p">(</span>
+    <span class="n">domain</span><span class="p">,</span>
+    <span class="n">model</span><span class="p">,</span>
+    <span class="nb">dict</span><span class="p">(</span><span class="n">current</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">displacement</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">velocity</span><span class="o">=</span><span class="mf">0.0</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;current&quot;</span><span class="p">,</span> <span class="s2">&quot;displacement&quot;</span><span class="p">,</span> <span class="s2">&quot;back_emf&quot;</span><span class="p">),</span>
+    <span class="n">end</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+    <span class="n">dt</span><span class="o">=</span><span class="mf">0.02</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="k">assert</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;displacement&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">max</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mi">0</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">history_plot</span><span class="p">(</span><span class="s2">&quot;Voice-coil electromechanical transient&quot;</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-voice-coil.png"><img loading="lazy" src="../../figures/recipe-voice-coil.png" alt="Figure computed with OneSimulation: recipe voice coil"></a></figure>
+<h2 id="heat-transfer-between-two-capacities"><span class="num">6.15.4</span> Heat transfer between two capacities</h2>
+<p>The conductance transfers energy from the hotter capacity to the cooler one. Check conservation by adding their stored thermal energies.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.multiphysics</span><span class="w"> </span><span class="kn">import</span> <span class="n">ThermalExchange</span>
+
+<span class="n">domain</span> <span class="o">=</span> <span class="n">LumpedDomain</span><span class="p">()</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">ThermalExchange</span><span class="p">(</span>
+    <span class="n">domain</span><span class="o">=</span><span class="n">domain</span><span class="o">.</span><span class="n">system</span><span class="p">,</span>
+    <span class="n">first_capacity</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">second_capacity</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+    <span class="n">conductance</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">t</span><span class="p">,</span> <span class="n">data</span> <span class="o">=</span> <span class="n">history_case</span><span class="p">(</span>
+    <span class="n">domain</span><span class="p">,</span>
+    <span class="n">model</span><span class="p">,</span>
+    <span class="nb">dict</span><span class="p">(</span><span class="n">first_temperature</span><span class="o">=</span><span class="mf">320.0</span><span class="p">,</span> <span class="n">second_temperature</span><span class="o">=</span><span class="mf">300.0</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;first_temperature&quot;</span><span class="p">,</span> <span class="s2">&quot;second_temperature&quot;</span><span class="p">,</span> <span class="s2">&quot;heat_flow&quot;</span><span class="p">),</span>
+    <span class="n">end</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+    <span class="n">dt</span><span class="o">=</span><span class="mf">0.02</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span>
+    <span class="mi">2</span> <span class="o">*</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;first_temperature&quot;</span><span class="p">]</span> <span class="o">+</span> <span class="mi">3</span> <span class="o">*</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;second_temperature&quot;</span><span class="p">],</span> <span class="mf">1540.0</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-9</span>
+<span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">history_plot</span><span class="p">(</span><span class="s2">&quot;Heat transfer between two capacities&quot;</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-thermal-exchange.png"><img loading="lazy" src="../../figures/recipe-thermal-exchange.png" alt="Figure computed with OneSimulation: recipe thermal exchange"></a></figure>
+<h2 id="heating-from-a-homogeneous-reaction"><span class="num">6.15.5</span> Heating from a homogeneous reaction</h2>
+<p>Combine a homogeneous reaction network and a temperature balance. This run specifies an independent volumetric heat source and a reaction with zero specified energy release, so the concentration sum and temperature rise have separate exact checks.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.chemistry</span><span class="w"> </span><span class="kn">import</span> <span class="n">ReactionIR</span><span class="p">,</span> <span class="n">ReactionNetworkIR</span><span class="p">,</span> <span class="n">SpeciesIR</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.multiphysics</span><span class="w"> </span><span class="kn">import</span> <span class="n">AdiabaticReaction</span>
+
+<span class="n">domain</span> <span class="o">=</span> <span class="n">LumpedDomain</span><span class="p">()</span>
+<span class="n">species</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span>
+    <span class="n">SpeciesIR</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mf">1.66054e-27</span><span class="p">,</span> <span class="n">composition</span><span class="o">=</span><span class="p">((</span><span class="s2">&quot;H&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">),))</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;A&quot;</span><span class="p">,</span> <span class="s2">&quot;B&quot;</span><span class="p">)</span>
+<span class="p">)</span>
+<span class="n">reaction</span> <span class="o">=</span> <span class="n">ReactionIR</span><span class="p">(</span>
+    <span class="s2">&quot;conversion&quot;</span><span class="p">,</span> <span class="p">((</span><span class="s2">&quot;A&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">),),</span> <span class="p">((</span><span class="s2">&quot;B&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">),),</span> <span class="p">{</span><span class="s2">&quot;kind&quot;</span><span class="p">:</span> <span class="s2">&quot;constant&quot;</span><span class="p">,</span> <span class="s2">&quot;value&quot;</span><span class="p">:</span> <span class="mf">0.3</span><span class="p">}</span>
+<span class="p">)</span>
+<span class="n">network</span> <span class="o">=</span> <span class="n">ReactionNetworkIR</span><span class="p">(</span><span class="s2">&quot;reactive heating&quot;</span><span class="p">,</span> <span class="s2">&quot;1&quot;</span><span class="p">,</span> <span class="n">species</span><span class="p">,</span> <span class="p">(</span><span class="n">reaction</span><span class="p">,))</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">AdiabaticReaction</span><span class="p">(</span>
+    <span class="n">domain</span><span class="o">=</span><span class="n">domain</span><span class="o">.</span><span class="n">system</span><span class="p">,</span>
+    <span class="n">network</span><span class="o">=</span><span class="n">network</span><span class="p">,</span>
+    <span class="n">volumetric_heat_capacity</span><span class="o">=</span><span class="mf">2.0</span><span class="p">,</span>
+    <span class="n">thermal_source</span><span class="o">=</span><span class="mf">0.4</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">a</span><span class="p">,</span> <span class="n">b</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">concentration</span><span class="p">(</span><span class="s2">&quot;A&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">model</span><span class="o">.</span><span class="n">concentration</span><span class="p">(</span><span class="s2">&quot;B&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">name</span>
+<span class="n">t</span><span class="p">,</span> <span class="n">data</span> <span class="o">=</span> <span class="n">history_case</span><span class="p">(</span>
+    <span class="n">domain</span><span class="p">,</span>
+    <span class="n">model</span><span class="p">,</span>
+    <span class="p">{</span><span class="n">a</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span> <span class="n">b</span><span class="p">:</span> <span class="mf">0.0</span><span class="p">,</span> <span class="s2">&quot;temperature&quot;</span><span class="p">:</span> <span class="mf">300.0</span><span class="p">},</span>
+    <span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="s2">&quot;temperature&quot;</span><span class="p">),</span>
+    <span class="n">end</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">dt</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">a</span><span class="p">]</span> <span class="o">+</span> <span class="n">data</span><span class="p">[</span><span class="n">b</span><span class="p">],</span> <span class="mi">1</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-12</span><span class="p">)</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">&quot;temperature&quot;</span><span class="p">],</span> <span class="mi">300</span> <span class="o">+</span> <span class="mf">0.2</span> <span class="o">*</span> <span class="n">t</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-9</span><span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">history_plot</span><span class="p">(</span><span class="s2">&quot;Reacting mixture with imposed heating&quot;</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-adiabatic-reaction.png"><img loading="lazy" src="../../figures/recipe-adiabatic-reaction.png" alt="Figure computed with OneSimulation: recipe adiabatic reaction"></a></figure>
+<h2 id="electrothermal-provider-with-joule-heat"><span class="num">6.15.6</span> Electrothermal provider with Joule heat</h2>
+<p>The temperature-dependent conductivity changes the current density and Joule power in a prescribed electric field. Inspect the thermal and electrical outputs on the same coordinates.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.multiphysics</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">ElectroThermalConfiguration</span><span class="p">,</span>
+    <span class="n">ElectroThermalPublicApi</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">n</span> <span class="o">=</span> <span class="mi">32</span>
+<span class="n">x0</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> <span class="n">endpoint</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="n">wave</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span> <span class="o">*</span> <span class="n">x0</span><span class="p">)</span>
+<span class="n">configuration</span> <span class="o">=</span> <span class="n">ElectroThermalConfiguration</span><span class="p">(</span>
+    <span class="n">parameters</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span>
+        <span class="n">cell_count</span><span class="o">=</span><span class="n">n</span><span class="p">,</span>
+        <span class="n">final_time</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+        <span class="n">time_step</span><span class="o">=</span><span class="mf">0.0001</span><span class="p">,</span>
+        <span class="n">initial_temperature</span><span class="o">=</span><span class="mi">300</span> <span class="o">+</span> <span class="n">wave</span><span class="p">,</span>
+        <span class="n">applied_electric_field</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+        <span class="n">conductivity_temperature_coefficient</span><span class="o">=</span><span class="mf">0.02</span><span class="p">,</span>
+        <span class="n">reference_temperature</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">run_service</span><span class="p">(</span><span class="n">ElectroThermalPublicApi</span><span class="p">(),</span> <span class="n">configuration</span><span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">service_figure</span><span class="p">(</span>
+    <span class="s2">&quot;Electrothermal provider with Joule heat&quot;</span><span class="p">,</span>
+    <span class="n">result</span><span class="o">.</span><span class="n">coordinates</span><span class="p">,</span>
+    <span class="s2">&quot;Provider coordinate [m]&quot;</span><span class="p">,</span>
+    <span class="p">(</span><span class="s2">&quot;Temperature [K]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">temperature</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;Joule heat [W/m3]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">joule_heat</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-electro-thermal-public-api.png"><img loading="lazy" src="../../figures/recipe-electro-thermal-public-api.png" alt="Figure computed with OneSimulation: recipe electro thermal public api"></a></figure>
+<h2 id="reduced-fluid-structure-traction-and-displacement"><span class="num">6.15.7</span> Reduced fluid–structure traction and displacement</h2>
+<p>Apply interface pressure and vary the initial fluid profile. The service returns traction and both sides of the interface response.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.multiphysics</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">FluidStructureConfiguration</span><span class="p">,</span>
+    <span class="n">FluidStructurePublicApi</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">n</span> <span class="o">=</span> <span class="mi">32</span>
+<span class="n">x0</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> <span class="n">endpoint</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="n">wave</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span> <span class="o">*</span> <span class="n">x0</span><span class="p">)</span>
+<span class="n">configuration</span> <span class="o">=</span> <span class="n">FluidStructureConfiguration</span><span class="p">(</span>
+    <span class="n">parameters</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span>
+        <span class="n">cell_count</span><span class="o">=</span><span class="n">n</span><span class="p">,</span>
+        <span class="n">final_time</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+        <span class="n">time_step</span><span class="o">=</span><span class="mf">0.0001</span><span class="p">,</span>
+        <span class="n">initial_fluid_velocity</span><span class="o">=</span><span class="mf">0.1</span> <span class="o">*</span> <span class="n">wave</span><span class="p">,</span>
+        <span class="n">interface_pressure</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">run_service</span><span class="p">(</span><span class="n">FluidStructurePublicApi</span><span class="p">(),</span> <span class="n">configuration</span><span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">service_figure</span><span class="p">(</span>
+    <span class="s2">&quot;Reduced fluid--structure traction and displacement&quot;</span><span class="p">,</span>
+    <span class="n">result</span><span class="o">.</span><span class="n">coordinates</span><span class="p">,</span>
+    <span class="s2">&quot;Provider coordinate [m]&quot;</span><span class="p">,</span>
+    <span class="p">(</span><span class="s2">&quot;Fluid velocity [m/s]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">fluid_velocity</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;Displacement [m]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">structural_displacement</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;Interface traction [Pa]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">interface_traction</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-fluid-structure-public-api.png"><img loading="lazy" src="../../figures/recipe-fluid-structure-public-api.png" alt="Figure computed with OneSimulation: recipe fluid structure public api"></a></figure>
+<h2 id="magnetostrictive-strain-and-mechanical-response"><span class="num">6.15.8</span> Magnetostrictive strain and mechanical response</h2>
+<p>Apply a magnetic field and set a magnetostriction coefficient. Read magnetic strain, resulting stress and displacement from the provider result.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.multiphysics</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">MagnetoMechanicsConfiguration</span><span class="p">,</span>
+    <span class="n">MagnetoMechanicsPublicApi</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">n</span> <span class="o">=</span> <span class="mi">32</span>
+<span class="n">x0</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> <span class="n">endpoint</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="n">wave</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span> <span class="o">*</span> <span class="n">x0</span><span class="p">)</span>
+<span class="n">configuration</span> <span class="o">=</span> <span class="n">MagnetoMechanicsConfiguration</span><span class="p">(</span>
+    <span class="n">parameters</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span>
+        <span class="n">cell_count</span><span class="o">=</span><span class="n">n</span><span class="p">,</span>
+        <span class="n">final_time</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+        <span class="n">time_step</span><span class="o">=</span><span class="mf">0.0001</span><span class="p">,</span>
+        <span class="n">initial_displacement</span><span class="o">=</span><span class="mf">0.01</span> <span class="o">*</span> <span class="n">wave</span><span class="p">,</span>
+        <span class="n">applied_magnetic_field</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
+        <span class="n">magnetostriction_coefficient</span><span class="o">=</span><span class="mf">0.02</span><span class="p">,</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">run_service</span><span class="p">(</span><span class="n">MagnetoMechanicsPublicApi</span><span class="p">(),</span> <span class="n">configuration</span><span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">service_figure</span><span class="p">(</span>
+    <span class="s2">&quot;Magnetostrictive strain and mechanical response&quot;</span><span class="p">,</span>
+    <span class="n">result</span><span class="o">.</span><span class="n">coordinates</span><span class="p">,</span>
+    <span class="s2">&quot;Provider coordinate [m]&quot;</span><span class="p">,</span>
+    <span class="p">(</span><span class="s2">&quot;Magnetic strain [1]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">magnetic_strain</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;Stress [Pa]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">stress</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;Displacement [m]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">displacement</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-magneto-mechanics-public-api.png"><img loading="lazy" src="../../figures/recipe-magneto-mechanics-public-api.png" alt="Figure computed with OneSimulation: recipe magneto mechanics public api"></a></figure>
+<h2 id="reduced-thermoelastic-line-coupling"><span class="num">6.15.9</span> Reduced thermoelastic line coupling</h2>
+<p>A temperature perturbation produces thermal strain and mechanical stress through the material coefficient. Read the fields on the shared line carrier.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.multiphysics</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">ThermoMechanicsConfiguration</span><span class="p">,</span>
+    <span class="n">ThermoMechanicsPublicApi</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">n</span> <span class="o">=</span> <span class="mi">32</span>
+<span class="n">x0</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> <span class="n">endpoint</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="n">wave</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span> <span class="o">*</span> <span class="n">x0</span><span class="p">)</span>
+<span class="n">configuration</span> <span class="o">=</span> <span class="n">ThermoMechanicsConfiguration</span><span class="p">(</span>
+    <span class="n">parameters</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span>
+        <span class="n">cell_count</span><span class="o">=</span><span class="n">n</span><span class="p">,</span>
+        <span class="n">final_time</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+        <span class="n">time_step</span><span class="o">=</span><span class="mf">0.0001</span><span class="p">,</span>
+        <span class="n">initial_temperature</span><span class="o">=</span><span class="mi">300</span> <span class="o">+</span> <span class="n">wave</span><span class="p">,</span>
+        <span class="n">reference_temperature</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span>
+        <span class="n">thermal_expansion</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">run_service</span><span class="p">(</span><span class="n">ThermoMechanicsPublicApi</span><span class="p">(),</span> <span class="n">configuration</span><span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">service_figure</span><span class="p">(</span>
+    <span class="s2">&quot;Reduced thermoelastic line coupling&quot;</span><span class="p">,</span>
+    <span class="n">result</span><span class="o">.</span><span class="n">coordinates</span><span class="p">,</span>
+    <span class="s2">&quot;Provider coordinate [m]&quot;</span><span class="p">,</span>
+    <span class="p">(</span><span class="s2">&quot;Temperature [K]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">temperature</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;Thermal strain [1]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">thermal_strain</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;Stress [Pa]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">stress</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-thermo-mechanics-public-api.png"><img loading="lazy" src="../../figures/recipe-thermo-mechanics-public-api.png" alt="Figure computed with OneSimulation: recipe thermo mechanics public api"></a></figure>
+<h2 id="monolithic-versus-partitioned-linear-exchange"><span class="num">6.15.10</span> Monolithic versus partitioned linear exchange</h2>
+<p>Describe the block partition separately from its system matrix. The selected monolithic strategy integrates the two-state exchange and returns a derivative for each block.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.multiphysics</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">GeneralCoupledSubsystemsConfiguration</span><span class="p">,</span>
+    <span class="n">GeneralCoupledSubsystemsPublicApi</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">settings</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+    <span class="n">subsystem_ids</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;a&quot;</span><span class="p">,</span> <span class="s2">&quot;b&quot;</span><span class="p">),</span>
+    <span class="n">subsystem_sizes</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+    <span class="n">system_matrix</span><span class="o">=</span><span class="p">((</span><span class="o">-</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">),</span> <span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">)),</span>
+    <span class="n">initial_state</span><span class="o">=</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span>
+    <span class="n">final_time</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span>
+    <span class="n">time_step</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">run_service</span><span class="p">(</span>
+    <span class="n">GeneralCoupledSubsystemsPublicApi</span><span class="p">(),</span>
+    <span class="n">GeneralCoupledSubsystemsConfiguration</span><span class="p">(</span><span class="n">parameters</span><span class="o">=</span><span class="n">settings</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">service_figure</span><span class="p">(</span>
+    <span class="s2">&quot;Monolithic versus partitioned linear exchange&quot;</span><span class="p">,</span>
+    <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">2</span><span class="p">),</span>
+    <span class="s2">&quot;Subsystem index&quot;</span><span class="p">,</span>
+    <span class="p">(</span><span class="s2">&quot;State [1]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">state</span><span class="o">.</span><span class="n">values</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;Rate [1/s]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">derivative</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-general-coupled-subsystems-public-api.png"><img loading="lazy" src="../../figures/recipe-general-coupled-subsystems-public-api.png" alt="Figure computed with OneSimulation: recipe general coupled subsystems public api"></a></figure>
+<h2 id="reactive-coupling-facade-with-an-explicit-species-registry"><span class="num">6.15.11</span> Reactive coupling facade with an explicit species registry</h2>
+<p>The facade requires a species set, reaction network, initial density arrays and initial temperature. Begin with zero reactions to isolate conservative diffusion. Add balanced reaction channels only after the transport check.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.multiphysics</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">ReactiveCouplingConfiguration</span><span class="p">,</span>
+    <span class="n">ReactiveCouplingPublicApi</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.plasma.collisions.models.reactions</span><span class="w"> </span><span class="kn">import</span> <span class="n">ReactionNetwork</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.plasma.fluid.models.declarations.species.species</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">SpeciesDefinition</span><span class="p">,</span>
+    <span class="n">SpeciesSet</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">n</span> <span class="o">=</span> <span class="mi">32</span>
+<span class="n">x0</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> <span class="n">endpoint</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="n">species</span> <span class="o">=</span> <span class="n">SpeciesSet</span><span class="p">(</span>
+    <span class="p">(</span><span class="n">SpeciesDefinition</span><span class="p">(</span><span class="s2">&quot;A&quot;</span><span class="p">,</span> <span class="s2">&quot;Tracer&quot;</span><span class="p">,</span> <span class="n">charge_number</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">mass</span><span class="o">=</span><span class="mf">1.66e-27</span><span class="p">),)</span>
+<span class="p">)</span>
+<span class="n">initial</span> <span class="o">=</span> <span class="mf">1e16</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="mf">0.1</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">cos</span><span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span> <span class="o">*</span> <span class="n">x0</span><span class="p">))</span>
+<span class="n">configuration</span> <span class="o">=</span> <span class="n">ReactiveCouplingConfiguration</span><span class="p">(</span>
+    <span class="n">parameters</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span>
+        <span class="n">species</span><span class="o">=</span><span class="n">species</span><span class="p">,</span>
+        <span class="n">reaction_network</span><span class="o">=</span><span class="n">ReactionNetwork</span><span class="p">(),</span>
+        <span class="n">initial_densities</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;A&quot;</span><span class="p">:</span> <span class="n">initial</span><span class="p">},</span>
+        <span class="n">initial_temperature</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="mf">300.0</span><span class="p">),</span>
+        <span class="n">default_species_diffusivity</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+        <span class="n">thermal_diffusivity</span><span class="o">=</span><span class="mf">0.02</span><span class="p">,</span>
+        <span class="n">final_time</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+        <span class="n">time_step</span><span class="o">=</span><span class="mf">0.0001</span><span class="p">,</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">run_service</span><span class="p">(</span><span class="n">ReactiveCouplingPublicApi</span><span class="p">(),</span> <span class="n">configuration</span><span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">service_figure</span><span class="p">(</span>
+    <span class="s2">&quot;Conservative species transport&quot;</span><span class="p">,</span>
+    <span class="n">result</span><span class="o">.</span><span class="n">coordinates</span><span class="p">,</span>
+    <span class="s2">&quot;Coordinate [m]&quot;</span><span class="p">,</span>
+    <span class="p">(</span><span class="s2">&quot;Species A [m-3]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">densities</span><span class="p">[</span><span class="s2">&quot;A&quot;</span><span class="p">]),</span>
+    <span class="p">(</span><span class="s2">&quot;Temperature [K]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">temperature</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-reactive-coupling-public-api.png"><img loading="lazy" src="../../figures/recipe-reactive-coupling-public-api.png" alt="Figure computed with OneSimulation: recipe reactive coupling public api"></a></figure><nav class="pager" aria-label="Pagination"><a class="prev" href="../../guide/6-worked-physics-and-service-recipes/14-multibody-dynamics-recipes.html"><small>Previous</small>Multibody dynamics recipes</a><a class="next" href="../../guide/6-worked-physics-and-service-recipes/16-optics-and-photonics-recipes.html"><small>Next</small>Optics and photonics recipes</a></nav></main>
+<aside class="toc" aria-label="On this page"><p>On this page</p><a class="l2" href="#joule-heating-with-temperature-dependent-resistance">Joule heating with temperature-dependent resistance</a><a class="l2" href="#spring-loaded-piston-with-added-fluid-inertia">Spring-loaded piston with added fluid inertia</a><a class="l2" href="#voice-coil-electromechanical-transient">Voice-coil electromechanical transient</a><a class="l2" href="#heat-transfer-between-two-capacities">Heat transfer between two capacities</a><a class="l2" href="#heating-from-a-homogeneous-reaction">Heating from a homogeneous reaction</a><a class="l2" href="#electrothermal-provider-with-joule-heat">Electrothermal provider with Joule heat</a><a class="l2" href="#reduced-fluid-structure-traction-and-displacement">Reduced fluid–structure traction and displacement</a><a class="l2" href="#magnetostrictive-strain-and-mechanical-response">Magnetostrictive strain and mechanical response</a><a class="l2" href="#reduced-thermoelastic-line-coupling">Reduced thermoelastic line coupling</a><a class="l2" href="#monolithic-versus-partitioned-linear-exchange">Monolithic versus partitioned linear exchange</a><a class="l2" href="#reactive-coupling-facade-with-an-explicit-species-registry">Reactive coupling facade with an explicit species registry</a></aside>
+</div>
+<footer class="foot"><span><strong>OneSimulation</strong> · Multiphysics with Python · Runtime Alpha 0.2.1a2</span>
+<span>Sold and billed through Gumroad · <a href="../../plans.html">Plans and licence</a></span></footer>
+<script src="../../assets/site.js" defer></script>
+</body>
+</html>

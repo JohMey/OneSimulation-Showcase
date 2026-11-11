@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en" data-root="../../">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Biophysics recipes · OneSimulation</title>
+<meta name="description" content="Biophysics recipes – OneSimulation documentation: multiphysics simulation in Python.">
+<link rel="canonical" href="https://johmey.github.io/OneSimulation-Showcase/guide/6-worked-physics-and-service-recipes/05-biophysics-recipes.html">
+<meta property="og:title" content="Biophysics recipes · OneSimulation">
+<meta property="og:description" content="Biophysics recipes – OneSimulation documentation: multiphysics simulation in Python.">
+<meta property="og:type" content="website">
+<link rel="stylesheet" href="../../assets/site.css">
+
+</head>
+<body>
+<header class="top">
+<a class="brand" href="../../index.html">OneSimulation <span>docs</span></a>
+<div class="search"><input id="q" type="search" placeholder="Search the docs" aria-label="Search the documentation" autocomplete="off"><div id="results" role="listbox"></div></div>
+<a class="top-link" href="https://github.com/JohMey/OneSimulation-Showcase/releases/tag/custom-equations-2026-11-11" target="_blank" rel="noopener">Free books</a>
+<a class="button small" href="https://johmey.gumroad.com/l/onesimulation-runtime-abo" target="_blank" rel="noopener">Try it free</a>
+</header>
+<div class="layout">
+<details class="menu"><summary>Menu</summary><nav class="side" aria-label="Documentation"><a class="" href="../../index.html">Overview</a><a class="" href="../../quickstart.html">Quickstart</a><p class="group">Examples</p><a class="" href="../../examples/index.html">Gallery: 16 physics modules</a><a class="" href="../../examples/method-swap.html">One model, five discretizations</a><a class="" href="../../examples/cantilever.html">A 3D cantilever</a><a class="" href="../../examples/custom-equation.html">Your own equation</a><p class="group">Guide</p><p class="part">Start here</p><a class="" href="../../guide/how-to-use-this-guide.html"><span class="num"></span> How to use this guide</a><p class="part">Part I · From model to notebook</p><a class="" href="../../guide/1-set-up-the-notebook.html"><span class="num">1</span> Set up the notebook</a><a class="" href="../../guide/2-transient-radiation-and-vibration.html"><span class="num">2</span> Transient radiation and vibration</a><a class="" href="../../guide/3-three-spatial-studies.html"><span class="num">3</span> Three spatial studies</a><a class="" href="../../guide/4-read-visualize-and-export-results.html"><span class="num">4</span> Read, visualize and export results</a><p class="part">Part II · Physics model selection</p><a class="" href="../../guide/5-build-a-first-case-in-each-physics-package/index.html"><span class="num">5</span> Build a first case in each physics package</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/index.html"><span class="num">6</span> Worked physics and service recipes</a><div class="sub"><a class="" href="../../guide/6-worked-physics-and-service-recipes/01-shared-cell-for-lumped-histories.html">Shared cell for lumped histories</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/02-shared-cell-for-one-dimensional-profiles.html">Shared cell for one-dimensional profiles</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/03-shared-cell-for-facade-configurations.html">Shared cell for facade configurations</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/04-acoustics-recipes.html">Acoustics recipes</a><a aria-current="page" class="" href="../../guide/6-worked-physics-and-service-recipes/05-biophysics-recipes.html">Biophysics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/06-chemistry-recipes.html">Chemistry recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/07-electromagnetics-recipes.html">Electromagnetics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/08-electrostatics-recipes.html">Electrostatics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/09-geotechnics-recipes.html">Geotechnics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/10-heat-transfer-recipes.html">Heat transfer recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/11-hydrodynamics-recipes.html">Hydrodynamics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/12-magnetohydrodynamics-recipes.html">Magnetohydrodynamics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/13-magnetostatics-recipes.html">Magnetostatics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/14-multibody-dynamics-recipes.html">Multibody dynamics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/15-multiphysics-recipes.html">Multiphysics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/16-optics-and-photonics-recipes.html">Optics and photonics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/17-plasma-physics-recipes.html">Plasma physics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/18-solid-mechanics-recipes.html">Solid mechanics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/19-systems-and-networks-recipes.html">Systems and networks recipes</a></div><p class="part">Part III · Select and combine numerical methods</p><a class="" href="../../guide/7-numerical-configuration-and-spatial-operators.html"><span class="num">7</span> Numerical configuration and spatial operators</a><a class="" href="../../guide/8-solvers-time-integration-and-coupled-fields.html"><span class="num">8</span> Solvers, time integration and coupled fields</a><a class="" href="../../guide/9-worked-numerical-comparisons/index.html"><span class="num">9</span> Worked numerical comparisons</a><a class="" href="../../guide/10-executable-numerical-recipes/index.html"><span class="num">10</span> Executable numerical recipes</a><a class="" href="../../guide/11-define-and-solve-your-own-equation.html"><span class="num">11</span> Define and solve your own equation</a><a class="" href="../../guide/12-diagnose-a-notebook-result.html"><span class="num">12</span> Diagnose a notebook result</a><a class="" href="../../guide/13-coverage-and-navigation-by-symbol/index.html"><span class="num">13</span> Coverage and navigation by symbol</a><p class="part">API reference</p><a class="" href="../../reference/a-physics-api-reference/index.html"><span class="num">A</span> Physics API reference</a><a class="" href="../../reference/b-numerical-api-reference/index.html"><span class="num">B</span> Numerical API reference</a><a class="" href="../../reference/c-exposed-operator-and-service-namespaces/index.html"><span class="num">C</span> Exposed operator and service namespaces</a><p class="group">Trust and terms</p><a class="" href="../../verification.html">Verification</a><a class="" href="../../plans.html">Plans and licence</a></nav></details>
+<div class="side-wrap"><nav class="side" aria-label="Documentation"><a class="" href="../../index.html">Overview</a><a class="" href="../../quickstart.html">Quickstart</a><p class="group">Examples</p><a class="" href="../../examples/index.html">Gallery: 16 physics modules</a><a class="" href="../../examples/method-swap.html">One model, five discretizations</a><a class="" href="../../examples/cantilever.html">A 3D cantilever</a><a class="" href="../../examples/custom-equation.html">Your own equation</a><p class="group">Guide</p><p class="part">Start here</p><a class="" href="../../guide/how-to-use-this-guide.html"><span class="num"></span> How to use this guide</a><p class="part">Part I · From model to notebook</p><a class="" href="../../guide/1-set-up-the-notebook.html"><span class="num">1</span> Set up the notebook</a><a class="" href="../../guide/2-transient-radiation-and-vibration.html"><span class="num">2</span> Transient radiation and vibration</a><a class="" href="../../guide/3-three-spatial-studies.html"><span class="num">3</span> Three spatial studies</a><a class="" href="../../guide/4-read-visualize-and-export-results.html"><span class="num">4</span> Read, visualize and export results</a><p class="part">Part II · Physics model selection</p><a class="" href="../../guide/5-build-a-first-case-in-each-physics-package/index.html"><span class="num">5</span> Build a first case in each physics package</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/index.html"><span class="num">6</span> Worked physics and service recipes</a><div class="sub"><a class="" href="../../guide/6-worked-physics-and-service-recipes/01-shared-cell-for-lumped-histories.html">Shared cell for lumped histories</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/02-shared-cell-for-one-dimensional-profiles.html">Shared cell for one-dimensional profiles</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/03-shared-cell-for-facade-configurations.html">Shared cell for facade configurations</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/04-acoustics-recipes.html">Acoustics recipes</a><a aria-current="page" class="" href="../../guide/6-worked-physics-and-service-recipes/05-biophysics-recipes.html">Biophysics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/06-chemistry-recipes.html">Chemistry recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/07-electromagnetics-recipes.html">Electromagnetics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/08-electrostatics-recipes.html">Electrostatics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/09-geotechnics-recipes.html">Geotechnics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/10-heat-transfer-recipes.html">Heat transfer recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/11-hydrodynamics-recipes.html">Hydrodynamics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/12-magnetohydrodynamics-recipes.html">Magnetohydrodynamics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/13-magnetostatics-recipes.html">Magnetostatics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/14-multibody-dynamics-recipes.html">Multibody dynamics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/15-multiphysics-recipes.html">Multiphysics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/16-optics-and-photonics-recipes.html">Optics and photonics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/17-plasma-physics-recipes.html">Plasma physics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/18-solid-mechanics-recipes.html">Solid mechanics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/19-systems-and-networks-recipes.html">Systems and networks recipes</a></div><p class="part">Part III · Select and combine numerical methods</p><a class="" href="../../guide/7-numerical-configuration-and-spatial-operators.html"><span class="num">7</span> Numerical configuration and spatial operators</a><a class="" href="../../guide/8-solvers-time-integration-and-coupled-fields.html"><span class="num">8</span> Solvers, time integration and coupled fields</a><a class="" href="../../guide/9-worked-numerical-comparisons/index.html"><span class="num">9</span> Worked numerical comparisons</a><a class="" href="../../guide/10-executable-numerical-recipes/index.html"><span class="num">10</span> Executable numerical recipes</a><a class="" href="../../guide/11-define-and-solve-your-own-equation.html"><span class="num">11</span> Define and solve your own equation</a><a class="" href="../../guide/12-diagnose-a-notebook-result.html"><span class="num">12</span> Diagnose a notebook result</a><a class="" href="../../guide/13-coverage-and-navigation-by-symbol/index.html"><span class="num">13</span> Coverage and navigation by symbol</a><p class="part">API reference</p><a class="" href="../../reference/a-physics-api-reference/index.html"><span class="num">A</span> Physics API reference</a><a class="" href="../../reference/b-numerical-api-reference/index.html"><span class="num">B</span> Numerical API reference</a><a class="" href="../../reference/c-exposed-operator-and-service-namespaces/index.html"><span class="num">C</span> Exposed operator and service namespaces</a><p class="group">Trust and terms</p><a class="" href="../../verification.html">Verification</a><a class="" href="../../plans.html">Plans and licence</a></nav></div>
+<main id="content"><p class="crumbs"><a href="../../index.html">Docs</a> › <a href="../../guide/6-worked-physics-and-service-recipes/index.html">Worked physics and service recipes</a> › Biophysics recipes</p><h1><span class="num">6.5</span> Biophysics recipes</h1><p>This section includes the field-based declarations and the independently callable biophysics service configurations. The configuration keys in the service recipes belong to the indicated provider.</p>
+<h2 id="clearance-of-a-well-mixed-dose"><span class="num">6.5.1</span> Clearance of a well-mixed dose</h2>
+<p>The initial amount is divided by the compartment volume to obtain concentration. With zero infusion, the amount decays at clearance divided by volume.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.biophysics</span><span class="w"> </span><span class="kn">import</span> <span class="n">OrganClearance</span>
+
+<span class="n">domain</span> <span class="o">=</span> <span class="n">LumpedDomain</span><span class="p">()</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">OrganClearance</span><span class="p">(</span>
+    <span class="n">domain</span><span class="o">=</span><span class="n">domain</span><span class="o">.</span><span class="n">system</span><span class="p">,</span>
+    <span class="n">volume</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">clearance</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">t</span><span class="p">,</span> <span class="n">data</span> <span class="o">=</span> <span class="n">history_case</span><span class="p">(</span>
+    <span class="n">domain</span><span class="p">,</span>
+    <span class="n">model</span><span class="p">,</span>
+    <span class="nb">dict</span><span class="p">(</span><span class="n">amount</span><span class="o">=</span><span class="mf">1.0</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;amount&quot;</span><span class="p">,</span> <span class="s2">&quot;concentration&quot;</span><span class="p">,</span> <span class="s2">&quot;elimination_rate&quot;</span><span class="p">),</span>
+    <span class="n">end</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">dt</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">&quot;amount&quot;</span><span class="p">],</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">t</span> <span class="o">/</span> <span class="mi">2</span><span class="p">),</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-9</span><span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">history_plot</span><span class="p">(</span><span class="s2">&quot;Clearance of a well-mixed dose&quot;</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-organ-clearance.png"><img loading="lazy" src="../../figures/recipe-organ-clearance.png" alt="Figure computed with OneSimulation: recipe organ clearance"></a></figure>
+<h2 id="passive-membrane-relaxation"><span class="num">6.5.2</span> Passive membrane relaxation</h2>
+<p>A charged membrane relaxes toward its reversal potential. The voltage and signed leak current expose the capacitive and conductive parts of the balance.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.biophysics</span><span class="w"> </span><span class="kn">import</span> <span class="n">PassiveMembrane</span>
+
+<span class="n">domain</span> <span class="o">=</span> <span class="n">LumpedDomain</span><span class="p">()</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">PassiveMembrane</span><span class="p">(</span>
+    <span class="n">domain</span><span class="o">=</span><span class="n">domain</span><span class="o">.</span><span class="n">system</span><span class="p">,</span>
+    <span class="n">capacitance</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">conductance</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">reversal_potential</span><span class="o">=-</span><span class="mf">0.065</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">t</span><span class="p">,</span> <span class="n">data</span> <span class="o">=</span> <span class="n">history_case</span><span class="p">(</span>
+    <span class="n">domain</span><span class="p">,</span>
+    <span class="n">model</span><span class="p">,</span>
+    <span class="nb">dict</span><span class="p">(</span><span class="n">voltage</span><span class="o">=-</span><span class="mf">0.02</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;voltage&quot;</span><span class="p">,</span> <span class="s2">&quot;leak_current&quot;</span><span class="p">),</span>
+    <span class="n">end</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">dt</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span>
+    <span class="n">data</span><span class="p">[</span><span class="s2">&quot;voltage&quot;</span><span class="p">],</span> <span class="o">-</span><span class="mf">0.065</span> <span class="o">+</span> <span class="mf">0.045</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">t</span> <span class="o">/</span> <span class="mi">2</span><span class="p">),</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-9</span>
+<span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">history_plot</span><span class="p">(</span><span class="s2">&quot;Passive membrane relaxation&quot;</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-passive-membrane.png"><img loading="lazy" src="../../figures/recipe-passive-membrane.png" alt="Figure computed with OneSimulation: recipe passive membrane"></a></figure>
+<h2 id="pressure-exchange-across-a-vessel-segment"><span class="num">6.5.3</span> Pressure exchange across a vessel segment</h2>
+<p>Two compliances exchange fluid through a resistive segment. Their compliance-weighted pressure sum is constant without external flow.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.biophysics</span><span class="w"> </span><span class="kn">import</span> <span class="n">CompliantVessels</span><span class="p">,</span> <span class="n">VesselSegment</span>
+
+<span class="n">domain</span> <span class="o">=</span> <span class="n">LumpedDomain</span><span class="p">()</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">CompliantVessels</span><span class="p">(</span>
+    <span class="n">domain</span><span class="o">=</span><span class="n">domain</span><span class="o">.</span><span class="n">system</span><span class="p">,</span>
+    <span class="n">upstream_compliance</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">downstream_compliance</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">vessel</span><span class="o">=</span><span class="n">VesselSegment</span><span class="p">(</span><span class="s2">&quot;bridge&quot;</span><span class="p">,</span> <span class="s2">&quot;up&quot;</span><span class="p">,</span> <span class="s2">&quot;down&quot;</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="n">t</span><span class="p">,</span> <span class="n">data</span> <span class="o">=</span> <span class="n">history_case</span><span class="p">(</span>
+    <span class="n">domain</span><span class="p">,</span>
+    <span class="n">model</span><span class="p">,</span>
+    <span class="nb">dict</span><span class="p">(</span><span class="n">upstream_pressure</span><span class="o">=</span><span class="mf">4.0</span><span class="p">,</span> <span class="n">downstream_pressure</span><span class="o">=</span><span class="mf">1.0</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;upstream_pressure&quot;</span><span class="p">,</span> <span class="s2">&quot;downstream_pressure&quot;</span><span class="p">,</span> <span class="s2">&quot;flow&quot;</span><span class="p">),</span>
+    <span class="n">end</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">dt</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span>
+    <span class="n">data</span><span class="p">[</span><span class="s2">&quot;upstream_pressure&quot;</span><span class="p">]</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;downstream_pressure&quot;</span><span class="p">],</span> <span class="mf">6.0</span>
+<span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">history_plot</span><span class="p">(</span><span class="s2">&quot;Pressure exchange across a vessel segment&quot;</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-compliant-vessels.png"><img loading="lazy" src="../../figures/recipe-compliant-vessels.png" alt="Figure computed with OneSimulation: recipe compliant vessels"></a></figure>
+<h2 id="damped-axial-tissue-motion"><span class="num">6.5.4</span> Damped axial tissue motion</h2>
+<p>An axial element stores and dissipates mechanical work. The mass displacement is the input to the tissue element strain and force calculation.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.biophysics</span><span class="w"> </span><span class="kn">import</span> <span class="n">AxialTissue</span><span class="p">,</span> <span class="n">TissueElement</span>
+
+<span class="n">domain</span> <span class="o">=</span> <span class="n">LumpedDomain</span><span class="p">()</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">AxialTissue</span><span class="p">(</span>
+    <span class="n">domain</span><span class="o">=</span><span class="n">domain</span><span class="o">.</span><span class="n">system</span><span class="p">,</span>
+    <span class="n">mass</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">element</span><span class="o">=</span><span class="n">TissueElement</span><span class="p">(</span><span class="s2">&quot;fiber&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">stiffness</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">rest_length</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">damping</span><span class="o">=</span><span class="mf">0.4</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="n">t</span><span class="p">,</span> <span class="n">data</span> <span class="o">=</span> <span class="n">history_case</span><span class="p">(</span>
+    <span class="n">domain</span><span class="p">,</span>
+    <span class="n">model</span><span class="p">,</span>
+    <span class="nb">dict</span><span class="p">(</span><span class="n">displacement</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span> <span class="n">velocity</span><span class="o">=</span><span class="mf">0.0</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;displacement&quot;</span><span class="p">,</span> <span class="s2">&quot;strain&quot;</span><span class="p">,</span> <span class="s2">&quot;element_force&quot;</span><span class="p">),</span>
+    <span class="n">end</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">dt</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">&quot;strain&quot;</span><span class="p">],</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;displacement&quot;</span><span class="p">],</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-12</span><span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">history_plot</span><span class="p">(</span><span class="s2">&quot;Damped axial tissue motion&quot;</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-axial-tissue.png"><img loading="lazy" src="../../figures/recipe-axial-tissue.png" alt="Figure computed with OneSimulation: recipe axial tissue"></a></figure>
+<h2 id="bioelectrical-provider-with-an-explicit-membrane-state"><span class="num">6.5.5</span> Bioelectrical provider with an explicit membrane state</h2>
+<p>The facade consumes a method-neutral initial-value problem and a separate numerical configuration. The state and ion list belong to the biophysical provider contract.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.biophysics</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">BioelectricalConfiguration</span><span class="p">,</span>
+    <span class="n">BioelectricalPublicApi</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.biophysics.bioelectrical.models.bioelectrical_systems.state</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">BioelectricalState</span><span class="p">,</span>
+    <span class="n">IonSpecies</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">onesim.simulation.problem_definition.declarations.physics.models.problem</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">InitialValueProblem</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">x</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">32</span><span class="p">,</span> <span class="n">endpoint</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="n">problem</span> <span class="o">=</span> <span class="n">InitialValueProblem</span><span class="p">(</span>
+    <span class="s2">&quot;Membrane with a leak&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;bioelectrical&quot;</span><span class="p">,</span>
+    <span class="mi">1</span><span class="p">,</span>
+    <span class="n">BioelectricalState</span><span class="p">(</span><span class="n">voltage</span><span class="o">=-</span><span class="mf">0.04</span> <span class="o">+</span> <span class="mf">0.005</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span> <span class="o">*</span> <span class="n">x</span><span class="p">)),</span>
+    <span class="n">boundary_conditions</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;periodic&quot;</span><span class="p">,),</span>
+<span class="p">)</span>
+<span class="n">configuration</span> <span class="o">=</span> <span class="n">BioelectricalConfiguration</span><span class="p">(</span>
+    <span class="n">parameters</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span>
+        <span class="n">cell_count</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">),</span>
+        <span class="n">species</span><span class="o">=</span><span class="p">(</span><span class="n">IonSpecies</span><span class="p">(</span><span class="s2">&quot;leak&quot;</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.065</span><span class="p">),),</span>
+        <span class="n">diffusion</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+        <span class="n">final_time</span><span class="o">=</span><span class="mf">0.02</span><span class="p">,</span>
+        <span class="n">time_step</span><span class="o">=</span><span class="mf">0.0005</span><span class="p">,</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">run_service</span><span class="p">(</span><span class="n">BioelectricalPublicApi</span><span class="p">(),</span> <span class="n">configuration</span><span class="p">,</span> <span class="n">problem</span><span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">service_figure</span><span class="p">(</span>
+    <span class="s2">&quot;Membrane and leak current&quot;</span><span class="p">,</span>
+    <span class="n">x</span><span class="p">,</span>
+    <span class="s2">&quot;Coordinate [m]&quot;</span><span class="p">,</span>
+    <span class="p">(</span><span class="s2">&quot;Voltage [V]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">state</span><span class="o">.</span><span class="n">voltage</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;Ionic current [A/m2]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">ionic_currents</span><span class="p">[</span><span class="s2">&quot;leak&quot;</span><span class="p">]),</span>
+<span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-bioelectrical-public-api.png"><img loading="lazy" src="../../figures/recipe-bioelectrical-public-api.png" alt="Figure computed with OneSimulation: recipe bioelectrical public api"></a></figure>
+<h2 id="circulatory-service-with-compartment-pressures"><span class="num">6.5.6</span> Circulatory service with compartment pressures</h2>
+<p>Declare the network geometry as named compartment IDs and segment endpoints. The problem supplies the initial pressures and the configuration supplies compliances and resistance.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.biophysics</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">CirculatoryConfiguration</span><span class="p">,</span>
+    <span class="n">CirculatoryPublicApi</span><span class="p">,</span>
+    <span class="n">VesselSegment</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.biophysics.circulation.models.circulatory_systems.state</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">CirculatoryState</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">onesim.simulation.problem_definition.declarations.physics.models.problem</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">InitialValueProblem</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">problem</span> <span class="o">=</span> <span class="n">InitialValueProblem</span><span class="p">(</span>
+    <span class="s2">&quot;Closed circulation&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;circulation&quot;</span><span class="p">,</span>
+    <span class="mi">1</span><span class="p">,</span>
+    <span class="n">CirculatoryState</span><span class="p">({</span><span class="s2">&quot;up&quot;</span><span class="p">:</span> <span class="mf">4.0</span><span class="p">,</span> <span class="s2">&quot;down&quot;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">}),</span>
+    <span class="n">boundary_conditions</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;closed&quot;</span><span class="p">,),</span>
+<span class="p">)</span>
+<span class="n">t</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mf">0.6</span><span class="p">,</span> <span class="mi">13</span><span class="p">)</span>
+<span class="n">results</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="n">run_service</span><span class="p">(</span>
+        <span class="n">CirculatoryPublicApi</span><span class="p">(),</span>
+        <span class="n">CirculatoryConfiguration</span><span class="p">(</span>
+            <span class="n">parameters</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span>
+                <span class="n">compliances</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;up&quot;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span> <span class="s2">&quot;down&quot;</span><span class="p">:</span> <span class="mf">2.0</span><span class="p">},</span>
+                <span class="n">segments</span><span class="o">=</span><span class="p">(</span><span class="n">VesselSegment</span><span class="p">(</span><span class="s2">&quot;bridge&quot;</span><span class="p">,</span> <span class="s2">&quot;up&quot;</span><span class="p">,</span> <span class="s2">&quot;down&quot;</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">),),</span>
+                <span class="n">final_time</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">end</span><span class="p">),</span>
+                <span class="n">time_step</span><span class="o">=</span><span class="mf">0.005</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="p">),</span>
+        <span class="n">problem</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">for</span> <span class="n">end</span> <span class="ow">in</span> <span class="n">t</span>
+<span class="p">]</span>
+<span class="n">up</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">r</span><span class="o">.</span><span class="n">state</span><span class="o">.</span><span class="n">pressures</span><span class="p">[</span><span class="s2">&quot;up&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">])</span>
+<span class="n">down</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">r</span><span class="o">.</span><span class="n">state</span><span class="o">.</span><span class="n">pressures</span><span class="p">[</span><span class="s2">&quot;down&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">])</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">up</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">down</span><span class="p">,</span> <span class="mf">6.0</span><span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">service_figure</span><span class="p">(</span>
+    <span class="s2">&quot;Closed circulation&quot;</span><span class="p">,</span>
+    <span class="n">t</span><span class="p">,</span>
+    <span class="s2">&quot;Independent run end time [s]&quot;</span><span class="p">,</span>
+    <span class="p">(</span><span class="s2">&quot;Upstream pressure [Pa]&quot;</span><span class="p">,</span> <span class="n">up</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;Downstream pressure [Pa]&quot;</span><span class="p">,</span> <span class="n">down</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-circulatory-public-api.png"><img loading="lazy" src="../../figures/recipe-circulatory-public-api.png" alt="Figure computed with OneSimulation: recipe circulatory public api"></a></figure>
+<h2 id="organ-service-with-a-species-specific-clearance"><span class="num">6.5.7</span> Organ service with a species-specific clearance</h2>
+<p>The state indexes amounts by organ and species. Clearances are keyed by the same identifiers, and the result keeps both local concentrations and global amounts.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.biophysics</span><span class="w"> </span><span class="kn">import</span> <span class="n">OrganConfiguration</span><span class="p">,</span> <span class="n">OrganPublicApi</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.biophysics.organs.models.organ_models.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">OrganState</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">onesim.simulation.problem_definition.declarations.physics.models.problem</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">InitialValueProblem</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">problem</span> <span class="o">=</span> <span class="n">InitialValueProblem</span><span class="p">(</span>
+    <span class="s2">&quot;Clear a dose&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;organ&quot;</span><span class="p">,</span>
+    <span class="mi">1</span><span class="p">,</span>
+    <span class="n">OrganState</span><span class="p">((</span><span class="s2">&quot;body&quot;</span><span class="p">,),</span> <span class="p">(</span><span class="s2">&quot;tracer&quot;</span><span class="p">,),</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([[</span><span class="mf">1.0</span><span class="p">]])),</span>
+    <span class="n">boundary_conditions</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;closed&quot;</span><span class="p">,),</span>
+<span class="p">)</span>
+<span class="n">t</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mf">0.6</span><span class="p">,</span> <span class="mi">13</span><span class="p">)</span>
+<span class="n">results</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="n">run_service</span><span class="p">(</span>
+        <span class="n">OrganPublicApi</span><span class="p">(),</span>
+        <span class="n">OrganConfiguration</span><span class="p">(</span>
+            <span class="n">parameters</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span>
+                <span class="n">volumes</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;body&quot;</span><span class="p">:</span> <span class="mf">2.0</span><span class="p">},</span>
+                <span class="n">clearances</span><span class="o">=</span><span class="p">{(</span><span class="s2">&quot;body&quot;</span><span class="p">,</span> <span class="s2">&quot;tracer&quot;</span><span class="p">):</span> <span class="mf">1.0</span><span class="p">},</span>
+                <span class="n">final_time</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">end</span><span class="p">),</span>
+                <span class="n">time_step</span><span class="o">=</span><span class="mf">0.005</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="p">),</span>
+        <span class="n">problem</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">for</span> <span class="n">end</span> <span class="ow">in</span> <span class="n">t</span>
+<span class="p">]</span>
+<span class="n">amount</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">r</span><span class="o">.</span><span class="n">total_amounts</span><span class="p">[</span><span class="s2">&quot;tracer&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">])</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">amount</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">t</span> <span class="o">/</span> <span class="mi">2</span><span class="p">),</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-8</span><span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">service_figure</span><span class="p">(</span>
+    <span class="s2">&quot;Organ clearance&quot;</span><span class="p">,</span>
+    <span class="n">t</span><span class="p">,</span>
+    <span class="s2">&quot;Independent run end time [s]&quot;</span><span class="p">,</span>
+    <span class="p">(</span><span class="s2">&quot;Tracer amount [mol]&quot;</span><span class="p">,</span> <span class="n">amount</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-organ-public-api.png"><img loading="lazy" src="../../figures/recipe-organ-public-api.png" alt="Figure computed with OneSimulation: recipe organ public api"></a></figure>
+<h2 id="tissue-service-with-a-fixed-node-and-an-axial-element"><span class="num">6.5.8</span> Tissue service with a fixed node and an axial element</h2>
+<p>Keep one node fixed and release a stretched element. Positions and velocities are node state. Force is an element diagnostic.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.biophysics</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">TissueConfiguration</span><span class="p">,</span>
+    <span class="n">TissuePublicApi</span><span class="p">,</span>
+    <span class="n">TissueElement</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.biophysics.tissue.models.tissue_mechanics.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">TissueState</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">onesim.simulation.problem_definition.declarations.physics.models.problem</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">InitialValueProblem</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">problem</span> <span class="o">=</span> <span class="n">InitialValueProblem</span><span class="p">(</span>
+    <span class="s2">&quot;Axial tissue&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;tissue&quot;</span><span class="p">,</span>
+    <span class="mi">1</span><span class="p">,</span>
+    <span class="n">TissueState</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.2</span><span class="p">]),</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">2</span><span class="p">)),</span>
+    <span class="n">boundary_conditions</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;fixed&quot;</span><span class="p">,),</span>
+<span class="p">)</span>
+<span class="n">t</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mf">0.6</span><span class="p">,</span> <span class="mi">13</span><span class="p">)</span>
+<span class="n">results</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="n">run_service</span><span class="p">(</span>
+        <span class="n">TissuePublicApi</span><span class="p">(),</span>
+        <span class="n">TissueConfiguration</span><span class="p">(</span>
+            <span class="n">parameters</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span>
+                <span class="n">masses</span><span class="o">=</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">),</span>
+                <span class="n">elements</span><span class="o">=</span><span class="p">(</span>
+                    <span class="n">TissueElement</span><span class="p">(</span>
+                        <span class="s2">&quot;fiber&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">stiffness</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">rest_length</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">damping</span><span class="o">=</span><span class="mf">0.4</span>
+                    <span class="p">),</span>
+                <span class="p">),</span>
+                <span class="n">fixed_nodes</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,),</span>
+                <span class="n">final_time</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">end</span><span class="p">),</span>
+                <span class="n">time_step</span><span class="o">=</span><span class="mf">0.005</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="p">),</span>
+        <span class="n">problem</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">for</span> <span class="n">end</span> <span class="ow">in</span> <span class="n">t</span>
+<span class="p">]</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">service_figure</span><span class="p">(</span>
+    <span class="s2">&quot;Axial tissue element&quot;</span><span class="p">,</span>
+    <span class="n">t</span><span class="p">,</span>
+    <span class="s2">&quot;Independent run end time [s]&quot;</span><span class="p">,</span>
+    <span class="p">(</span><span class="s2">&quot;Moving node [m]&quot;</span><span class="p">,</span> <span class="p">[</span><span class="n">r</span><span class="o">.</span><span class="n">state</span><span class="o">.</span><span class="n">positions</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">]),</span>
+    <span class="p">(</span><span class="s2">&quot;Element force [N]&quot;</span><span class="p">,</span> <span class="p">[</span><span class="n">r</span><span class="o">.</span><span class="n">element_forces</span><span class="p">[</span><span class="s2">&quot;fiber&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">]),</span>
+<span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-tissue-public-api.png"><img loading="lazy" src="../../figures/recipe-tissue-public-api.png" alt="Figure computed with OneSimulation: recipe tissue public api"></a></figure>
+<h2 id="bioheat-provider-with-perfusion-and-an-external-source"><span class="num">6.5.9</span> Bioheat provider with perfusion and an external source</h2>
+<p>Set the conductive and perfusion coefficients explicitly. The returned thermal profile is evaluated on the provider's line carrier.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.biophysics</span><span class="w"> </span><span class="kn">import</span> <span class="n">BioheatProvider</span>
+
+<span class="n">n</span> <span class="o">=</span> <span class="mi">40</span>
+<span class="n">x</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> <span class="n">endpoint</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="n">provider</span> <span class="o">=</span> <span class="n">BioheatProvider</span><span class="p">(</span>
+    <span class="n">cell_count</span><span class="o">=</span><span class="n">n</span><span class="p">,</span>
+    <span class="n">perfusion_capacity_rate</span><span class="o">=</span><span class="mf">3e4</span><span class="p">,</span>
+    <span class="n">blood_temperature</span><span class="o">=</span><span class="mf">310.0</span><span class="p">,</span>
+    <span class="n">external_heat</span><span class="o">=</span><span class="mf">2e4</span><span class="p">,</span>
+    <span class="n">initial_temperature</span><span class="o">=</span><span class="mf">305.0</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span> <span class="o">*</span> <span class="n">x</span><span class="p">),</span>
+    <span class="n">final_time</span><span class="o">=</span><span class="mf">0.4</span><span class="p">,</span>
+    <span class="n">time_step</span><span class="o">=</span><span class="mf">0.005</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">provider</span><span class="o">.</span><span class="n">execute</span><span class="p">()</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">service_figure</span><span class="p">(</span>
+    <span class="s2">&quot;Bioheat with perfusion&quot;</span><span class="p">,</span>
+    <span class="n">result</span><span class="o">.</span><span class="n">coordinates</span><span class="p">,</span>
+    <span class="s2">&quot;Coordinate [m]&quot;</span><span class="p">,</span>
+    <span class="p">(</span><span class="s2">&quot;Temperature [K]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">temperature</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-bioheat-provider.png"><img loading="lazy" src="../../figures/recipe-bioheat-provider.png" alt="Figure computed with OneSimulation: recipe bioheat provider"></a></figure><nav class="pager" aria-label="Pagination"><a class="prev" href="../../guide/6-worked-physics-and-service-recipes/04-acoustics-recipes.html"><small>Previous</small>Acoustics recipes</a><a class="next" href="../../guide/6-worked-physics-and-service-recipes/06-chemistry-recipes.html"><small>Next</small>Chemistry recipes</a></nav></main>
+<aside class="toc" aria-label="On this page"><p>On this page</p><a class="l2" href="#clearance-of-a-well-mixed-dose">Clearance of a well-mixed dose</a><a class="l2" href="#passive-membrane-relaxation">Passive membrane relaxation</a><a class="l2" href="#pressure-exchange-across-a-vessel-segment">Pressure exchange across a vessel segment</a><a class="l2" href="#damped-axial-tissue-motion">Damped axial tissue motion</a><a class="l2" href="#bioelectrical-provider-with-an-explicit-membrane-state">Bioelectrical provider with an explicit membrane state</a><a class="l2" href="#circulatory-service-with-compartment-pressures">Circulatory service with compartment pressures</a><a class="l2" href="#organ-service-with-a-species-specific-clearance">Organ service with a species-specific clearance</a><a class="l2" href="#tissue-service-with-a-fixed-node-and-an-axial-element">Tissue service with a fixed node and an axial element</a><a class="l2" href="#bioheat-provider-with-perfusion-and-an-external-source">Bioheat provider with perfusion and an external source</a></aside>
+</div>
+<footer class="foot"><span><strong>OneSimulation</strong> · Multiphysics with Python · Runtime Alpha 0.2.1a2</span>
+<span>Sold and billed through Gumroad · <a href="../../plans.html">Plans and licence</a></span></footer>
+<script src="../../assets/site.js" defer></script>
+</body>
+</html>

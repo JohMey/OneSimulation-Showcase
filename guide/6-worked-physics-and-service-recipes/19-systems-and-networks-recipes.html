@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en" data-root="../../">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Systems and networks recipes · OneSimulation</title>
+<meta name="description" content="Systems and networks recipes – OneSimulation documentation: multiphysics simulation in Python.">
+<link rel="canonical" href="https://johmey.github.io/OneSimulation-Showcase/guide/6-worked-physics-and-service-recipes/19-systems-and-networks-recipes.html">
+<meta property="og:title" content="Systems and networks recipes · OneSimulation">
+<meta property="og:description" content="Systems and networks recipes – OneSimulation documentation: multiphysics simulation in Python.">
+<meta property="og:type" content="website">
+<link rel="stylesheet" href="../../assets/site.css">
+
+</head>
+<body>
+<header class="top">
+<a class="brand" href="../../index.html">OneSimulation <span>docs</span></a>
+<div class="search"><input id="q" type="search" placeholder="Search the docs" aria-label="Search the documentation" autocomplete="off"><div id="results" role="listbox"></div></div>
+<a class="top-link" href="https://github.com/JohMey/OneSimulation-Showcase/releases/tag/custom-equations-2026-11-11" target="_blank" rel="noopener">Free books</a>
+<a class="button small" href="https://johmey.gumroad.com/l/onesimulation-runtime-abo" target="_blank" rel="noopener">Try it free</a>
+</header>
+<div class="layout">
+<details class="menu"><summary>Menu</summary><nav class="side" aria-label="Documentation"><a class="" href="../../index.html">Overview</a><a class="" href="../../quickstart.html">Quickstart</a><p class="group">Examples</p><a class="" href="../../examples/index.html">Gallery: 16 physics modules</a><a class="" href="../../examples/method-swap.html">One model, five discretizations</a><a class="" href="../../examples/cantilever.html">A 3D cantilever</a><a class="" href="../../examples/custom-equation.html">Your own equation</a><p class="group">Guide</p><p class="part">Start here</p><a class="" href="../../guide/how-to-use-this-guide.html"><span class="num"></span> How to use this guide</a><p class="part">Part I · From model to notebook</p><a class="" href="../../guide/1-set-up-the-notebook.html"><span class="num">1</span> Set up the notebook</a><a class="" href="../../guide/2-transient-radiation-and-vibration.html"><span class="num">2</span> Transient radiation and vibration</a><a class="" href="../../guide/3-three-spatial-studies.html"><span class="num">3</span> Three spatial studies</a><a class="" href="../../guide/4-read-visualize-and-export-results.html"><span class="num">4</span> Read, visualize and export results</a><p class="part">Part II · Physics model selection</p><a class="" href="../../guide/5-build-a-first-case-in-each-physics-package/index.html"><span class="num">5</span> Build a first case in each physics package</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/index.html"><span class="num">6</span> Worked physics and service recipes</a><div class="sub"><a class="" href="../../guide/6-worked-physics-and-service-recipes/01-shared-cell-for-lumped-histories.html">Shared cell for lumped histories</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/02-shared-cell-for-one-dimensional-profiles.html">Shared cell for one-dimensional profiles</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/03-shared-cell-for-facade-configurations.html">Shared cell for facade configurations</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/04-acoustics-recipes.html">Acoustics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/05-biophysics-recipes.html">Biophysics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/06-chemistry-recipes.html">Chemistry recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/07-electromagnetics-recipes.html">Electromagnetics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/08-electrostatics-recipes.html">Electrostatics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/09-geotechnics-recipes.html">Geotechnics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/10-heat-transfer-recipes.html">Heat transfer recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/11-hydrodynamics-recipes.html">Hydrodynamics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/12-magnetohydrodynamics-recipes.html">Magnetohydrodynamics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/13-magnetostatics-recipes.html">Magnetostatics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/14-multibody-dynamics-recipes.html">Multibody dynamics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/15-multiphysics-recipes.html">Multiphysics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/16-optics-and-photonics-recipes.html">Optics and photonics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/17-plasma-physics-recipes.html">Plasma physics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/18-solid-mechanics-recipes.html">Solid mechanics recipes</a><a aria-current="page" class="" href="../../guide/6-worked-physics-and-service-recipes/19-systems-and-networks-recipes.html">Systems and networks recipes</a></div><p class="part">Part III · Select and combine numerical methods</p><a class="" href="../../guide/7-numerical-configuration-and-spatial-operators.html"><span class="num">7</span> Numerical configuration and spatial operators</a><a class="" href="../../guide/8-solvers-time-integration-and-coupled-fields.html"><span class="num">8</span> Solvers, time integration and coupled fields</a><a class="" href="../../guide/9-worked-numerical-comparisons/index.html"><span class="num">9</span> Worked numerical comparisons</a><a class="" href="../../guide/10-executable-numerical-recipes/index.html"><span class="num">10</span> Executable numerical recipes</a><a class="" href="../../guide/11-define-and-solve-your-own-equation.html"><span class="num">11</span> Define and solve your own equation</a><a class="" href="../../guide/12-diagnose-a-notebook-result.html"><span class="num">12</span> Diagnose a notebook result</a><a class="" href="../../guide/13-coverage-and-navigation-by-symbol/index.html"><span class="num">13</span> Coverage and navigation by symbol</a><p class="part">API reference</p><a class="" href="../../reference/a-physics-api-reference/index.html"><span class="num">A</span> Physics API reference</a><a class="" href="../../reference/b-numerical-api-reference/index.html"><span class="num">B</span> Numerical API reference</a><a class="" href="../../reference/c-exposed-operator-and-service-namespaces/index.html"><span class="num">C</span> Exposed operator and service namespaces</a><p class="group">Trust and terms</p><a class="" href="../../verification.html">Verification</a><a class="" href="../../plans.html">Plans and licence</a></nav></details>
+<div class="side-wrap"><nav class="side" aria-label="Documentation"><a class="" href="../../index.html">Overview</a><a class="" href="../../quickstart.html">Quickstart</a><p class="group">Examples</p><a class="" href="../../examples/index.html">Gallery: 16 physics modules</a><a class="" href="../../examples/method-swap.html">One model, five discretizations</a><a class="" href="../../examples/cantilever.html">A 3D cantilever</a><a class="" href="../../examples/custom-equation.html">Your own equation</a><p class="group">Guide</p><p class="part">Start here</p><a class="" href="../../guide/how-to-use-this-guide.html"><span class="num"></span> How to use this guide</a><p class="part">Part I · From model to notebook</p><a class="" href="../../guide/1-set-up-the-notebook.html"><span class="num">1</span> Set up the notebook</a><a class="" href="../../guide/2-transient-radiation-and-vibration.html"><span class="num">2</span> Transient radiation and vibration</a><a class="" href="../../guide/3-three-spatial-studies.html"><span class="num">3</span> Three spatial studies</a><a class="" href="../../guide/4-read-visualize-and-export-results.html"><span class="num">4</span> Read, visualize and export results</a><p class="part">Part II · Physics model selection</p><a class="" href="../../guide/5-build-a-first-case-in-each-physics-package/index.html"><span class="num">5</span> Build a first case in each physics package</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/index.html"><span class="num">6</span> Worked physics and service recipes</a><div class="sub"><a class="" href="../../guide/6-worked-physics-and-service-recipes/01-shared-cell-for-lumped-histories.html">Shared cell for lumped histories</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/02-shared-cell-for-one-dimensional-profiles.html">Shared cell for one-dimensional profiles</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/03-shared-cell-for-facade-configurations.html">Shared cell for facade configurations</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/04-acoustics-recipes.html">Acoustics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/05-biophysics-recipes.html">Biophysics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/06-chemistry-recipes.html">Chemistry recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/07-electromagnetics-recipes.html">Electromagnetics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/08-electrostatics-recipes.html">Electrostatics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/09-geotechnics-recipes.html">Geotechnics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/10-heat-transfer-recipes.html">Heat transfer recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/11-hydrodynamics-recipes.html">Hydrodynamics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/12-magnetohydrodynamics-recipes.html">Magnetohydrodynamics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/13-magnetostatics-recipes.html">Magnetostatics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/14-multibody-dynamics-recipes.html">Multibody dynamics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/15-multiphysics-recipes.html">Multiphysics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/16-optics-and-photonics-recipes.html">Optics and photonics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/17-plasma-physics-recipes.html">Plasma physics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/18-solid-mechanics-recipes.html">Solid mechanics recipes</a><a aria-current="page" class="" href="../../guide/6-worked-physics-and-service-recipes/19-systems-and-networks-recipes.html">Systems and networks recipes</a></div><p class="part">Part III · Select and combine numerical methods</p><a class="" href="../../guide/7-numerical-configuration-and-spatial-operators.html"><span class="num">7</span> Numerical configuration and spatial operators</a><a class="" href="../../guide/8-solvers-time-integration-and-coupled-fields.html"><span class="num">8</span> Solvers, time integration and coupled fields</a><a class="" href="../../guide/9-worked-numerical-comparisons/index.html"><span class="num">9</span> Worked numerical comparisons</a><a class="" href="../../guide/10-executable-numerical-recipes/index.html"><span class="num">10</span> Executable numerical recipes</a><a class="" href="../../guide/11-define-and-solve-your-own-equation.html"><span class="num">11</span> Define and solve your own equation</a><a class="" href="../../guide/12-diagnose-a-notebook-result.html"><span class="num">12</span> Diagnose a notebook result</a><a class="" href="../../guide/13-coverage-and-navigation-by-symbol/index.html"><span class="num">13</span> Coverage and navigation by symbol</a><p class="part">API reference</p><a class="" href="../../reference/a-physics-api-reference/index.html"><span class="num">A</span> Physics API reference</a><a class="" href="../../reference/b-numerical-api-reference/index.html"><span class="num">B</span> Numerical API reference</a><a class="" href="../../reference/c-exposed-operator-and-service-namespaces/index.html"><span class="num">C</span> Exposed operator and service namespaces</a><p class="group">Trust and terms</p><a class="" href="../../verification.html">Verification</a><a class="" href="../../plans.html">Plans and licence</a></nav></div>
+<main id="content"><p class="crumbs"><a href="../../index.html">Docs</a> › <a href="../../guide/6-worked-physics-and-service-recipes/index.html">Worked physics and service recipes</a> › Systems and networks recipes</p><h1><span class="num">6.19</span> Systems and networks recipes</h1><p>This section includes the field-based declarations and the independently callable systems and networks service configurations. The configuration keys in the service recipes belong to the indicated provider.</p>
+<h2 id="pressure-relaxation-of-an-accumulator"><span class="num">6.19.1</span> Pressure relaxation of an accumulator</h2>
+<p>A resistance connects a hydraulic compliance to a prescribed reference pressure. The pressure time constant is resistance times compliance.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.systems</span><span class="w"> </span><span class="kn">import</span> <span class="n">HydraulicAccumulator</span>
+
+<span class="n">domain</span> <span class="o">=</span> <span class="n">LumpedDomain</span><span class="p">()</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">HydraulicAccumulator</span><span class="p">(</span>
+    <span class="n">domain</span><span class="o">=</span><span class="n">domain</span><span class="o">.</span><span class="n">system</span><span class="p">,</span>
+    <span class="n">compliance</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">resistance</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">reference_pressure</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">t</span><span class="p">,</span> <span class="n">data</span> <span class="o">=</span> <span class="n">history_case</span><span class="p">(</span>
+    <span class="n">domain</span><span class="p">,</span>
+    <span class="n">model</span><span class="p">,</span>
+    <span class="nb">dict</span><span class="p">(</span><span class="n">pressure</span><span class="o">=</span><span class="mf">3.0</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;pressure&quot;</span><span class="p">,),</span>
+    <span class="n">end</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">dt</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">&quot;pressure&quot;</span><span class="p">],</span> <span class="mi">1</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">t</span> <span class="o">/</span> <span class="mi">2</span><span class="p">),</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-9</span><span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">history_plot</span><span class="p">(</span><span class="s2">&quot;Pressure relaxation of an accumulator&quot;</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-hydraulic-accumulator.png"><img loading="lazy" src="../../figures/recipe-hydraulic-accumulator.png" alt="Figure computed with OneSimulation: recipe hydraulic accumulator"></a></figure>
+<h2 id="cooling-of-one-thermal-node"><span class="num">6.19.2</span> Cooling of one thermal node</h2>
+<p>Supply an ambient temperature and a linear conductance. The node temperature decays exponentially with capacity divided by conductance.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.systems</span><span class="w"> </span><span class="kn">import</span> <span class="n">ThermalCapacitance</span>
+
+<span class="n">domain</span> <span class="o">=</span> <span class="n">LumpedDomain</span><span class="p">()</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">ThermalCapacitance</span><span class="p">(</span>
+    <span class="n">domain</span><span class="o">=</span><span class="n">domain</span><span class="o">.</span><span class="n">system</span><span class="p">,</span>
+    <span class="n">heat_capacity</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">conductance</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">ambient_temperature</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">t</span><span class="p">,</span> <span class="n">data</span> <span class="o">=</span> <span class="n">history_case</span><span class="p">(</span>
+    <span class="n">domain</span><span class="p">,</span>
+    <span class="n">model</span><span class="p">,</span>
+    <span class="nb">dict</span><span class="p">(</span><span class="n">temperature</span><span class="o">=</span><span class="mf">320.0</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;temperature&quot;</span><span class="p">,),</span>
+    <span class="n">end</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">dt</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">&quot;temperature&quot;</span><span class="p">],</span> <span class="mi">300</span> <span class="o">+</span> <span class="mi">20</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">t</span> <span class="o">/</span> <span class="mi">2</span><span class="p">),</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-8</span><span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">history_plot</span><span class="p">(</span><span class="s2">&quot;Cooling of one thermal node&quot;</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-thermal-capacitance.png"><img loading="lazy" src="../../figures/recipe-thermal-capacitance.png" alt="Figure computed with OneSimulation: recipe thermal capacitance"></a></figure>
+<h2 id="rc-voltage-and-current"><span class="num">6.19.3</span> RC voltage and current</h2>
+<p>Supply a fixed voltage across a series resistor and capacitor. The initial charging current falls as the capacitor voltage approaches the supply.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.systems</span><span class="w"> </span><span class="kn">import</span> <span class="n">ResistorCapacitor</span>
+
+<span class="n">domain</span> <span class="o">=</span> <span class="n">LumpedDomain</span><span class="p">()</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">ResistorCapacitor</span><span class="p">(</span>
+    <span class="n">domain</span><span class="o">=</span><span class="n">domain</span><span class="o">.</span><span class="n">system</span><span class="p">,</span>
+    <span class="n">resistance</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">capacitance</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
+    <span class="n">supply_voltage</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">t</span><span class="p">,</span> <span class="n">data</span> <span class="o">=</span> <span class="n">history_case</span><span class="p">(</span>
+    <span class="n">domain</span><span class="p">,</span>
+    <span class="n">model</span><span class="p">,</span>
+    <span class="nb">dict</span><span class="p">(</span><span class="n">voltage</span><span class="o">=</span><span class="mf">0.0</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;voltage&quot;</span><span class="p">,</span> <span class="s2">&quot;current&quot;</span><span class="p">),</span>
+    <span class="n">end</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">dt</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">&quot;voltage&quot;</span><span class="p">],</span> <span class="mi">3</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">t</span><span class="p">)),</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-8</span><span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">history_plot</span><span class="p">(</span><span class="s2">&quot;RC voltage and current&quot;</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-resistor-capacitor.png"><img loading="lazy" src="../../figures/recipe-resistor-capacitor.png" alt="Figure computed with OneSimulation: recipe resistor capacitor"></a></figure>
+<h2 id="step-response-of-a-first-order-controller"><span class="num">6.19.4</span> Step response of a first-order controller</h2>
+<p>Set the signal and output units when using this block with physical inputs. For a unit step the response approaches the configured gain.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.systems</span><span class="w"> </span><span class="kn">import</span> <span class="n">FirstOrderControl</span>
+
+<span class="n">domain</span> <span class="o">=</span> <span class="n">LumpedDomain</span><span class="p">()</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">FirstOrderControl</span><span class="p">(</span>
+    <span class="n">domain</span><span class="o">=</span><span class="n">domain</span><span class="o">.</span><span class="n">system</span><span class="p">,</span>
+    <span class="n">time_constant</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
+    <span class="n">gain</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">input_signal</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">t</span><span class="p">,</span> <span class="n">data</span> <span class="o">=</span> <span class="n">history_case</span><span class="p">(</span>
+    <span class="n">domain</span><span class="p">,</span>
+    <span class="n">model</span><span class="p">,</span>
+    <span class="nb">dict</span><span class="p">(</span><span class="n">response</span><span class="o">=</span><span class="mf">0.0</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;response&quot;</span><span class="p">,),</span>
+    <span class="n">end</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">dt</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">&quot;response&quot;</span><span class="p">],</span> <span class="mi">2</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span> <span class="o">*</span> <span class="n">t</span><span class="p">)),</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-7</span><span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">history_plot</span><span class="p">(</span><span class="s2">&quot;Step response of a first-order controller&quot;</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-first-order-control.png"><img loading="lazy" src="../../figures/recipe-first-order-control.png" alt="Figure computed with OneSimulation: recipe first order control"></a></figure>
+<h2 id="wash-in-to-a-well-mixed-process-tank"><span class="num">6.19.5</span> Wash-in to a well-mixed process tank</h2>
+<p>The volume-to-flow ratio determines the concentration and temperature relaxation time. The feed values and the tank initial state are separate inputs.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.systems</span><span class="w"> </span><span class="kn">import</span> <span class="n">WellMixedTank</span>
+
+<span class="n">domain</span> <span class="o">=</span> <span class="n">LumpedDomain</span><span class="p">()</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">WellMixedTank</span><span class="p">(</span>
+    <span class="n">domain</span><span class="o">=</span><span class="n">domain</span><span class="o">.</span><span class="n">system</span><span class="p">,</span>
+    <span class="n">volume</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">flow_rate</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">feed_concentration</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+    <span class="n">feed_temperature</span><span class="o">=</span><span class="mi">320</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">t</span><span class="p">,</span> <span class="n">data</span> <span class="o">=</span> <span class="n">history_case</span><span class="p">(</span>
+    <span class="n">domain</span><span class="p">,</span>
+    <span class="n">model</span><span class="p">,</span>
+    <span class="nb">dict</span><span class="p">(</span><span class="n">concentration</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">temperature</span><span class="o">=</span><span class="mf">300.0</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;concentration&quot;</span><span class="p">,</span> <span class="s2">&quot;temperature&quot;</span><span class="p">),</span>
+    <span class="n">end</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">dt</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">&quot;concentration&quot;</span><span class="p">],</span> <span class="mi">3</span> <span class="o">-</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">t</span> <span class="o">/</span> <span class="mi">2</span><span class="p">),</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-8</span><span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">history_plot</span><span class="p">(</span><span class="s2">&quot;Wash-in to a well-mixed process tank&quot;</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-well-mixed-tank.png"><img loading="lazy" src="../../figures/recipe-well-mixed-tank.png" alt="Figure computed with OneSimulation: recipe well mixed tank"></a></figure>
+<h2 id="cooling-of-a-sealed-ideal-gas-volume"><span class="num">6.19.6</span> Cooling of a sealed ideal-gas volume</h2>
+<p>No mass leaves the chamber. The thermal state relaxes toward ambient, with pressure changing through the ideal-gas closure.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.systems</span><span class="w"> </span><span class="kn">import</span> <span class="n">SealedGasChamber</span>
+
+<span class="n">domain</span> <span class="o">=</span> <span class="n">LumpedDomain</span><span class="p">()</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">SealedGasChamber</span><span class="p">(</span>
+    <span class="n">domain</span><span class="o">=</span><span class="n">domain</span><span class="o">.</span><span class="n">system</span><span class="p">,</span>
+    <span class="n">volume</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">gas_constant</span><span class="o">=</span><span class="mi">287</span><span class="p">,</span>
+    <span class="n">heat_capacity_cv</span><span class="o">=</span><span class="mi">718</span><span class="p">,</span>
+    <span class="n">thermal_conductance</span><span class="o">=</span><span class="mi">400</span><span class="p">,</span>
+    <span class="n">ambient_temperature</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">t</span><span class="p">,</span> <span class="n">data</span> <span class="o">=</span> <span class="n">history_case</span><span class="p">(</span>
+    <span class="n">domain</span><span class="p">,</span>
+    <span class="n">model</span><span class="p">,</span>
+    <span class="nb">dict</span><span class="p">(</span><span class="n">mass</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">temperature</span><span class="o">=</span><span class="mf">340.0</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;temperature&quot;</span><span class="p">,</span> <span class="s2">&quot;pressure&quot;</span><span class="p">,</span> <span class="s2">&quot;mass&quot;</span><span class="p">),</span>
+    <span class="n">end</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">dt</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">&quot;pressure&quot;</span><span class="p">],</span> <span class="mi">287</span> <span class="o">*</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;temperature&quot;</span><span class="p">],</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-7</span><span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">history_plot</span><span class="p">(</span><span class="s2">&quot;Cooling of a sealed ideal-gas volume&quot;</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-sealed-gas-chamber.png"><img loading="lazy" src="../../figures/recipe-sealed-gas-chamber.png" alt="Figure computed with OneSimulation: recipe sealed gas chamber"></a></figure>
+<h2 id="signal-graph-with-a-first-order-block"><span class="num">6.19.7</span> Signal graph with a first-order block</h2>
+<p>Wire a constant source into a first-order dynamic block. Named signals in the returned history follow the declared graph order.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.systems</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">ControlSignalFlowConfiguration</span><span class="p">,</span>
+    <span class="n">ControlSignalFlowPublicApi</span><span class="p">,</span>
+    <span class="n">SignalBlock</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">settings</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+    <span class="n">blocks</span><span class="o">=</span><span class="p">(</span>
+        <span class="n">SignalBlock</span><span class="p">(</span><span class="s2">&quot;drive&quot;</span><span class="p">,</span> <span class="s2">&quot;constant&quot;</span><span class="p">,</span> <span class="n">parameters</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;value&quot;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">}),</span>
+        <span class="n">SignalBlock</span><span class="p">(</span>
+            <span class="s2">&quot;filter&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;first_order&quot;</span><span class="p">,</span>
+            <span class="n">inputs</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;drive&quot;</span><span class="p">,),</span>
+            <span class="n">parameters</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;time_constant&quot;</span><span class="p">:</span> <span class="mf">0.3</span><span class="p">,</span> <span class="s2">&quot;gain&quot;</span><span class="p">:</span> <span class="mf">0.8</span><span class="p">},</span>
+        <span class="p">),</span>
+    <span class="p">),</span>
+    <span class="n">final_time</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">time_step</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">run_service</span><span class="p">(</span>
+    <span class="n">ControlSignalFlowPublicApi</span><span class="p">(),</span> <span class="n">ControlSignalFlowConfiguration</span><span class="p">(</span><span class="n">parameters</span><span class="o">=</span><span class="n">settings</span><span class="p">)</span>
+<span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">service_figure</span><span class="p">(</span>
+    <span class="s2">&quot;Signal graph with a first-order block&quot;</span><span class="p">,</span>
+    <span class="n">result</span><span class="o">.</span><span class="n">times</span><span class="p">,</span>
+    <span class="s2">&quot;Time [s]&quot;</span><span class="p">,</span>
+    <span class="p">(</span><span class="s2">&quot;Drive [1]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">signals</span><span class="p">[</span><span class="s2">&quot;drive&quot;</span><span class="p">]),</span>
+    <span class="p">(</span><span class="s2">&quot;Filtered response [1]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">signals</span><span class="p">[</span><span class="s2">&quot;filter&quot;</span><span class="p">]),</span>
+<span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-control-signal-flow-public-api.png"><img loading="lazy" src="../../figures/recipe-control-signal-flow-public-api.png" alt="Figure computed with OneSimulation: recipe control signal flow public api"></a></figure>
+<h2 id="hydraulic-network-with-a-pressure-source"><span class="num">6.19.8</span> Hydraulic network with a pressure source</h2>
+<p>Connect an imposed-pressure node to a stored pressure through a resistance. Branch flow is oriented from the first node to the second.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.systems</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">HydraulicSystemsConfiguration</span><span class="p">,</span>
+    <span class="n">HydraulicSystemsPublicApi</span><span class="p">,</span>
+    <span class="n">HydraulicNode</span><span class="p">,</span>
+    <span class="n">HydraulicBranch</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">settings</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+    <span class="n">nodes</span><span class="o">=</span><span class="p">(</span>
+        <span class="n">HydraulicNode</span><span class="p">(</span><span class="s2">&quot;supply&quot;</span><span class="p">,</span> <span class="n">imposed_pressure</span><span class="o">=</span><span class="mi">2</span><span class="p">),</span>
+        <span class="n">HydraulicNode</span><span class="p">(</span><span class="s2">&quot;tank&quot;</span><span class="p">,</span> <span class="n">compliance</span><span class="o">=</span><span class="mi">2</span><span class="p">),</span>
+    <span class="p">),</span>
+    <span class="n">branches</span><span class="o">=</span><span class="p">(</span><span class="n">HydraulicBranch</span><span class="p">(</span><span class="s2">&quot;pipe&quot;</span><span class="p">,</span> <span class="s2">&quot;supply&quot;</span><span class="p">,</span> <span class="s2">&quot;tank&quot;</span><span class="p">,</span> <span class="n">resistance</span><span class="o">=</span><span class="mf">0.5</span><span class="p">),),</span>
+    <span class="n">final_time</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">time_step</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">run_service</span><span class="p">(</span>
+    <span class="n">HydraulicSystemsPublicApi</span><span class="p">(),</span> <span class="n">HydraulicSystemsConfiguration</span><span class="p">(</span><span class="n">parameters</span><span class="o">=</span><span class="n">settings</span><span class="p">)</span>
+<span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">service_figure</span><span class="p">(</span>
+    <span class="s2">&quot;Hydraulic network with a pressure source&quot;</span><span class="p">,</span>
+    <span class="n">result</span><span class="o">.</span><span class="n">times</span><span class="p">,</span>
+    <span class="s2">&quot;Time [s]&quot;</span><span class="p">,</span>
+    <span class="p">(</span><span class="s2">&quot;Tank pressure [Pa]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">pressures</span><span class="p">[</span><span class="s2">&quot;tank&quot;</span><span class="p">]),</span>
+    <span class="p">(</span><span class="s2">&quot;Pipe flow [m3/s]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">flows</span><span class="p">[</span><span class="s2">&quot;pipe&quot;</span><span class="p">]),</span>
+<span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-hydraulic-systems-public-api.png"><img loading="lazy" src="../../figures/recipe-hydraulic-systems-public-api.png" alt="Figure computed with OneSimulation: recipe hydraulic systems public api"></a></figure>
+<h2 id="pressure-equalization-between-gas-chambers"><span class="num">6.19.9</span> Pressure equalization between gas chambers</h2>
+<p>Use two gas volumes with distinct initial pressures and connect them with a pressure-driven mass-flow law. The result keeps each chamber and branch separately.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.systems</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">PneumaticSystemsConfiguration</span><span class="p">,</span>
+    <span class="n">PneumaticSystemsPublicApi</span><span class="p">,</span>
+    <span class="n">PneumaticChamber</span><span class="p">,</span>
+    <span class="n">PneumaticBranch</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">settings</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+    <span class="n">chambers</span><span class="o">=</span><span class="p">(</span>
+        <span class="n">PneumaticChamber</span><span class="p">(</span><span class="s2">&quot;up&quot;</span><span class="p">,</span> <span class="n">initial_mass</span><span class="o">=</span><span class="mf">1.02</span><span class="p">),</span>
+        <span class="n">PneumaticChamber</span><span class="p">(</span><span class="s2">&quot;down&quot;</span><span class="p">,</span> <span class="n">initial_mass</span><span class="o">=</span><span class="mf">0.98</span><span class="p">),</span>
+    <span class="p">),</span>
+    <span class="n">branches</span><span class="o">=</span><span class="p">(</span><span class="n">PneumaticBranch</span><span class="p">(</span><span class="s2">&quot;valve&quot;</span><span class="p">,</span> <span class="s2">&quot;up&quot;</span><span class="p">,</span> <span class="s2">&quot;down&quot;</span><span class="p">,</span> <span class="n">conductance</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">),),</span>
+    <span class="n">final_time</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">time_step</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">run_service</span><span class="p">(</span>
+    <span class="n">PneumaticSystemsPublicApi</span><span class="p">(),</span> <span class="n">PneumaticSystemsConfiguration</span><span class="p">(</span><span class="n">parameters</span><span class="o">=</span><span class="n">settings</span><span class="p">)</span>
+<span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">service_figure</span><span class="p">(</span>
+    <span class="s2">&quot;Pressure equalization between gas chambers&quot;</span><span class="p">,</span>
+    <span class="n">result</span><span class="o">.</span><span class="n">times</span><span class="p">,</span>
+    <span class="s2">&quot;Time [s]&quot;</span><span class="p">,</span>
+    <span class="p">(</span><span class="s2">&quot;Upstream pressure [Pa]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">pressures</span><span class="p">[</span><span class="s2">&quot;up&quot;</span><span class="p">]),</span>
+    <span class="p">(</span><span class="s2">&quot;Downstream pressure [Pa]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">pressures</span><span class="p">[</span><span class="s2">&quot;down&quot;</span><span class="p">]),</span>
+    <span class="p">(</span><span class="s2">&quot;Valve flow [kg/s]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">mass_flows</span><span class="p">[</span><span class="s2">&quot;valve&quot;</span><span class="p">]),</span>
+<span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-pneumatic-systems-public-api.png"><img loading="lazy" src="../../figures/recipe-pneumatic-systems-public-api.png" alt="Figure computed with OneSimulation: recipe pneumatic systems public api"></a></figure>
+<h2 id="open-cstr-feed-and-product-streams"><span class="num">6.19.10</span> Open CSTR feed and product streams</h2>
+<p>Identify external feed with a missing source unit and external outlet with a missing target. Keep the two volumetric flows equal for this constant-volume tank.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.systems</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">ProcessModelsConfiguration</span><span class="p">,</span>
+    <span class="n">ProcessModelsPublicApi</span><span class="p">,</span>
+    <span class="n">ProcessUnit</span><span class="p">,</span>
+    <span class="n">ProcessStream</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">settings</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+    <span class="n">component_ids</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;A&quot;</span><span class="p">,),</span>
+    <span class="n">units</span><span class="o">=</span><span class="p">(</span><span class="n">ProcessUnit</span><span class="p">(</span><span class="s2">&quot;tank&quot;</span><span class="p">,</span> <span class="n">volume</span><span class="o">=</span><span class="mf">2.0</span><span class="p">,</span> <span class="n">initial_concentrations</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;A&quot;</span><span class="p">:</span> <span class="mf">0.5</span><span class="p">}),),</span>
+    <span class="n">streams</span><span class="o">=</span><span class="p">(</span>
+        <span class="n">ProcessStream</span><span class="p">(</span><span class="s2">&quot;feed&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;tank&quot;</span><span class="p">,</span> <span class="mf">0.6</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;A&quot;</span><span class="p">:</span> <span class="mf">2.0</span><span class="p">},</span> <span class="mf">320.0</span><span class="p">),</span>
+        <span class="n">ProcessStream</span><span class="p">(</span><span class="s2">&quot;product&quot;</span><span class="p">,</span> <span class="s2">&quot;tank&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="mf">0.6</span><span class="p">),</span>
+    <span class="p">),</span>
+    <span class="n">final_time</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">time_step</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">run_service</span><span class="p">(</span>
+    <span class="n">ProcessModelsPublicApi</span><span class="p">(),</span> <span class="n">ProcessModelsConfiguration</span><span class="p">(</span><span class="n">parameters</span><span class="o">=</span><span class="n">settings</span><span class="p">)</span>
+<span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">service_figure</span><span class="p">(</span>
+    <span class="s2">&quot;Open CSTR feed and product streams&quot;</span><span class="p">,</span>
+    <span class="n">result</span><span class="o">.</span><span class="n">times</span><span class="p">,</span>
+    <span class="s2">&quot;Time [s]&quot;</span><span class="p">,</span>
+    <span class="p">(</span><span class="s2">&quot;Tank concentration [mol/m3]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">concentrations</span><span class="p">[</span><span class="s2">&quot;tank&quot;</span><span class="p">][</span><span class="s2">&quot;A&quot;</span><span class="p">]),</span>
+    <span class="p">(</span><span class="s2">&quot;Tank temperature [K]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">temperatures</span><span class="p">[</span><span class="s2">&quot;tank&quot;</span><span class="p">]),</span>
+<span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-process-models-public-api.png"><img loading="lazy" src="../../figures/recipe-process-models-public-api.png" alt="Figure computed with OneSimulation: recipe process models public api"></a></figure>
+<h2 id="conductance-between-thermal-storage-nodes"><span class="num">6.19.11</span> Conductance between thermal storage nodes</h2>
+<p>Connect two finite capacities. Node temperatures and link heat flow describe the closed redistribution of thermal energy.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.systems</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">ThermalNetworksConfiguration</span><span class="p">,</span>
+    <span class="n">ThermalNetworksPublicApi</span><span class="p">,</span>
+    <span class="n">ThermalNode</span><span class="p">,</span>
+    <span class="n">ThermalLink</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">settings</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+    <span class="n">nodes</span><span class="o">=</span><span class="p">(</span>
+        <span class="n">ThermalNode</span><span class="p">(</span><span class="s2">&quot;hot&quot;</span><span class="p">,</span> <span class="n">thermal_capacity</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">initial_temperature</span><span class="o">=</span><span class="mi">320</span><span class="p">),</span>
+        <span class="n">ThermalNode</span><span class="p">(</span><span class="s2">&quot;cold&quot;</span><span class="p">,</span> <span class="n">thermal_capacity</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">initial_temperature</span><span class="o">=</span><span class="mi">300</span><span class="p">),</span>
+    <span class="p">),</span>
+    <span class="n">links</span><span class="o">=</span><span class="p">(</span><span class="n">ThermalLink</span><span class="p">(</span><span class="s2">&quot;bridge&quot;</span><span class="p">,</span> <span class="s2">&quot;hot&quot;</span><span class="p">,</span> <span class="s2">&quot;cold&quot;</span><span class="p">,</span> <span class="n">conductance</span><span class="o">=</span><span class="mi">1</span><span class="p">),),</span>
+    <span class="n">final_time</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">time_step</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">run_service</span><span class="p">(</span>
+    <span class="n">ThermalNetworksPublicApi</span><span class="p">(),</span> <span class="n">ThermalNetworksConfiguration</span><span class="p">(</span><span class="n">parameters</span><span class="o">=</span><span class="n">settings</span><span class="p">)</span>
+<span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">service_figure</span><span class="p">(</span>
+    <span class="s2">&quot;Conductance between thermal storage nodes&quot;</span><span class="p">,</span>
+    <span class="n">result</span><span class="o">.</span><span class="n">times</span><span class="p">,</span>
+    <span class="s2">&quot;Time [s]&quot;</span><span class="p">,</span>
+    <span class="p">(</span><span class="s2">&quot;Hot node [K]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">temperatures</span><span class="p">[</span><span class="s2">&quot;hot&quot;</span><span class="p">]),</span>
+    <span class="p">(</span><span class="s2">&quot;Cold node [K]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">temperatures</span><span class="p">[</span><span class="s2">&quot;cold&quot;</span><span class="p">]),</span>
+    <span class="p">(</span><span class="s2">&quot;Heat flow [W]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">heat_flows</span><span class="p">[</span><span class="s2">&quot;bridge&quot;</span><span class="p">]),</span>
+<span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-thermal-networks-public-api.png"><img loading="lazy" src="../../figures/recipe-thermal-networks-public-api.png" alt="Figure computed with OneSimulation: recipe thermal networks public api"></a></figure>
+<h2 id="rc-network-with-a-fixed-voltage-node"><span class="num">6.19.12</span> RC network with a fixed voltage node</h2>
+<p>A resistor links the supply node to a capacitive node. The branch orientation gives a positive charging current.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.systems</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">ElectricalNetworksConfiguration</span><span class="p">,</span>
+    <span class="n">ElectricalNetworksPublicApi</span><span class="p">,</span>
+    <span class="n">ElectricalNode</span><span class="p">,</span>
+    <span class="n">ElectricalBranch</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">settings</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+    <span class="n">nodes</span><span class="o">=</span><span class="p">(</span>
+        <span class="n">ElectricalNode</span><span class="p">(</span><span class="s2">&quot;supply&quot;</span><span class="p">,</span> <span class="n">imposed_voltage</span><span class="o">=</span><span class="mi">3</span><span class="p">),</span>
+        <span class="n">ElectricalNode</span><span class="p">(</span><span class="s2">&quot;load&quot;</span><span class="p">,</span> <span class="n">capacitance</span><span class="o">=</span><span class="mf">0.5</span><span class="p">),</span>
+    <span class="p">),</span>
+    <span class="n">branches</span><span class="o">=</span><span class="p">(</span><span class="n">ElectricalBranch</span><span class="p">(</span><span class="s2">&quot;resistor&quot;</span><span class="p">,</span> <span class="s2">&quot;supply&quot;</span><span class="p">,</span> <span class="s2">&quot;load&quot;</span><span class="p">,</span> <span class="n">resistance</span><span class="o">=</span><span class="mi">2</span><span class="p">),),</span>
+    <span class="n">final_time</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">time_step</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">run_service</span><span class="p">(</span>
+    <span class="n">ElectricalNetworksPublicApi</span><span class="p">(),</span>
+    <span class="n">ElectricalNetworksConfiguration</span><span class="p">(</span><span class="n">parameters</span><span class="o">=</span><span class="n">settings</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">service_figure</span><span class="p">(</span>
+    <span class="s2">&quot;RC network with a fixed voltage node&quot;</span><span class="p">,</span>
+    <span class="n">result</span><span class="o">.</span><span class="n">times</span><span class="p">,</span>
+    <span class="s2">&quot;Time [s]&quot;</span><span class="p">,</span>
+    <span class="p">(</span><span class="s2">&quot;Load voltage [V]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">voltages</span><span class="p">[</span><span class="s2">&quot;load&quot;</span><span class="p">]),</span>
+    <span class="p">(</span><span class="s2">&quot;Charging current [A]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">currents</span><span class="p">[</span><span class="s2">&quot;resistor&quot;</span><span class="p">]),</span>
+<span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-electrical-networks-public-api.png"><img loading="lazy" src="../../figures/recipe-electrical-networks-public-api.png" alt="Figure computed with OneSimulation: recipe electrical networks public api"></a></figure>
+<h2 id="a-reduced-scalar-state-with-a-custom-rate"><span class="num">6.19.13</span> A reduced scalar state with a custom rate</h2>
+<p>Select a global state and provide its physical rate callback. The service returns the time grid and native state history.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.systems</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">ZeroDOneDModelsConfiguration</span><span class="p">,</span>
+    <span class="n">ZeroDOneDModelsPublicApi</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">settings</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+    <span class="n">dimension</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+    <span class="n">initial_state</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">rhs</span><span class="o">=</span><span class="k">lambda</span> <span class="n">state</span><span class="p">,</span> <span class="n">coordinates</span><span class="p">,</span> <span class="n">time</span><span class="p">:</span> <span class="o">-</span><span class="mf">0.5</span> <span class="o">*</span> <span class="n">state</span><span class="p">,</span>
+    <span class="n">final_time</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">time_step</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">run_service</span><span class="p">(</span>
+    <span class="n">ZeroDOneDModelsPublicApi</span><span class="p">(),</span> <span class="n">ZeroDOneDModelsConfiguration</span><span class="p">(</span><span class="n">parameters</span><span class="o">=</span><span class="n">settings</span><span class="p">)</span>
+<span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">service_figure</span><span class="p">(</span>
+    <span class="s2">&quot;A reduced scalar state with a custom rate&quot;</span><span class="p">,</span>
+    <span class="n">result</span><span class="o">.</span><span class="n">times</span><span class="p">,</span>
+    <span class="s2">&quot;Time [s]&quot;</span><span class="p">,</span>
+    <span class="p">(</span><span class="s2">&quot;Scalar state&quot;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">history</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)),</span>
+<span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-zero-done-dmodels-public-api.png"><img loading="lazy" src="../../figures/recipe-zero-done-dmodels-public-api.png" alt="Figure computed with OneSimulation: recipe zero done dmodels public api"></a></figure>
+<h2 id="power-consistent-conversion-between-field-effort-and-system-flow"><span class="num">6.19.14</span> Power-consistent conversion between field effort and system flow</h2>
+<p>The effort ratio scales the field-to-system effort and the reverse reaction flow. Check the product of effort and flow on both sides. The plot sweeps a family of explicit adapter calls.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.systems</span><span class="w"> </span><span class="kn">import</span> <span class="n">FieldSystemCouplingProvider</span>
+
+<span class="n">provider</span> <span class="o">=</span> <span class="n">FieldSystemCouplingProvider</span><span class="p">(</span><span class="n">effort_ratio</span><span class="o">=</span><span class="mf">2.0</span><span class="p">)</span>
+<span class="n">effort</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">41</span><span class="p">)</span>
+<span class="n">results</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="n">provider</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">field_effort</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">system_flow</span><span class="o">=</span><span class="mf">0.4</span><span class="p">)</span><span class="o">.</span><span class="n">to_mapping</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">effort</span>
+<span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">results</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+<span class="n">keys</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">results</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">service_figure</span><span class="p">(</span>
+    <span class="s2">&quot;Field-to-system conversion&quot;</span><span class="p">,</span>
+    <span class="n">effort</span><span class="p">,</span>
+    <span class="s2">&quot;Field effort&quot;</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">(</span>
+        <span class="p">(</span><span class="n">key</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot;_&quot;</span><span class="p">,</span> <span class="s2">&quot; &quot;</span><span class="p">)</span><span class="o">.</span><span class="n">capitalize</span><span class="p">(),</span> <span class="p">[</span><span class="n">result</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="k">for</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">results</span><span class="p">])</span>
+        <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">keys</span>
+        <span class="k">if</span> <span class="n">key</span> <span class="o">!=</span> <span class="s2">&quot;field_effort&quot;</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-field-system-coupling-provider.png"><img loading="lazy" src="../../figures/recipe-field-system-coupling-provider.png" alt="Figure computed with OneSimulation: recipe field system coupling provider"></a></figure><nav class="pager" aria-label="Pagination"><a class="prev" href="../../guide/6-worked-physics-and-service-recipes/18-solid-mechanics-recipes.html"><small>Previous</small>Solid mechanics recipes</a><a class="next" href="../../guide/7-numerical-configuration-and-spatial-operators.html"><small>Next</small>Numerical configuration and spatial operators</a></nav></main>
+<aside class="toc" aria-label="On this page"><p>On this page</p><a class="l2" href="#pressure-relaxation-of-an-accumulator">Pressure relaxation of an accumulator</a><a class="l2" href="#cooling-of-one-thermal-node">Cooling of one thermal node</a><a class="l2" href="#rc-voltage-and-current">RC voltage and current</a><a class="l2" href="#step-response-of-a-first-order-controller">Step response of a first-order controller</a><a class="l2" href="#wash-in-to-a-well-mixed-process-tank">Wash-in to a well-mixed process tank</a><a class="l2" href="#cooling-of-a-sealed-ideal-gas-volume">Cooling of a sealed ideal-gas volume</a><a class="l2" href="#signal-graph-with-a-first-order-block">Signal graph with a first-order block</a><a class="l2" href="#hydraulic-network-with-a-pressure-source">Hydraulic network with a pressure source</a><a class="l2" href="#pressure-equalization-between-gas-chambers">Pressure equalization between gas chambers</a><a class="l2" href="#open-cstr-feed-and-product-streams">Open CSTR feed and product streams</a><a class="l2" href="#conductance-between-thermal-storage-nodes">Conductance between thermal storage nodes</a><a class="l2" href="#rc-network-with-a-fixed-voltage-node">RC network with a fixed voltage node</a><a class="l2" href="#a-reduced-scalar-state-with-a-custom-rate">A reduced scalar state with a custom rate</a><a class="l2" href="#power-consistent-conversion-between-field-effort-and-system-flow">Power-consistent conversion between field effort and system flow</a></aside>
+</div>
+<footer class="foot"><span><strong>OneSimulation</strong> · Multiphysics with Python · Runtime Alpha 0.2.1a2</span>
+<span>Sold and billed through Gumroad · <a href="../../plans.html">Plans and licence</a></span></footer>
+<script src="../../assets/site.js" defer></script>
+</body>
+</html>

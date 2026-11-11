@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en" data-root="../../">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Multibody dynamics recipes · OneSimulation</title>
+<meta name="description" content="Multibody dynamics recipes – OneSimulation documentation: multiphysics simulation in Python.">
+<link rel="canonical" href="https://johmey.github.io/OneSimulation-Showcase/guide/6-worked-physics-and-service-recipes/14-multibody-dynamics-recipes.html">
+<meta property="og:title" content="Multibody dynamics recipes · OneSimulation">
+<meta property="og:description" content="Multibody dynamics recipes – OneSimulation documentation: multiphysics simulation in Python.">
+<meta property="og:type" content="website">
+<link rel="stylesheet" href="../../assets/site.css">
+
+</head>
+<body>
+<header class="top">
+<a class="brand" href="../../index.html">OneSimulation <span>docs</span></a>
+<div class="search"><input id="q" type="search" placeholder="Search the docs" aria-label="Search the documentation" autocomplete="off"><div id="results" role="listbox"></div></div>
+<a class="top-link" href="https://github.com/JohMey/OneSimulation-Showcase/releases/tag/custom-equations-2026-11-11" target="_blank" rel="noopener">Free books</a>
+<a class="button small" href="https://johmey.gumroad.com/l/onesimulation-runtime-abo" target="_blank" rel="noopener">Try it free</a>
+</header>
+<div class="layout">
+<details class="menu"><summary>Menu</summary><nav class="side" aria-label="Documentation"><a class="" href="../../index.html">Overview</a><a class="" href="../../quickstart.html">Quickstart</a><p class="group">Examples</p><a class="" href="../../examples/index.html">Gallery: 16 physics modules</a><a class="" href="../../examples/method-swap.html">One model, five discretizations</a><a class="" href="../../examples/cantilever.html">A 3D cantilever</a><a class="" href="../../examples/custom-equation.html">Your own equation</a><p class="group">Guide</p><p class="part">Start here</p><a class="" href="../../guide/how-to-use-this-guide.html"><span class="num"></span> How to use this guide</a><p class="part">Part I · From model to notebook</p><a class="" href="../../guide/1-set-up-the-notebook.html"><span class="num">1</span> Set up the notebook</a><a class="" href="../../guide/2-transient-radiation-and-vibration.html"><span class="num">2</span> Transient radiation and vibration</a><a class="" href="../../guide/3-three-spatial-studies.html"><span class="num">3</span> Three spatial studies</a><a class="" href="../../guide/4-read-visualize-and-export-results.html"><span class="num">4</span> Read, visualize and export results</a><p class="part">Part II · Physics model selection</p><a class="" href="../../guide/5-build-a-first-case-in-each-physics-package/index.html"><span class="num">5</span> Build a first case in each physics package</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/index.html"><span class="num">6</span> Worked physics and service recipes</a><div class="sub"><a class="" href="../../guide/6-worked-physics-and-service-recipes/01-shared-cell-for-lumped-histories.html">Shared cell for lumped histories</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/02-shared-cell-for-one-dimensional-profiles.html">Shared cell for one-dimensional profiles</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/03-shared-cell-for-facade-configurations.html">Shared cell for facade configurations</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/04-acoustics-recipes.html">Acoustics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/05-biophysics-recipes.html">Biophysics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/06-chemistry-recipes.html">Chemistry recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/07-electromagnetics-recipes.html">Electromagnetics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/08-electrostatics-recipes.html">Electrostatics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/09-geotechnics-recipes.html">Geotechnics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/10-heat-transfer-recipes.html">Heat transfer recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/11-hydrodynamics-recipes.html">Hydrodynamics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/12-magnetohydrodynamics-recipes.html">Magnetohydrodynamics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/13-magnetostatics-recipes.html">Magnetostatics recipes</a><a aria-current="page" class="" href="../../guide/6-worked-physics-and-service-recipes/14-multibody-dynamics-recipes.html">Multibody dynamics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/15-multiphysics-recipes.html">Multiphysics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/16-optics-and-photonics-recipes.html">Optics and photonics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/17-plasma-physics-recipes.html">Plasma physics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/18-solid-mechanics-recipes.html">Solid mechanics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/19-systems-and-networks-recipes.html">Systems and networks recipes</a></div><p class="part">Part III · Select and combine numerical methods</p><a class="" href="../../guide/7-numerical-configuration-and-spatial-operators.html"><span class="num">7</span> Numerical configuration and spatial operators</a><a class="" href="../../guide/8-solvers-time-integration-and-coupled-fields.html"><span class="num">8</span> Solvers, time integration and coupled fields</a><a class="" href="../../guide/9-worked-numerical-comparisons/index.html"><span class="num">9</span> Worked numerical comparisons</a><a class="" href="../../guide/10-executable-numerical-recipes/index.html"><span class="num">10</span> Executable numerical recipes</a><a class="" href="../../guide/11-define-and-solve-your-own-equation.html"><span class="num">11</span> Define and solve your own equation</a><a class="" href="../../guide/12-diagnose-a-notebook-result.html"><span class="num">12</span> Diagnose a notebook result</a><a class="" href="../../guide/13-coverage-and-navigation-by-symbol/index.html"><span class="num">13</span> Coverage and navigation by symbol</a><p class="part">API reference</p><a class="" href="../../reference/a-physics-api-reference/index.html"><span class="num">A</span> Physics API reference</a><a class="" href="../../reference/b-numerical-api-reference/index.html"><span class="num">B</span> Numerical API reference</a><a class="" href="../../reference/c-exposed-operator-and-service-namespaces/index.html"><span class="num">C</span> Exposed operator and service namespaces</a><p class="group">Trust and terms</p><a class="" href="../../verification.html">Verification</a><a class="" href="../../plans.html">Plans and licence</a></nav></details>
+<div class="side-wrap"><nav class="side" aria-label="Documentation"><a class="" href="../../index.html">Overview</a><a class="" href="../../quickstart.html">Quickstart</a><p class="group">Examples</p><a class="" href="../../examples/index.html">Gallery: 16 physics modules</a><a class="" href="../../examples/method-swap.html">One model, five discretizations</a><a class="" href="../../examples/cantilever.html">A 3D cantilever</a><a class="" href="../../examples/custom-equation.html">Your own equation</a><p class="group">Guide</p><p class="part">Start here</p><a class="" href="../../guide/how-to-use-this-guide.html"><span class="num"></span> How to use this guide</a><p class="part">Part I · From model to notebook</p><a class="" href="../../guide/1-set-up-the-notebook.html"><span class="num">1</span> Set up the notebook</a><a class="" href="../../guide/2-transient-radiation-and-vibration.html"><span class="num">2</span> Transient radiation and vibration</a><a class="" href="../../guide/3-three-spatial-studies.html"><span class="num">3</span> Three spatial studies</a><a class="" href="../../guide/4-read-visualize-and-export-results.html"><span class="num">4</span> Read, visualize and export results</a><p class="part">Part II · Physics model selection</p><a class="" href="../../guide/5-build-a-first-case-in-each-physics-package/index.html"><span class="num">5</span> Build a first case in each physics package</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/index.html"><span class="num">6</span> Worked physics and service recipes</a><div class="sub"><a class="" href="../../guide/6-worked-physics-and-service-recipes/01-shared-cell-for-lumped-histories.html">Shared cell for lumped histories</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/02-shared-cell-for-one-dimensional-profiles.html">Shared cell for one-dimensional profiles</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/03-shared-cell-for-facade-configurations.html">Shared cell for facade configurations</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/04-acoustics-recipes.html">Acoustics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/05-biophysics-recipes.html">Biophysics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/06-chemistry-recipes.html">Chemistry recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/07-electromagnetics-recipes.html">Electromagnetics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/08-electrostatics-recipes.html">Electrostatics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/09-geotechnics-recipes.html">Geotechnics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/10-heat-transfer-recipes.html">Heat transfer recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/11-hydrodynamics-recipes.html">Hydrodynamics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/12-magnetohydrodynamics-recipes.html">Magnetohydrodynamics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/13-magnetostatics-recipes.html">Magnetostatics recipes</a><a aria-current="page" class="" href="../../guide/6-worked-physics-and-service-recipes/14-multibody-dynamics-recipes.html">Multibody dynamics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/15-multiphysics-recipes.html">Multiphysics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/16-optics-and-photonics-recipes.html">Optics and photonics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/17-plasma-physics-recipes.html">Plasma physics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/18-solid-mechanics-recipes.html">Solid mechanics recipes</a><a class="" href="../../guide/6-worked-physics-and-service-recipes/19-systems-and-networks-recipes.html">Systems and networks recipes</a></div><p class="part">Part III · Select and combine numerical methods</p><a class="" href="../../guide/7-numerical-configuration-and-spatial-operators.html"><span class="num">7</span> Numerical configuration and spatial operators</a><a class="" href="../../guide/8-solvers-time-integration-and-coupled-fields.html"><span class="num">8</span> Solvers, time integration and coupled fields</a><a class="" href="../../guide/9-worked-numerical-comparisons/index.html"><span class="num">9</span> Worked numerical comparisons</a><a class="" href="../../guide/10-executable-numerical-recipes/index.html"><span class="num">10</span> Executable numerical recipes</a><a class="" href="../../guide/11-define-and-solve-your-own-equation.html"><span class="num">11</span> Define and solve your own equation</a><a class="" href="../../guide/12-diagnose-a-notebook-result.html"><span class="num">12</span> Diagnose a notebook result</a><a class="" href="../../guide/13-coverage-and-navigation-by-symbol/index.html"><span class="num">13</span> Coverage and navigation by symbol</a><p class="part">API reference</p><a class="" href="../../reference/a-physics-api-reference/index.html"><span class="num">A</span> Physics API reference</a><a class="" href="../../reference/b-numerical-api-reference/index.html"><span class="num">B</span> Numerical API reference</a><a class="" href="../../reference/c-exposed-operator-and-service-namespaces/index.html"><span class="num">C</span> Exposed operator and service namespaces</a><p class="group">Trust and terms</p><a class="" href="../../verification.html">Verification</a><a class="" href="../../plans.html">Plans and licence</a></nav></div>
+<main id="content"><p class="crumbs"><a href="../../index.html">Docs</a> › <a href="../../guide/6-worked-physics-and-service-recipes/index.html">Worked physics and service recipes</a> › Multibody dynamics recipes</p><h1><span class="num">6.14</span> Multibody dynamics recipes</h1><p>This section includes the field-based declarations and the independently callable multibody dynamics service configurations. The configuration keys in the service recipes belong to the indicated provider.</p>
+<h2 id="finite-amplitude-pendulum-motion"><span class="num">6.14.1</span> Finite-amplitude pendulum motion</h2>
+<p>The angular state is integrated directly. Energy remains constant in the unforced case, even when the motion departs from a small-angle approximation.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.multibody</span><span class="w"> </span><span class="kn">import</span> <span class="n">SimplePendulum</span>
+
+<span class="n">domain</span> <span class="o">=</span> <span class="n">LumpedDomain</span><span class="p">()</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">SimplePendulum</span><span class="p">(</span>
+    <span class="n">domain</span><span class="o">=</span><span class="n">domain</span><span class="o">.</span><span class="n">system</span><span class="p">,</span>
+    <span class="n">length</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">t</span><span class="p">,</span> <span class="n">data</span> <span class="o">=</span> <span class="n">history_case</span><span class="p">(</span>
+    <span class="n">domain</span><span class="p">,</span>
+    <span class="n">model</span><span class="p">,</span>
+    <span class="nb">dict</span><span class="p">(</span><span class="n">angle</span><span class="o">=</span><span class="mf">0.4</span><span class="p">,</span> <span class="n">angular_velocity</span><span class="o">=</span><span class="mf">0.0</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;angle&quot;</span><span class="p">,</span> <span class="s2">&quot;angular_velocity&quot;</span><span class="p">,</span> <span class="s2">&quot;energy&quot;</span><span class="p">),</span>
+    <span class="n">end</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">dt</span><span class="o">=</span><span class="mf">0.005</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">&quot;energy&quot;</span><span class="p">],</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;energy&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-8</span><span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">history_plot</span><span class="p">(</span><span class="s2">&quot;Finite-amplitude pendulum motion&quot;</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-simple-pendulum.png"><img loading="lazy" src="../../figures/recipe-simple-pendulum.png" alt="Figure computed with OneSimulation: recipe simple pendulum"></a></figure>
+<h2 id="torque-free-rotation-in-body-coordinates"><span class="num">6.14.2</span> Torque-free rotation in body coordinates</h2>
+<p>The inertia tuple contains the principal moments. Inspect two body-axis angular velocities and check that the rigid body's kinetic energy is conserved.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.multibody</span><span class="w"> </span><span class="kn">import</span> <span class="n">EulerTop</span>
+
+<span class="n">domain</span> <span class="o">=</span> <span class="n">LumpedDomain</span><span class="p">()</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">EulerTop</span><span class="p">(</span>
+    <span class="n">domain</span><span class="o">=</span><span class="n">domain</span><span class="o">.</span><span class="n">system</span><span class="p">,</span>
+    <span class="n">inertia</span><span class="o">=</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="n">t</span><span class="p">,</span> <span class="n">data</span> <span class="o">=</span> <span class="n">history_case</span><span class="p">(</span>
+    <span class="n">domain</span><span class="p">,</span>
+    <span class="n">model</span><span class="p">,</span>
+    <span class="nb">dict</span><span class="p">(</span><span class="n">omega_x</span><span class="o">=</span><span class="mf">0.4</span><span class="p">,</span> <span class="n">omega_y</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span> <span class="n">omega_z</span><span class="o">=</span><span class="mf">0.3</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;omega_x&quot;</span><span class="p">,</span> <span class="s2">&quot;omega_y&quot;</span><span class="p">,</span> <span class="s2">&quot;energy&quot;</span><span class="p">),</span>
+    <span class="n">end</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+    <span class="n">dt</span><span class="o">=</span><span class="mf">0.02</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">&quot;energy&quot;</span><span class="p">],</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;energy&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-9</span><span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">history_plot</span><span class="p">(</span><span class="s2">&quot;Torque-free rotation in body coordinates&quot;</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-euler-top.png"><img loading="lazy" src="../../figures/recipe-euler-top.png" alt="Figure computed with OneSimulation: recipe euler top"></a></figure>
+<h2 id="driven-linkage-on-the-open-branch"><span class="num">6.14.3</span> Driven linkage on the open branch</h2>
+<p>Supply the four link lengths, an assembly branch and a crank speed. Track the crank angle and the output rocker position.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.multibody</span><span class="w"> </span><span class="kn">import</span> <span class="n">DrivenFourBar</span>
+
+<span class="n">domain</span> <span class="o">=</span> <span class="n">LumpedDomain</span><span class="p">()</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">DrivenFourBar</span><span class="p">(</span>
+    <span class="n">domain</span><span class="o">=</span><span class="n">domain</span><span class="o">.</span><span class="n">system</span><span class="p">,</span>
+    <span class="n">ground_length</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">crank_length</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
+    <span class="n">coupler_length</span><span class="o">=</span><span class="mf">1.5</span><span class="p">,</span>
+    <span class="n">rocker_length</span><span class="o">=</span><span class="mf">1.5</span><span class="p">,</span>
+    <span class="n">drive_speed</span><span class="o">=</span><span class="mf">0.6</span><span class="p">,</span>
+    <span class="n">assembly_branch</span><span class="o">=</span><span class="s2">&quot;open&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">t</span><span class="p">,</span> <span class="n">data</span> <span class="o">=</span> <span class="n">history_case</span><span class="p">(</span>
+    <span class="n">domain</span><span class="p">,</span>
+    <span class="n">model</span><span class="p">,</span>
+    <span class="nb">dict</span><span class="p">(</span><span class="n">input_angle</span><span class="o">=</span><span class="mf">0.4</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;input_angle&quot;</span><span class="p">,</span> <span class="s2">&quot;rocker_x&quot;</span><span class="p">,</span> <span class="s2">&quot;rocker_y&quot;</span><span class="p">),</span>
+    <span class="n">end</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">dt</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">&quot;input_angle&quot;</span><span class="p">],</span> <span class="mf">0.4</span> <span class="o">+</span> <span class="mf">0.6</span> <span class="o">*</span> <span class="n">t</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-9</span><span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">history_plot</span><span class="p">(</span><span class="s2">&quot;Driven linkage on the open branch&quot;</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-driven-four-bar.png"><img loading="lazy" src="../../figures/recipe-driven-four-bar.png" alt="Figure computed with OneSimulation: recipe driven four bar"></a></figure>
+<h2 id="oscillation-of-two-shaft-inertias"><span class="num">6.14.4</span> Oscillation of two shaft inertias</h2>
+<p>Start with a twist across the shaft and apply no external torque. Damping reduces the total mechanical energy while exchanging angular momentum.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.multibody</span><span class="w"> </span><span class="kn">import</span> <span class="n">TorsionalDrivetrain</span>
+
+<span class="n">domain</span> <span class="o">=</span> <span class="n">LumpedDomain</span><span class="p">()</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">TorsionalDrivetrain</span><span class="p">(</span>
+    <span class="n">domain</span><span class="o">=</span><span class="n">domain</span><span class="o">.</span><span class="n">system</span><span class="p">,</span>
+    <span class="n">inertias</span><span class="o">=</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span>
+    <span class="n">shaft_stiffness</span><span class="o">=</span><span class="p">(</span><span class="mi">4</span><span class="p">,),</span>
+    <span class="n">shaft_damping</span><span class="o">=</span><span class="p">(</span><span class="mf">0.5</span><span class="p">,),</span>
+    <span class="n">external_torques</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="n">t</span><span class="p">,</span> <span class="n">data</span> <span class="o">=</span> <span class="n">history_case</span><span class="p">(</span>
+    <span class="n">domain</span><span class="p">,</span>
+    <span class="n">model</span><span class="p">,</span>
+    <span class="nb">dict</span><span class="p">(</span><span class="n">angle_0</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span> <span class="n">angle_1</span><span class="o">=-</span><span class="mf">0.1</span><span class="p">,</span> <span class="n">omega_0</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">omega_1</span><span class="o">=</span><span class="mf">0.0</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;angle_0&quot;</span><span class="p">,</span> <span class="s2">&quot;angle_1&quot;</span><span class="p">,</span> <span class="s2">&quot;energy&quot;</span><span class="p">),</span>
+    <span class="n">end</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+    <span class="n">dt</span><span class="o">=</span><span class="mf">0.02</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="k">assert</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;energy&quot;</span><span class="p">][</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;energy&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">history_plot</span><span class="p">(</span><span class="s2">&quot;Oscillation of two shaft inertias&quot;</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-torsional-drivetrain.png"><img loading="lazy" src="../../figures/recipe-torsional-drivetrain.png" alt="Figure computed with OneSimulation: recipe torsional drivetrain"></a></figure>
+<h2 id="acceleration-under-a-linear-joint-constraint"><span class="num">6.14.5</span> Acceleration under a linear joint constraint</h2>
+<p>Constrain the two positions to coincide and apply a force to only one mass. Start with a compatible position and velocity and inspect the constraint reaction.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.multibody</span><span class="w"> </span><span class="kn">import</span> <span class="n">LinearJointSystem</span>
+
+<span class="n">domain</span> <span class="o">=</span> <span class="n">LumpedDomain</span><span class="p">()</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">LinearJointSystem</span><span class="p">(</span>
+    <span class="n">domain</span><span class="o">=</span><span class="n">domain</span><span class="o">.</span><span class="n">system</span><span class="p">,</span>
+    <span class="n">masses</span><span class="o">=</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span>
+    <span class="n">constraint_matrix</span><span class="o">=</span><span class="p">((</span><span class="mf">1.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">),),</span>
+    <span class="n">constraint_targets</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,),</span>
+    <span class="n">forces</span><span class="o">=</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="n">t</span><span class="p">,</span> <span class="n">data</span> <span class="o">=</span> <span class="n">history_case</span><span class="p">(</span>
+    <span class="n">domain</span><span class="p">,</span>
+    <span class="n">model</span><span class="p">,</span>
+    <span class="nb">dict</span><span class="p">(</span><span class="n">position_0</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">position_1</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">velocity_0</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">velocity_1</span><span class="o">=</span><span class="mf">0.0</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;position_0&quot;</span><span class="p">,</span> <span class="s2">&quot;position_1&quot;</span><span class="p">,</span> <span class="s2">&quot;reaction_0&quot;</span><span class="p">),</span>
+    <span class="n">end</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">dt</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+    <span class="n">linear_solver</span><span class="o">=</span><span class="n">SparseDirect</span><span class="p">(),</span>
+<span class="p">)</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">&quot;position_0&quot;</span><span class="p">],</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;position_1&quot;</span><span class="p">],</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-10</span><span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">history_plot</span><span class="p">(</span><span class="s2">&quot;Acceleration under a linear joint constraint&quot;</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-linear-joint-system.png"><img loading="lazy" src="../../figures/recipe-linear-joint-system.png" alt="Figure computed with OneSimulation: recipe linear joint system"></a></figure>
+<h2 id="torsional-service-with-two-rotating-inertias"><span class="num">6.14.6</span> Torsional service with two rotating inertias</h2>
+<p>Configure a finite final time, an initial shaft twist and damping. The output is indexed by inertia rather than by spatial coordinate.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.multibody</span><span class="w"> </span><span class="kn">import</span> <span class="n">DrivetrainConfiguration</span><span class="p">,</span> <span class="n">DrivetrainPublicApi</span>
+
+<span class="n">settings</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+    <span class="n">inertias</span><span class="o">=</span><span class="p">(</span><span class="mf">2.0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">),</span>
+    <span class="n">shaft_stiffness</span><span class="o">=</span><span class="p">(</span><span class="mf">4.0</span><span class="p">,),</span>
+    <span class="n">shaft_damping</span><span class="o">=</span><span class="p">(</span><span class="mf">0.5</span><span class="p">,),</span>
+    <span class="n">initial_angles</span><span class="o">=</span><span class="p">(</span><span class="mf">0.2</span><span class="p">,</span> <span class="o">-</span><span class="mf">0.1</span><span class="p">),</span>
+    <span class="n">final_time</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
+    <span class="n">time_step</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">run_service</span><span class="p">(</span>
+    <span class="n">DrivetrainPublicApi</span><span class="p">(),</span> <span class="n">DrivetrainConfiguration</span><span class="p">(</span><span class="n">parameters</span><span class="o">=</span><span class="n">settings</span><span class="p">)</span>
+<span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">service_figure</span><span class="p">(</span>
+    <span class="s2">&quot;Torsional service with two rotating inertias&quot;</span><span class="p">,</span>
+    <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">2</span><span class="p">),</span>
+    <span class="s2">&quot;Inertia index&quot;</span><span class="p">,</span>
+    <span class="p">(</span><span class="s2">&quot;Angle [rad]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">angles</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;Angular velocity [rad/s]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">angular_velocities</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-drivetrain-public-api.png"><img loading="lazy" src="../../figures/recipe-drivetrain-public-api.png" alt="Figure computed with OneSimulation: recipe drivetrain public api"></a></figure>
+<h2 id="projected-dynamics-of-a-linear-joint"><span class="num">6.14.7</span> Projected dynamics of a linear joint</h2>
+<p>Supply a compatible constrained state and choose projection enforcement. The endpoint positions and velocities must satisfy the same linear relation.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.multibody</span><span class="w"> </span><span class="kn">import</span> <span class="n">JointSystemsConfiguration</span><span class="p">,</span> <span class="n">JointSystemsPublicApi</span>
+
+<span class="n">settings</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+    <span class="n">masses</span><span class="o">=</span><span class="p">(</span><span class="mf">2.0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">),</span>
+    <span class="n">constraint_matrix</span><span class="o">=</span><span class="p">((</span><span class="mf">1.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">),),</span>
+    <span class="n">constraint_targets</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,),</span>
+    <span class="n">external_force</span><span class="o">=</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span>
+    <span class="n">initial_positions</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span>
+    <span class="n">initial_velocities</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span>
+    <span class="n">final_time</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
+    <span class="n">time_step</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">run_service</span><span class="p">(</span>
+    <span class="n">JointSystemsPublicApi</span><span class="p">(),</span> <span class="n">JointSystemsConfiguration</span><span class="p">(</span><span class="n">parameters</span><span class="o">=</span><span class="n">settings</span><span class="p">)</span>
+<span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">service_figure</span><span class="p">(</span>
+    <span class="s2">&quot;Projected dynamics of a linear joint&quot;</span><span class="p">,</span>
+    <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">2</span><span class="p">),</span>
+    <span class="s2">&quot;Mass index&quot;</span><span class="p">,</span>
+    <span class="p">(</span><span class="s2">&quot;Position [m]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">positions</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;Velocity [m/s]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">velocities</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;Reaction [N]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">reaction_forces</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-joint-systems-public-api.png"><img loading="lazy" src="../../figures/recipe-joint-systems-public-api.png" alt="Figure computed with OneSimulation: recipe joint systems public api"></a></figure>
+<h2 id="free-rigid-body-translation-and-rotation"><span class="num">6.14.8</span> Free rigid-body translation and rotation</h2>
+<p>An external force and principal inertias advance the six-degree-of-freedom state. The service also returns a quaternion and a rigid transform.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.multibody</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">RigidBodyDynamicsConfiguration</span><span class="p">,</span>
+    <span class="n">RigidBodyDynamicsPublicApi</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">settings</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+    <span class="n">mass</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">inertia</span><span class="o">=</span><span class="p">(</span><span class="mf">2.0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">,</span> <span class="mf">4.0</span><span class="p">),</span>
+    <span class="n">external_force</span><span class="o">=</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">),</span>
+    <span class="n">initial_angular_velocity</span><span class="o">=</span><span class="p">(</span><span class="mf">0.2</span><span class="p">,</span> <span class="mf">0.3</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">),</span>
+    <span class="n">final_time</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
+    <span class="n">time_step</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">run_service</span><span class="p">(</span>
+    <span class="n">RigidBodyDynamicsPublicApi</span><span class="p">(),</span> <span class="n">RigidBodyDynamicsConfiguration</span><span class="p">(</span><span class="n">parameters</span><span class="o">=</span><span class="n">settings</span><span class="p">)</span>
+<span class="p">)</span>
+<span class="n">fig</span> <span class="o">=</span> <span class="n">service_figure</span><span class="p">(</span>
+    <span class="s2">&quot;Free rigid-body translation and rotation&quot;</span><span class="p">,</span>
+    <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">3</span><span class="p">),</span>
+    <span class="s2">&quot;Component index (x, y, z)&quot;</span><span class="p">,</span>
+    <span class="p">(</span><span class="s2">&quot;Position [m]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">position</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;Linear momentum [kg m/s]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">linear_momentum</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">&quot;Angular velocity [rad/s]&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">angular_velocity</span><span class="p">),</span>
+<span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-rigid-body-dynamics-public-api.png"><img loading="lazy" src="../../figures/recipe-rigid-body-dynamics-public-api.png" alt="Figure computed with OneSimulation: recipe rigid body dynamics public api"></a></figure>
+<h2 id="inverse-kinematics-of-a-two-link-chain"><span class="num">6.14.9</span> Inverse kinematics of a two-link chain</h2>
+<p>Provide a reachable Cartesian target and an initial branch seed. Plot the solved joint positions and verify the end effector reaches the target.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.multibody</span><span class="w"> </span><span class="kn">import</span> <span class="n">KinematicsConfiguration</span><span class="p">,</span> <span class="n">KinematicsPublicApi</span>
+
+<span class="n">target</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mf">1.2</span><span class="p">,</span> <span class="mf">0.8</span><span class="p">])</span>
+<span class="n">configuration</span> <span class="o">=</span> <span class="n">KinematicsConfiguration</span><span class="p">(</span>
+    <span class="n">parameters</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span>
+        <span class="n">link_lengths</span><span class="o">=</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">),</span>
+        <span class="n">initial_joint_angles</span><span class="o">=</span><span class="p">(</span><span class="mf">0.1</span><span class="p">,</span> <span class="mf">0.8</span><span class="p">),</span>
+        <span class="n">target_position</span><span class="o">=</span><span class="n">target</span><span class="p">,</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">run_service</span><span class="p">(</span><span class="n">KinematicsPublicApi</span><span class="p">(),</span> <span class="n">configuration</span><span class="p">)</span>
+<span class="n">np</span><span class="o">.</span><span class="n">testing</span><span class="o">.</span><span class="n">assert_allclose</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">end_effector</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-8</span><span class="p">)</span>
+<span class="n">theme</span><span class="o">.</span><span class="n">use_theme</span><span class="p">()</span>
+<span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">6</span><span class="p">,</span> <span class="mf">3.4</span><span class="p">),</span> <span class="n">layout</span><span class="o">=</span><span class="s2">&quot;constrained&quot;</span><span class="p">)</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="o">*</span><span class="n">result</span><span class="o">.</span><span class="n">joint_positions</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="s2">&quot;o-&quot;</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;Solved chain&quot;</span><span class="p">)</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="o">*</span><span class="n">target</span><span class="p">,</span> <span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="n">theme</span><span class="o">.</span><span class="n">COPPER</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;Target&quot;</span><span class="p">)</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">xlabel</span><span class="o">=</span><span class="s2">&quot;x [m]&quot;</span><span class="p">,</span> <span class="n">ylabel</span><span class="o">=</span><span class="s2">&quot;y [m]&quot;</span><span class="p">,</span> <span class="n">aspect</span><span class="o">=</span><span class="s2">&quot;equal&quot;</span><span class="p">)</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">legend</span><span class="p">(</span><span class="n">frameon</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-kinematics-public-api.png"><img loading="lazy" src="../../figures/recipe-kinematics-public-api.png" alt="Figure computed with OneSimulation: recipe kinematics public api"></a></figure>
+<h2 id="four-bar-service-closure-and-transmission-angle"><span class="num">6.14.10</span> Four-bar service closure and transmission angle</h2>
+<p>Read the ground pivot, crank and rocker pin after solving the selected assembly branch. The coupler geometry is reconstructed from the returned pins.</p>
+<pre class="code" data-lang="python"><code><span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.multibody</span><span class="w"> </span><span class="kn">import</span> <span class="n">MechanismsConfiguration</span><span class="p">,</span> <span class="n">MechanismsPublicApi</span>
+
+<span class="n">configuration</span> <span class="o">=</span> <span class="n">MechanismsConfiguration</span><span class="p">(</span>
+    <span class="n">parameters</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span>
+        <span class="n">ground_length</span><span class="o">=</span><span class="mf">2.0</span><span class="p">,</span>
+        <span class="n">crank_length</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
+        <span class="n">coupler_length</span><span class="o">=</span><span class="mf">1.5</span><span class="p">,</span>
+        <span class="n">rocker_length</span><span class="o">=</span><span class="mf">1.5</span><span class="p">,</span>
+        <span class="n">initial_input_angle</span><span class="o">=</span><span class="mf">0.4</span><span class="p">,</span>
+        <span class="n">input_rate</span><span class="o">=</span><span class="mf">0.6</span><span class="p">,</span>
+        <span class="n">assembly_branch</span><span class="o">=</span><span class="s2">&quot;open&quot;</span><span class="p">,</span>
+        <span class="n">final_time</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
+        <span class="n">time_step</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">run_service</span><span class="p">(</span><span class="n">MechanismsPublicApi</span><span class="p">(),</span> <span class="n">configuration</span><span class="p">)</span>
+<span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">closure_residual</span> <span class="o">&lt;</span> <span class="mf">1e-9</span>
+<span class="n">vertices</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">(</span>
+    <span class="p">((</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="n">result</span><span class="o">.</span><span class="n">crank_pin</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">rocker_pin</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">ground_pivot</span><span class="p">,</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+<span class="p">)</span>
+<span class="n">theme</span><span class="o">.</span><span class="n">use_theme</span><span class="p">()</span>
+<span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">6</span><span class="p">,</span> <span class="mf">3.4</span><span class="p">),</span> <span class="n">layout</span><span class="o">=</span><span class="s2">&quot;constrained&quot;</span><span class="p">)</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="o">*</span><span class="n">vertices</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="s2">&quot;o-&quot;</span><span class="p">)</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">xlabel</span><span class="o">=</span><span class="s2">&quot;x [m]&quot;</span><span class="p">,</span> <span class="n">ylabel</span><span class="o">=</span><span class="s2">&quot;y [m]&quot;</span><span class="p">,</span> <span class="n">aspect</span><span class="o">=</span><span class="s2">&quot;equal&quot;</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="s2">&quot;Four-bar linkage&quot;</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre>
+<figure><a href="../../figures/recipe-mechanisms-public-api.png"><img loading="lazy" src="../../figures/recipe-mechanisms-public-api.png" alt="Figure computed with OneSimulation: recipe mechanisms public api"></a></figure><nav class="pager" aria-label="Pagination"><a class="prev" href="../../guide/6-worked-physics-and-service-recipes/13-magnetostatics-recipes.html"><small>Previous</small>Magnetostatics recipes</a><a class="next" href="../../guide/6-worked-physics-and-service-recipes/15-multiphysics-recipes.html"><small>Next</small>Multiphysics recipes</a></nav></main>
+<aside class="toc" aria-label="On this page"><p>On this page</p><a class="l2" href="#finite-amplitude-pendulum-motion">Finite-amplitude pendulum motion</a><a class="l2" href="#torque-free-rotation-in-body-coordinates">Torque-free rotation in body coordinates</a><a class="l2" href="#driven-linkage-on-the-open-branch">Driven linkage on the open branch</a><a class="l2" href="#oscillation-of-two-shaft-inertias">Oscillation of two shaft inertias</a><a class="l2" href="#acceleration-under-a-linear-joint-constraint">Acceleration under a linear joint constraint</a><a class="l2" href="#torsional-service-with-two-rotating-inertias">Torsional service with two rotating inertias</a><a class="l2" href="#projected-dynamics-of-a-linear-joint">Projected dynamics of a linear joint</a><a class="l2" href="#free-rigid-body-translation-and-rotation">Free rigid-body translation and rotation</a><a class="l2" href="#inverse-kinematics-of-a-two-link-chain">Inverse kinematics of a two-link chain</a><a class="l2" href="#four-bar-service-closure-and-transmission-angle">Four-bar service closure and transmission angle</a></aside>
+</div>
+<footer class="foot"><span><strong>OneSimulation</strong> · Multiphysics with Python · Runtime Alpha 0.2.1a2</span>
+<span>Sold and billed through Gumroad · <a href="../../plans.html">Plans and licence</a></span></footer>
+<script src="../../assets/site.js" defer></script>
+</body>
+</html>

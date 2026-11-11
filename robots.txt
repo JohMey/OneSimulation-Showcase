@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://johmey.github.io/OneSimulation-Showcase/sitemap.xml
