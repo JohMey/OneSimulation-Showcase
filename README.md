@@ -22,3 +22,14 @@ last-orbit time-step comparison; it does not claim full grid convergence
 or a saturated three-dimensional turbulent disk.
 
 [Open the computed VSI figures and numerical checks](https://github.com/JohMey/OneSimulation-Showcase/releases/tag/vsi-512-2026-11-11).
+
+## Computed field details
+
+Inspect original figures up to **6,400 × 4,440 pixels**: heat transport with
+221,184 finite volumes, a three-dimensional cantilever with 73,728 Q1 elements,
+and a magnetostatic coil calculation with 77,302 tetrahedra. Image dimensions
+and solver resolution are reported separately. The accompanying numerical
+checks include measured mesh differences, conservation checks and model limits;
+the magnetic example does not establish mesh independence.
+
+[Open the original field figures and numerical checks](https://github.com/JohMey/OneSimulation-Showcase/releases/tag/field-details-2026-11-11).
