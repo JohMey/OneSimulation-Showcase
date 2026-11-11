@@ -1,6 +1,19 @@
 # OneSimulation-Showcase
 Public PDF releases of OneSimulation – A Computational Atlas
 
+## Free books and custom equations
+
+The updated English **Showcase (136 pages)** and **Cookbook (433 pages)**
+include a fully worked, user-defined reaction-diffusion equation with direct
+Python API calls, numerical fields and a three-mesh convergence study.
+
+[Download both free PDFs, editable LaTeX sources and the executed notebook](https://github.com/JohMey/OneSimulation-Showcase/releases/tag/custom-equations-2026-11-11).
+
+The example uses a stationary 2D coefficient-form equation and OneSimulation's
+CG/Jacobi solve. It is checked against an independently derived exact solution;
+its execution scope and the broader operator-extension interfaces are explained
+in both books. Running the notebook requires a compatible OneSimulation installation.
+
 ## Python API demonstration: Sod shock tube
 
 See the computed shock, contact discontinuity and rarefaction in a
