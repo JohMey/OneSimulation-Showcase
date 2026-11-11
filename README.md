@@ -1,10 +1,8 @@
 # OneSimulation
 
-> **Free for students and university courses.** [Apply with your university address](https://johmey.gumroad.com/l/onesimulation-education) · [Material for instructors: a 14-week lab course and exercise sheets](https://johmey.github.io/OneSimulation-Showcase/teaching/index.html)
-
 **A whole simulation lab in one Python package:** CAD, meshing, 16 physics modules, FEM, FVM, FDM and DG, implicit and explicit solvers, multiphysics coupling, plotting and storage behind one API.
 
-**[Documentation](https://johmey.github.io/OneSimulation-Showcase/)** · **[Quickstart](https://johmey.github.io/OneSimulation-Showcase/quickstart.html)** · **[Examples](https://johmey.github.io/OneSimulation-Showcase/examples/index.html)** · **[API reference](https://johmey.github.io/OneSimulation-Showcase/reference/a-physics-api-reference/index.html)** · **[Plans](https://johmey.gumroad.com/l/onesimulation-runtime-abo)**
+**[Documentation](https://johmey.github.io/OneSimulation-Showcase/)** · **[Quickstart](https://johmey.github.io/OneSimulation-Showcase/quickstart.html)** · **[Examples](https://johmey.github.io/OneSimulation-Showcase/examples/index.html)** · **[API reference](https://johmey.github.io/OneSimulation-Showcase/reference/a-physics-api-reference/index.html)** · **[Plans](https://johmey.gumroad.com/l/onesimulation-runtime-abo)** · **[Free for students and courses](https://johmey.gumroad.com/l/onesimulation-education)**
 
 <p>
 <a href="https://johmey.github.io/OneSimulation-Showcase/examples/magnetostatics.html"><img src="https://johmey.github.io/OneSimulation-Showcase/thumbs/hero-magnetostatics.jpg" width="24%" alt="Computed magnetic field of a coil"></a>
