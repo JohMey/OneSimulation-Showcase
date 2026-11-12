@@ -105,6 +105,10 @@ h4.entry+pre.code{margin-top:8px}
 .tiles p{font-size:13px;color:var(--muted);margin:0}
 .chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 22px}
 .chips span{font-size:12px;border:1px solid var(--line);background:var(--white);padding:5px 10px}
+.filters{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 22px}
+.chip-btn{font:inherit;font-size:13px;cursor:pointer;border:1px solid var(--line);background:var(--white);color:var(--ink);padding:7px 14px}
+.chip-btn:hover{border-color:var(--copper)}
+.chip-btn.active{background:var(--ink);color:var(--white);border-color:var(--ink)}
 .hero-figure img{width:100%}
 .facts{padding-left:20px}
 .facts li{margin:6px 0;font-size:15px}
