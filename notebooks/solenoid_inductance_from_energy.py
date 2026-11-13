@@ -215,7 +215,7 @@ ax1.axvspan(inner_radius * 1e3, outer_radius * 1e3, color="#c9b89a", alpha=0.3, 
 ax1.set(xlabel="Radius r / mm", ylabel="Axial flux density $B_z$ / mT", title="Mid-plane radial profile")
 ax1.legend(fontsize=8)
 
-labels = ("field energy\n$2W/I^2$", "flux linkage\n$\\int\\mathbf J\\cdot\\mathbf A\\,dV/I^2$",
+labels = ("field energy\n$2W/I^2$", "flux linkage\n$\\int J\\cdot A\\,dV/I^2$",
           "closed form\n$K\\,\\mu_0 n^2 \\ell A_\\mathrm{eff}$", "closed form\nwith FEM centre field")
 values = np.array([L_energy, L_linkage, L_ref, L_centre]) * 1e6
 ax2.bar(labels, values, color=("#A85539", "#3887c5", "#214D43", "#6b8e23"), width=0.6)
