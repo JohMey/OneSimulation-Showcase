@@ -143,6 +143,12 @@ ol li{margin:8px 0}
 }
 @media(max-width:520px){.cards,.cards.three,.tiles{grid-template-columns:1fr}.button-row .button{width:100%}.pager{flex-direction:column}.pager a{max-width:none}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+.notebook{border-left:3px solid var(--line);padding-left:18px;margin:12px 0 28px}
+.notebook .nb-md h3,.notebook .nb-md h4{margin:26px 0 8px}
+.notebook .nb-md h5{margin:18px 0 6px;font-size:1em}
+.notebook .nb-code pre.code{margin:10px 0 16px}
+.notebook .math.display{overflow-x:auto}
+@media (max-width:640px){.notebook{padding-left:10px}}
 
 pre { line-height: 125%; }
 td.linenos .normal { color: #666666; background-color: transparent; padding-left: 5px; padding-right: 5px; }
