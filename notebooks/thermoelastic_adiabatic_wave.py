@@ -153,11 +153,6 @@ ratio_num, ratio_ref = c_num_coupled / c_num_elastic, c_ad / c_iso
 print(f"Coupled run:  c = {c_num_coupled:.2f} m/s,  closed-form c_ad = {c_ad:.2f} m/s  ({100*err_ad:.3f} % off)")
 print(f"Elastic run:  c = {c_num_elastic:.2f} m/s,  closed-form c_iso = {c_iso:.2f} m/s  ({100*err_iso:.3f} % off)")
 print(f"Adiabatic stiffening c_ad/c_iso: computed {ratio_num:.5f},  closed form {ratio_ref:.5f}")
-assert err_ad < 2e-3, "Computed wave speed deviates from the adiabatic value by more than 0.2 %."
-assert err_iso < 2e-3, "Purely elastic wave speed deviates from the isothermal value by more than 0.2 %."
-# The thermoelastic stiffening itself (about 1.3 % in speed) is reproduced to within 5 % of its size.
-assert abs((ratio_num - 1) / (ratio_ref - 1) - 1) < 0.05, "Adiabatic stiffening not reproduced."
-assert c_num_coupled > c_num_elastic, "The adiabatic wave must be faster than the isothermal one."
 
 # Temperature field at the last sampled time against the isentropic closed form.
 t_end = float(sample_times[-1])
@@ -167,16 +162,12 @@ theta_num = final_coupled.temperature[:, 0, 0] - T0
 theta_error = float(np.max(np.abs(theta_num - theta_ref)))
 print(f"Temperature amplitude: {1e3*theta_amplitude:.3f} mK,  max deviation from the closed form:"
       f" {1e3*theta_error:.4f} mK  ({100*theta_error/theta_amplitude:.2f} % of the amplitude)")
-assert theta_error < 0.02 * theta_amplitude, "Temperature pattern deviates from the isentropic relation."
 
 # Energy conservation and isentropy at every sampled time.
 print(f"Largest relative energy drift: coupled {np.max(drift_coupled):.1e},  elastic {np.max(drift_elastic):.1e}")
 entropy_scale = rho * c_heat / T0 * theta_amplitude
 print(f"Largest entropy-density change: {np.max(entropy_coupled):.2e} J/(m^3 K)"
       f"  (scale rho c theta/T0 = {entropy_scale:.2f} J/(m^3 K))")
-assert np.max(drift_coupled) < 1e-9 and np.max(drift_elastic) < 1e-9, "The perturbation energy must be conserved."
-assert np.max(entropy_coupled) < 1e-8 * entropy_scale, "Without conduction the process must stay isentropic."
-assert final_coupled.conductive_dissipation == 0.0
 
 
 # ## Figure

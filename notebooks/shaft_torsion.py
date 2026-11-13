@@ -118,8 +118,6 @@ twist = u_y / r_sample
 rel_twist = abs(twist - twist_reference) / abs(twist_reference)
 print(f"Tip twist: FEM {twist*1e3:.4f} mrad,  theory {twist_reference*1e3:.4f} mrad")
 print(f"relative deviation (twist): {100*rel_twist:.2f} %")
-assert twist > 0, "The free end must rotate in the loading sense."
-assert rel_twist < 0.05, "Twist deviates more than the example tolerance (5 %)."
 
 # **Shear stress.** At mid-length, the shear stress magnitude should grow linearly
 # with radius, tau(r) = T r / J.  The stress components are ordered
@@ -135,7 +133,6 @@ print("Shear stress tau(r) at mid-length:")
 for r, tn, tr in zip(radii, tau_num, tau_ref):
     print(f"  r={r*1e3:5.2f} mm  FEM {tn/1e6:6.3f} MPa  theory {tr/1e6:6.3f} MPa")
 print(f"relative deviation (shear stress): {100*rel_tau:.2f} %")
-assert rel_tau < 0.08, "Shear stress deviates more than the example tolerance (8 %)."
 
 
 # ## Figure

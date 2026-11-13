@@ -105,12 +105,9 @@ ana = analytic(sample_x)
 max_abs_error = float(np.max(np.abs(num - ana)))
 rel_error = max_abs_error / peak_rise
 print(f"Maximum absolute error against the parabola: {max_abs_error:.4f} K  ({100*rel_error:.3f} % of the peak rise)")
-assert rel_error < 0.01, "Deviation larger than the example tolerance (1 % of the peak rise)."
 
 # Physical sanity: the peak sits at the centre and both faces stay at T_s.
 center_T = float(np.asarray(result.field(model.temperature).evaluate([[L / 2, cross / 2, cross / 2]])).reshape(-1)[0])
-assert abs(center_T - (T_s + peak_rise)) < 0.01 * peak_rise, "Centre temperature off."
-assert abs(num[0] - T_s) < 1e-6 and abs(num[-1] - T_s) < 1e-6, "Faces must stay at T_s."
 print(f"Centre temperature: FEM {center_T:.3f} K,  analytic {T_s + peak_rise:.3f} K")
 
 

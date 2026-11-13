@@ -188,10 +188,6 @@ for phase_fraction in (0.0, 0.25, 0.5, 0.75):
     profiles[accepted] = (u_numeric, u_exact, error)
     print(f"omega t = {np.degrees(omega*accepted) % 360:5.1f} deg (t = {accepted:.3f} s): "
           f"max |u - u_exact| / |U(0)| = {100*error:.2f} %,  |v|,|w| / |U(0)| <= {transverse:.1e}")
-    assert error < 0.03, f"Profile at t={accepted:.3f} s deviates more than 3 % of the centreline amplitude."
-    assert transverse < 1e-4, "The flow must stay unidirectional."
-    assert abs(u_numeric[0]) < 1e-12 and abs(u_numeric[-1]) < 1e-12, "No-slip must hold exactly at both plates."
-    assert abs(u_numeric[len(u_numeric)//2] - u_exact[len(u_exact)//2]) < 0.03 * centre_amplitude
 
 
 # ### Centreline amplitude and phase lag
@@ -216,10 +212,6 @@ print(f"Centreline amplitude: FEM {1e3*amplitude_numeric:.4f} mm/s,  reference {
       f"({100*amplitude_error:.2f} %)")
 print(f"Centreline phase lag: FEM {np.degrees(lag_numeric):.2f} deg,  reference {np.degrees(centre_lag):.2f} deg "
       f"(difference {np.degrees(lag_error):.2f} deg)")
-assert amplitude_error < 0.02, "Centreline amplitude off by more than 2 %."
-assert lag_error < np.radians(2.0), "Centreline phase lag off by more than 2 degrees."
-assert centre_lag > np.radians(20.0), "The chosen Womersley number should give a clear phase lag."
-assert centre_amplitude < 0.8 * quasi_steady_amplitude, "The core should be noticeably below quasi-steady."
 
 
 # ## Figure

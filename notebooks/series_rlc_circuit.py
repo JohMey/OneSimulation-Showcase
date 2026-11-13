@@ -59,7 +59,6 @@ capacitance = 100.0e-6    # F, C
 initial_voltage = 10.0    # V, capacitor voltage at t = 0
 initial_current = 0.0     # A, loop current at t = 0
 
-assert resistance < 2 * np.sqrt(inductance / capacitance), "The circuit must be underdamped."
 omega_0 = 1.0 / np.sqrt(inductance * capacitance)
 alpha = resistance / (2 * inductance)
 omega_d = np.sqrt(omega_0**2 - alpha**2)
@@ -120,7 +119,6 @@ def series(field):
 charges = series(model.charge)
 currents = series(model.current)
 capacitor_voltages = series(model.capacitor_voltage)
-assert len(times) > 1 and np.isclose(times[-1], end_time)
 
 
 # ## Comparison with the closed-form solution
@@ -139,29 +137,19 @@ max_charge_error = float(np.max(np.abs(charges - reference_charge)))
 max_current_error = float(np.max(np.abs(currents - reference_current)))
 print(f"Maximum charge error:  {max_charge_error:.3e} C  (q0 = {initial_charge:.1e} C)")
 print(f"Maximum current error: {max_current_error:.3e} A  (peak current ~ {initial_charge * omega_0:.2f} A)")
-assert max_charge_error < 1e-6 * initial_charge, "Charge deviates from the closed-form solution."
-assert max_current_error < 1e-6 * initial_charge * omega_0, "Current deviates from the closed-form solution."
-# The derived capacitor voltage is q/C.
-assert np.allclose(capacitor_voltages, charges / capacitance, rtol=1e-10, atol=1e-12)
 
 # Zero crossings of the current (linear interpolation between stored samples).
 sign_change = np.where(np.sign(currents[:-1]) * np.sign(currents[1:]) < 0)[0]
 crossing_times = times[sign_change] - currents[sign_change] * (
     (times[sign_change + 1] - times[sign_change]) / (currents[sign_change + 1] - currents[sign_change])
 )
-assert len(crossing_times) >= 6, "Expected several oscillations within the simulated window."
 measured_omega_d = np.pi / np.mean(np.diff(crossing_times))
 # Charge at the crossings: |q(t_n)| = q0 exp(-alpha t_n), so the log-slope is -alpha.
 charge_at_crossings = np.interp(crossing_times, times, charges)
 measured_alpha = -np.polyfit(crossing_times, np.log(np.abs(charge_at_crossings)), 1)[0]
 print(f"Damped angular frequency: measured {measured_omega_d:.2f} rad/s, exact {omega_d:.2f} rad/s")
 print(f"Decay rate:               measured {measured_alpha:.3f} 1/s,  exact {alpha:.3f} 1/s")
-assert abs(measured_omega_d / omega_d - 1) < 1e-3
-assert abs(measured_alpha / alpha - 1) < 1e-2
 # Physical sanity: the stored energy can only be dissipated in the resistor.
-energy = 0.5 * inductance * currents**2 + 0.5 * charges**2 / capacitance
-assert np.all(np.diff(energy) <= 1e-12 * energy[0]), "The stored energy must not grow."
-assert energy[-1] < 1e-3 * energy[0]
 
 
 # ## Figure

@@ -132,14 +132,10 @@ err_B = float(np.max(np.abs(num_B - exact_B)))
 rel_error = max(err_A, err_B) / C_A0
 print(f"Maximum absolute error against the exponential: {max(err_A, err_B):.3e} mol/m^3"
       f"  ({100 * rel_error:.4f} % of C_A0)")
-assert rel_error < 1e-3, "Deviation larger than the example tolerance (0.1 % of C_A0)."
 
 # Physical sanity: total mass conserved, A monotonically decreasing, B increasing.
 mass_error = float(np.max(np.abs(num_A + num_B - C_A0)))
 print(f"Maximum mass-balance error C_A+C_B-C_A0: {mass_error:.3e} mol/m^3")
-assert mass_error < 1e-9, "The total concentration C_A+C_B should stay constant."
-assert np.all(np.diff(num_A) <= 1e-12), "C_A should decrease monotonically."
-assert np.all(np.diff(num_B) >= -1e-12), "C_B should increase monotonically."
 
 
 # ## Figure

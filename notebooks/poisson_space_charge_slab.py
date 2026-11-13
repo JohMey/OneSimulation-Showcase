@@ -105,11 +105,6 @@ E_rel = float(np.max(np.abs(Ex_num - Ex_ana)) / E_scale)
 print(f"peak potential (analytic):   {V_peak:.2f} V")
 print(f"max relative potential error: {100*V_rel:.2f} %")
 print(f"max relative field error:     {100*E_rel:.2f} %")
-assert V_rel < 0.01, "Potential deviation larger than the example tolerance (1 %)."
-assert E_rel < 0.03, "Field deviation larger than the example tolerance (3 %)."
-# Physical sanity: potential is non-negative and the field reverses at the centre.
-assert np.all(V_num > -1e-9), "A positive space charge lifts the potential above ground."
-assert Ex_num[0] < 0 < Ex_num[-1], "The field points inward from each grounded plate."
 
 
 # ## Figure

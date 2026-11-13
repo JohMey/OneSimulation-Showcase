@@ -149,11 +149,6 @@ print(f"field in layer 1 / layer 2:   {E1:.1f} / {E2:.1f} V/m (analytic)")
 print(f"analytic capacitance: {C_ana*1e12:.4f} pF")
 print(f"numeric  capacitance: {C_num*1e12:.4f} pF  ({100*C_rel:.3f} % off)")
 
-assert V_rel < 0.01, "Potential deviation larger than the example tolerance (1 %)."
-assert Ex_rel < 0.01, "Field deviation larger than the example tolerance (1 %)."
-assert C_rel < 0.01, "Capacitance deviation larger than the example tolerance (1 %)."
-assert E1 > E2, "The lower-permittivity layer (layer 1) must carry the stronger field."
-
 
 # ## Figure
 

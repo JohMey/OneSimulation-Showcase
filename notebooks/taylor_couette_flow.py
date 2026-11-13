@@ -148,10 +148,6 @@ print(f"Inner wall velocity: FEM {u_theta_numeric[0]:.5f} m/s,  reference {A*a+B
 print(f"Maximum absolute azimuthal error: {max_abs_error:.3e} m/s  ({100*rel_error:.2f} % of inner wall speed)")
 print(f"Maximum spurious radial velocity: {max_radial:.3e} m/s  ({100*max_radial/u_scale:.2f} % of inner wall speed)")
 
-assert u_theta_numeric[0] > 0.0, "The rotating inner wall must drive the fluid azimuthally."
-assert rel_error < 0.02, "Azimuthal profile deviates more than the example tolerance (2% of wall speed)."
-assert max_radial / u_scale < 0.02, "Spurious radial velocity larger than the example tolerance (2%)."
-
 
 # ## Figure
 

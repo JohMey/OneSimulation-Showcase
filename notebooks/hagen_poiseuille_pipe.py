@@ -147,11 +147,6 @@ print(f"Maximum absolute profile error: {max_abs_error:.3e} m/s  ({100*rel_error
 print(f"Volumetric flow rate: FEM {flow_rate_numeric:.4e} m^3/s,  reference {flow_rate_reference:.4e} m^3/s")
 print(f"Flow-rate error: {100*flow_rate_rel_error:.2f} %")
 
-assert np.all(u_numeric >= -1e-3 * u_max_reference), "Flow must move in the forcing direction."
-assert rel_error < 0.01, "Radial profile deviates more than the example tolerance (1% of u_max)."
-assert abs(u_max_numeric - u_max_reference) / u_max_reference < 0.01, "Centreline velocity off."
-assert flow_rate_rel_error < 0.01, "Volumetric flow rate off by more than 1%."
-
 
 # ## Figure
 

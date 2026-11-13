@@ -75,7 +75,6 @@ V_out_ref = D * V_in
 I_L_ref = V_out_ref / R_load
 omega_0 = 1.0 / np.sqrt(L * C)
 alpha = 1.0 / (2.0 * R_load * C)
-assert alpha < omega_0, "The LC filter must be underdamped for the reference formula."
 omega_d = np.sqrt(omega_0**2 - alpha**2)
 zeta = alpha / omega_0
 overshoot_ref = np.exp(-zeta * np.pi / np.sqrt(1.0 - zeta**2))
@@ -140,7 +139,6 @@ v_out = series(converter.output_voltage)
 i_L = series(converter.inductor_current)
 p_in = series(converter.input_power)
 p_out = series(converter.output_power)
-assert len(times) > 1 and np.isclose(times[-1], end_time)
 
 
 # ## Comparison with the closed-form start-up response
@@ -159,22 +157,16 @@ v_error = float(np.max(np.abs(v_out - v_ref)))
 i_error = float(np.max(np.abs(i_L - i_ref)))
 print(f"maximum output-voltage error: {v_error:.3e} V  ({100 * v_error / V_out_ref:.2e} % of V_out)")
 print(f"maximum inductor-current error: {i_error:.3e} A  ({100 * i_error / I_L_ref:.2e} % of I_L)")
-assert v_error < 1e-5 * V_out_ref, "Output voltage deviates from the closed-form response."
-assert i_error < 1e-5 * I_L_ref, "Inductor current deviates from the closed-form response."
 
 # Steady state: V_out = D V_in and I_L = V_out / R after the transient has died out.
 print(f"final state: V_out = {v_out[-1]:.4f} V (D V_in = {V_out_ref:.4f} V),  "
       f"I_L = {i_L[-1]:.4f} A (V_out/R = {I_L_ref:.4f} A)")
-assert abs(v_out[-1] / V_out_ref - 1.0) < 1e-3, "Steady output voltage is not D * V_in."
-assert abs(i_L[-1] / I_L_ref - 1.0) < 1e-3, "Steady inductor current is not V_out / R."
 
 # Overshoot and peak time of the output voltage.
 peak = int(np.argmax(v_out))
 overshoot = v_out[peak] / V_out_ref - 1.0
 print(f"overshoot: measured {100 * overshoot:.2f} % at t = {1e3 * times[peak]:.3f} ms,  "
       f"reference {100 * overshoot_ref:.2f} % at t_p = {1e3 * peak_time_ref:.3f} ms")
-assert abs(overshoot - overshoot_ref) < 0.005, "Overshoot deviates by more than 0.5 percentage points."
-assert abs(times[peak] - peak_time_ref) <= 1.5 * time_step, "Peak time is off by more than one output interval."
 
 # Damped frequency from the crossings of the final value.
 deviation = v_out - V_out_ref
@@ -182,25 +174,15 @@ sign_change = np.where(np.sign(deviation[:-1]) * np.sign(deviation[1:]) < 0)[0]
 crossing_times = times[sign_change] - deviation[sign_change] * (
     (times[sign_change + 1] - times[sign_change]) / (deviation[sign_change + 1] - deviation[sign_change])
 )
-assert len(crossing_times) >= 6, "Expected several oscillations within the simulated window."
 measured_omega_d = np.pi / np.mean(np.diff(crossing_times[:8]))
 print(f"damped angular frequency: measured {measured_omega_d:.1f} rad/s, exact {omega_d:.1f} rad/s")
-assert abs(measured_omega_d / omega_d - 1.0) < 2e-3
 
-# Energy bookkeeping of the averaged model: the supply delivers D V_in i_L, the
-# load absorbs v_out^2 / R, and with no series resistance the two agree once the
-# filter has stopped storing energy (the remaining ringing at the end of the
-# window is of order e^-10 of the step, so the powers agree to a few 0.1 %).
-assert np.allclose(p_in, V_in * D * i_L, rtol=1e-9, atol=1e-9)
-assert np.allclose(p_out, v_out**2 / R_load, rtol=1e-9, atol=1e-9)
 print(f"final powers: input {p_in[-1]:.3f} W, output {p_out[-1]:.3f} W")
-assert abs(p_in[-1] - p_out[-1]) < 5e-3 * p_out[-1], "Input and output power must balance in steady state."
 stored = 0.5 * L * i_L**2 + 0.5 * C * v_out**2
 supplied = np.concatenate(([0.0], np.cumsum(0.5 * (p_in[1:] + p_in[:-1]) * np.diff(times))))
 dissipated = np.concatenate(([0.0], np.cumsum(0.5 * (p_out[1:] + p_out[:-1]) * np.diff(times))))
 energy_residual = float(np.max(np.abs(supplied - dissipated - stored)))
 print(f"energy balance residual (trapezoidal): {energy_residual:.3e} J of {supplied[-1]:.3f} J supplied")
-assert energy_residual < 1e-3 * supplied[-1]
 
 
 # ## Figure

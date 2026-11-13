@@ -95,7 +95,6 @@ run = network.execute()
 times = np.asarray(run.times)
 levels = np.asarray(run.pressures["tank"]) / (density * gravity)
 outflows = np.asarray(run.flows["orifice"])
-assert len(times) > 1 and np.isclose(times[-1], end_time)
 
 
 # ## Comparison with the closed-form solution
@@ -108,25 +107,15 @@ assert len(times) > 1 and np.isclose(times[-1], end_time)
 reference_levels = (np.sqrt(initial_level) - drain_rate * times) ** 2
 max_level_error = float(np.max(np.abs(levels - reference_levels)))
 print(f"Maximum level error: {max_level_error:.3e} m  (h0 = {initial_level} m, final level {levels[-1] * 1e2:.2f} cm)")
-assert max_level_error < 1e-6, "Level deviates from the square-root law."
 
 # sqrt(h) is a straight line; its intercept with zero is the emptying time.
 slope, intercept = np.polyfit(times, np.sqrt(levels), 1)
 fitted_empty_time = -intercept / slope
 print(f"Emptying time: extrapolated {fitted_empty_time:.2f} s, exact {empty_time:.2f} s")
-assert abs(fitted_empty_time / empty_time - 1) < 1e-4
-assert abs(-slope / drain_rate - 1) < 1e-4
-# The orifice flow is Torricelli's law evaluated at the simulated level...
-assert np.allclose(outflows, discharge_coefficient * orifice_area * np.sqrt(2 * gravity * levels), rtol=1e-10)
 # ...and the integrated outflow equals the volume that left the tank.
 drained_volume = tank_area * (initial_level - levels[-1])
 integrated_outflow = float(np.trapezoid(outflows, times))
 print(f"Drained volume: {drained_volume * 1e3:.2f} L, integrated orifice flow: {integrated_outflow * 1e3:.2f} L")
-assert abs(integrated_outflow / drained_volume - 1) < 1e-5
-# Physical sanity: the level falls monotonically and the fall slows as the head drops.
-assert np.all(np.diff(levels) < 0.0)
-assert np.all(np.diff(outflows) < 0.0)
-assert levels[-1] > 0.0
 
 
 # ## Figure

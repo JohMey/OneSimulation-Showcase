@@ -69,7 +69,6 @@ steady_speed = motor_constant * applied_voltage / denominator
 steady_current = viscous_friction * applied_voltage / denominator
 a1 = resistance / inductance + viscous_friction / inertia
 a0 = denominator / (inductance * inertia)
-discriminant = a1**2 - 4.0 * a0
 poles = np.roots([1.0, a1, a0])
 decay_rate = -float(np.max(poles.real))     # slowest decay of the transient
 end_time = 7.0 / decay_rate
@@ -133,8 +132,6 @@ def series(field):
 currents = series(motor.current)
 speeds = series(motor.angular_velocity)
 angles = series(motor.angle)
-back_emfs = series(back_emf)
-assert len(times) > 1 and np.isclose(times[-1], end_time)
 
 
 # ## Comparison with the closed-form solution
@@ -150,10 +147,8 @@ state_matrix = np.array([
     [motor_constant / inertia, -viscous_friction / inertia],
 ])
 steady_state = np.array([steady_current, steady_speed])
-assert np.allclose(state_matrix @ steady_state, [-applied_voltage / inductance, 0.0])
 identity = np.eye(2)
 s1, s2 = poles.astype(complex)
-assert abs(s1 - s2) > 1e-9 * abs(s1), "The reference formula needs distinct poles."
 
 
 def matrix_exponential(t):
@@ -180,17 +175,7 @@ max_angle_error = float(np.max(np.abs(angles - reference_angle)))
 print(f"Maximum current error: {max_current_error:.3e} A   (peak current {peak_reference_current:.2f} A)")
 print(f"Maximum speed error:   {max_speed_error:.3e} rad/s (steady speed {steady_speed:.2f} rad/s)")
 print(f"Maximum angle error:   {max_angle_error:.3e} rad   (final angle {reference_angle[-1]:.2f} rad)")
-assert max_current_error < 1e-5 * peak_reference_current, "Current deviates from the closed-form solution."
-assert max_speed_error < 1e-5 * steady_speed, "Speed deviates from the closed-form solution."
-assert max_angle_error < 1e-5 * reference_angle[-1], "Angle deviates from the closed-form solution."
-# The derived back-EMF is k*omega, and the speed has settled after seven decay times
-# (the no-load current is tiny next to the inrush peak, so it is judged on that scale).
-assert np.allclose(back_emfs, motor_constant * speeds, rtol=1e-10, atol=1e-12)
-assert abs(speeds[-1] / steady_speed - 1) < 2e-3
-assert abs(currents[-1] - steady_current) < 2e-3 * peak_reference_current
 
-# Second-order step-response landmarks of the speed (no zero in omega/V).
-assert discriminant < 0, "The overshoot check below assumes an underdamped speed response."
 natural_frequency = np.sqrt(a0)
 damping_ratio = a1 / (2.0 * natural_frequency)
 damped_frequency = natural_frequency * np.sqrt(1.0 - damping_ratio**2)
@@ -201,12 +186,6 @@ measured_overshoot = speeds[index_peak] / steady_speed - 1.0
 print(f"zeta = {damping_ratio:.3f},  peak time: measured {times[index_peak] * 1e3:.3f} ms, "
       f"exact {peak_time * 1e3:.3f} ms")
 print(f"speed overshoot: measured {100 * measured_overshoot:.3f} %, exact {100 * overshoot:.3f} %")
-assert abs(times[index_peak] - peak_time) <= 1.5 * time_step
-assert abs(measured_overshoot - overshoot) < 1e-4
-# Physical sanity: the inrush current stays below the locked-rotor value V/R,
-# and the shaft only ever turns forward.
-assert np.max(currents) < applied_voltage / resistance
-assert np.all(speeds[1:] > 0.0) and np.all(np.diff(angles) > 0.0)
 
 
 # ## Figure

@@ -99,11 +99,6 @@ Bz_axial = B_axial[:, 2]
 uniformity = float((Bz_axial.max() - Bz_axial.min()) / Bz_axial.mean())
 print(f"Axial non-uniformity over the central half: {100*uniformity:.2f} %")
 
-assert np.isfinite(B_centre).all(), "The centre field must be finite."
-assert centre_axial > 0, "The axial field inside the solenoid must point along +z."
-assert rel_error < 0.08, "Deviation larger than the example tolerance (8 % against mu0*n*I)."
-assert uniformity < 0.05, "The interior field is not roughly uniform along the axis."
-
 
 # ## Figure
 

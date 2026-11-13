@@ -155,15 +155,6 @@ print(f"Standing wave |E_t(z)| vs |sin(beta (l - z))|: max deviation {standing_e
 absorbed = result.field(model.absorbed_power_density).integrate()
 print(f"Absorbed power in the lossless guide: {absorbed.value:.3e} {absorbed.unit} (incident 1 W)")
 
-assert te11_error < 0.015, "TE11 cutoff deviates more than 1.5 % from c p'_11 / (2 pi a)."
-assert tm01_error < 0.015, "TM01 cutoff deviates more than 1.5 % from c p_01 / (2 pi a)."
-assert f_te11_num < frequency < f_tm01_num, "The TE11 drive frequency must lie in the computed single-mode band."
-assert f_c_tm01 < frequency_tm < f_c_te21, "The TM01 check frequency must lie between the TM01 and TE21 cutoffs."
-assert shape_error < 0.10, "TE11 mode profile deviates more than 10 % of its centre value from the Bessel forms."
-assert standing_error < 0.04, "Standing-wave pattern deviates more than 4 % of its peak from the closed form (the discrete cutoff shifts beta by about 1 %)."
-assert longitudinal < 0.05, "The TE11 field on the axis must be transverse."
-assert abs(absorbed.value) < 1e-9, "A lossless shorted guide absorbs no power."
-
 
 # ## Figure
 

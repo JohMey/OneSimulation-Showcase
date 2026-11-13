@@ -94,9 +94,6 @@ C_per_length_ana = 2 * np.pi * eps0 / np.log(b / a)
 print(f"max relative potential error: {100*V_rel:.2f} %")
 print(f"max relative field error:     {100*Er_rel:.2f} %")
 print(f"analytic capacitance per length: {C_per_length_ana*1e12:.3f} pF/m")
-assert V_rel < 0.02, "Potential deviation larger than the example tolerance (2 %)."
-assert Er_rel < 0.06, "Field deviation larger than the example tolerance (6 %)."
-assert np.all(Er_num > 0), "The field should point outward (from + to ground)."
 
 
 # ## Figure

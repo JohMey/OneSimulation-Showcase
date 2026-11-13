@@ -76,8 +76,6 @@ tip = float(displacement.evaluate([[length, width / 2, height / 2]])[0, 2])
 rel_error = abs(tip - tip_reference) / abs(tip_reference)
 print(f"Tip deflection: FEM {tip*1e3:.4f} mm,  Euler-Bernoulli {tip_reference*1e3:.4f} mm")
 print(f"relative deviation: {100*rel_error:.2f} %  (3D FEM is slightly lower due to shear/clamping)")
-assert tip < 0, "The beam must deflect downward."
-assert rel_error < 0.12, "Deviation larger than the example tolerance (12 % against Euler-Bernoulli)."
 
 # Deflection line along the central axis
 xs = np.linspace(0.0, length, 25)

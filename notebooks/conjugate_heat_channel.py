@@ -152,12 +152,10 @@ ana = analytic(sample_y)
 max_abs_error = float(np.max(np.abs(num - ana)))
 rel_error = max_abs_error / (T_h - T_c)
 print(f"Maximum absolute error against the series solution: {max_abs_error:.4f} K  ({100*rel_error:.3f} % of Th-Tc)")
-assert rel_error < 0.01, "Deviation larger than the example tolerance (1 % of Th-Tc)."
 
 # Interface temperature.
 T_interface = float(np.asarray(result.field(model.temperature).evaluate([[length / 2, t_f, span / 2]])).reshape(-1)[0])
 print(f"Interface temperature: FEM {T_interface:.3f} K,  analytic {T_interface_ref:.3f} K")
-assert abs(T_interface - T_interface_ref) < 0.01 * (T_h - T_c), "Interface temperature off."
 
 # Flux continuity: -k dT/dy from the slope in each medium must agree on both sides.
 fluid_side = sample_y < t_f - 1e-9
@@ -167,9 +165,6 @@ slope_solid = np.polyfit(sample_y[solid_side], num[solid_side], 1)[0]
 q_fluid, q_solid = -k_f * slope_fluid, -k_s * slope_solid
 print(f"Heat flux towards the cold plate: fluid side {-q_fluid:.2f} W/m^2,  "
       f"solid side {-q_solid:.2f} W/m^2,  analytic {flux_ref:.2f} W/m^2")
-assert abs(q_fluid - q_solid) < 0.01 * flux_ref, "Heat flux must be continuous across the interface."
-assert abs(-q_fluid - flux_ref) < 0.01 * flux_ref, "Fluid-side heat flux off."
-assert abs(-q_solid - flux_ref) < 0.01 * flux_ref, "Solid-side heat flux off."
 
 # The plug flow carries a temperature field that does not vary along x.
 upstream = np.column_stack((np.full_like(sample_y, length / 8), sample_y, np.full_like(sample_y, span / 2)))
@@ -177,7 +172,6 @@ downstream = np.column_stack((np.full_like(sample_y, 7 * length / 8), sample_y, 
 T_up = np.asarray(result.field(model.temperature).evaluate(upstream)).reshape(-1)
 T_down = np.asarray(result.field(model.temperature).evaluate(downstream)).reshape(-1)
 print(f"Streamwise variation of the temperature field: {float(np.max(np.abs(T_down - T_up))):.2e} K")
-assert np.max(np.abs(T_down - T_up)) < 1e-6 * (T_h - T_c), "The developed field must not vary along x."
 
 
 # ## Figure

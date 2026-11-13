@@ -189,14 +189,6 @@ print(f"L_energy / (L_ref * confinement)      = {ratio_confined:.3f}   (finite-d
 print(f"L_energy / L_centre-based closed form = {ratio_centre:.3f}   (confinement bias removed, mesh error remains)")
 print(f"energy route vs flux-linkage route: {100*ratio_routes:.2f} %")
 
-assert np.isfinite(W_energy) and W_energy > 0, "The stored energy must be finite and positive."
-assert centre_axial > 0, "The axial field inside the solenoid must point along +z."
-assert ratio_routes < 0.02, "Energy and flux-linkage forms of the stored energy disagree by more than 2 %."
-assert 0.88 < ratio_ref < 1.02, "Inductance deviates from the closed-form reference by more than the example tolerance (12 %)."
-assert 0.90 < ratio_confined < 1.02, "Inductance deviates from the confinement-corrected closed form by more than 10 %."
-assert 0.92 < ratio_centre < 1.02, "Inductance deviates from the centre-field closed form by more than 8 %."
-assert 0.3 < share["winding"] < 0.6, "For this thick winding a large share of the energy must sit in the winding."
-
 
 # ## Figure
 

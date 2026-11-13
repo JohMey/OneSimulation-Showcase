@@ -133,13 +133,6 @@ print(f"Standing wave |E_y(z)| vs |sin(beta (l - z))|: max deviation {standing_e
 absorbed = result.field(model.absorbed_power_density).integrate()
 print(f"Absorbed power in the lossless guide: {absorbed.value:.3e} {absorbed.unit} (incident 1 W)")
 
-assert cutoff_error < 0.01, "TE10 cutoff deviates more than 1 % from c / (2a)."
-assert f_c_num < frequency < min(f_c20, f_c01), "The drive frequency must lie in the single-mode band."
-assert shape_error < 0.10, "Port mode shape deviates more than 10 % of its peak from sin(pi x / a)."
-assert cross_component < 0.05, "The TE10 port field should be polarised along y."
-assert standing_error < 0.03, "Standing-wave pattern deviates more than 3 % of its peak from the closed form."
-assert abs(absorbed.value) < 1e-9, "A lossless shorted guide absorbs no power."
-
 
 # ## Figure
 

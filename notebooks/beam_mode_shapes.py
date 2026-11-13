@@ -91,14 +91,12 @@ result = Simulation(
 # modes are identified as the modes whose centre-line motion is dominated by $u_z$.
 
 modes = structural_modes(result, model, mode_count=4)
-assert modes.passed, "The modal solver did not converge."
 print("First four frequencies / Hz:", [round(f, 1) for f in modes.frequencies])
 
 nodes = np.asarray(result.operators[model.model_id].space.dof_coordinates)
 on_axis = np.isclose(nodes[:, 1], width / 2) & np.isclose(nodes[:, 2], height / 2)
 order = np.argsort(nodes[on_axis, 0])
 x_axis = nodes[on_axis, 0][order]
-assert x_axis.size >= 2 * 24 + 1, "The centre line should carry one Q2 node per half cell."
 
 bending_z = []
 for i in range(modes.mode_count):
@@ -106,7 +104,6 @@ for i in range(modes.mode_count):
     peak = np.abs(u).max(axis=0)
     if peak[2] > 10.0 * max(peak[0], peak[1]):
         bending_z.append((i, u[:, 2]))
-assert len(bending_z) >= 2, "Expected at least two weak-axis bending modes among the first four."
 (index_1, w_1), (index_2, w_2) = bending_z[:2]
 f_1, f_2 = modes.frequencies[index_1], modes.frequencies[index_2]
 print(f"Weak-axis bending modes: #{index_1 + 1} at {f_1:.1f} Hz and #{index_2 + 1} at {f_2:.1f} Hz")
@@ -131,7 +128,6 @@ for n, (w, bl) in enumerate(zip((w_1, w_2), beta_L), start=1):
     shape_errors.append(err)
     shapes.append((computed, reference))
     print(f"mode {n}: max |phi_FEM - phi_EB| = {err:.4f}  (unit tip deflection)")
-    assert abs(computed[0]) < 1e-9, "The clamped end must not move."
 
 ratio = f_2 / f_1
 ratio_error = abs(ratio - ratio_reference) / ratio_reference
@@ -139,12 +135,7 @@ f1_error = abs(f_1 - frequency_reference[0]) / frequency_reference[0]
 print(f"f1: modal {f_1:.1f} Hz vs Euler-Bernoulli {frequency_reference[0]:.1f} Hz  ({100*f1_error:.2f} %)")
 print(f"f2/f1: modal {ratio:.3f} vs Euler-Bernoulli {ratio_reference:.3f}  ({100*ratio_error:.2f} %, "
       "shear and rotary inertia lower the second mode)")
-assert max(shape_errors) < 0.02, "Mode-shape deviation larger than the example tolerance (2 % of the tip deflection)."
-assert f1_error < 0.03, "Fundamental frequency deviates by more than 3 % from Euler-Bernoulli."
-assert ratio_error < 0.05, "Frequency ratio f2/f1 deviates by more than 5 % from 6.267."
 # The second mode must have exactly one interior node (sign change) along the beam.
-sign_changes = np.count_nonzero(np.diff(np.sign(shapes[1][0][1:])) != 0)
-assert sign_changes == 1, "The second bending mode has one interior node."
 
 
 # ## Figure

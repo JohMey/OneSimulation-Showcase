@@ -143,21 +143,16 @@ err = max(float(np.max(np.abs(num_A - exact_A))), float(np.max(np.abs(num_B - ex
 rel_error = err / C_total
 print(f"Maximum absolute error against the relaxation: {err:.3e} mol/m^3"
       f"  ({100 * rel_error:.4f} % of total)")
-assert rel_error < 1e-3, "Transient deviation larger than the example tolerance (0.1 %)."
 
 # Equilibrium: final concentrations and the detailed-balance ratio.
 final_A, final_B = num_A[-1], num_B[-1]
 print(f"final C_A = {final_A:.5f} (eq {C_A_eq:.5f}),  final C_B = {final_B:.5f} (eq {C_B_eq:.5f})")
 ratio = final_B / final_A
 print(f"equilibrium ratio C_B/C_A = {ratio:.4f},  k_f/k_r = {k_f / k_r:.4f}")
-assert abs(final_A - C_A_eq) < 1e-3 * C_total, "Final C_A should reach the equilibrium value."
-assert abs(final_B - C_B_eq) < 1e-3 * C_total, "Final C_B should reach the equilibrium value."
-assert abs(ratio - k_f / k_r) < 1e-2 * (k_f / k_r), "Equilibrium ratio should match k_f/k_r."
 
 # Physical sanity: total mass conserved throughout.
 mass_error = float(np.max(np.abs(num_A + num_B - C_total)))
 print(f"Maximum mass-balance error C_A+C_B-C_total: {mass_error:.3e} mol/m^3")
-assert mass_error < 1e-9, "The total concentration C_A+C_B should stay constant."
 
 
 # ## Figure

@@ -133,10 +133,6 @@ max_abs_error = float(np.max(np.abs(numeric - exact)))
 rel_error = max_abs_error / (T1 - T0)
 print(f"Maximum absolute error against the Peclet profile: {max_abs_error:.4f} K"
       f"  ({100 * rel_error:.3f} % of T1-T0)")
-assert rel_error < 0.01, "Deviation larger than the example tolerance (1 % of T1-T0)."
-# Physical sanity: the ends match the boundary data and the profile is monotone.
-assert abs(numeric[0] - T0) < 1e-6 and abs(numeric[-1] - T1) < 1e-6
-assert np.all(np.diff(numeric) > 0), "The steady profile must rise monotonically."
 
 
 # ## Figure

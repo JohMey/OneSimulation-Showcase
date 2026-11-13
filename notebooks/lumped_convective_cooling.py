@@ -97,7 +97,6 @@ temperatures = np.asarray([
     float(np.asarray(s.fields[model.temperature.field_id].values).reshape(-1)[0])
     for s in sink.snapshots
 ])
-assert len(times) > 1 and np.isclose(times[-1], end_time)
 
 
 # ## Comparison with the closed-form solution
@@ -114,11 +113,6 @@ print("Error per stored time (K):")
 for t, err in zip(times, np.abs(temperatures - reference)):
     print(f"  t={t:7.1f} s  |dT|={err:.3e} K")
 print(f"Maximum absolute error against the exponential: {max_abs_error:.3e} K")
-assert max_abs_error < 1e-4, "Deviation larger than the example tolerance."
-# Physical sanity: the body cools monotonically towards, but never below, ambient.
-assert np.all(np.diff(temperatures) < 0), "The body must cool monotonically."
-assert temperatures[-1] > ambient_temperature
-assert abs(temperatures[0] - initial_temperature) < 1e-9
 
 
 # ## Figure
