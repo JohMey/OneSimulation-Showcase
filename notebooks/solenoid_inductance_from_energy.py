@@ -46,6 +46,25 @@ closed-form long-solenoid inductance with Nagaoka's end correction.
 from importlib.metadata import version
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
+from cycler import cycler
+from matplotlib.colors import LinearSegmentedColormap
+
+# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
+CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
+FIELD_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
+DIVERGING_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
+for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
+    if _cmap.name not in matplotlib.colormaps:
+        matplotlib.colormaps.register(_cmap)
+plt.rcParams.update({
+    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
+    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
+    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
+    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
+})
 from scipy.special import ellipe, ellipk
 
 from onesim.cad.d3 import Cylinder
@@ -210,7 +229,7 @@ ax1.legend(fontsize=8)
 labels = ("field energy\n$2W/I^2$", "flux linkage\n$\\int J\\cdot A\\,dV/I^2$",
           "closed form\n$K\\,\\mu_0 n^2 \\ell A_\\mathrm{eff}$", "closed form\nwith FEM centre field")
 values = np.array([L_energy, L_linkage, L_ref, L_centre]) * 1e6
-ax2.bar(labels, values, color=("#A85539", "#3887c5", "#214D43", "#6b8e23"), width=0.6)
+ax2.bar(labels, values, color=("#A85539", "#336B57", "#214D43", "#6b8e23"), width=0.6)
 for i, v in enumerate(values):
     ax2.text(i, v * 1.01, f"{v:.0f} uH", ha="center", va="bottom", fontsize=9)
 ax2.set_ylim(0, 1.15 * values.max())

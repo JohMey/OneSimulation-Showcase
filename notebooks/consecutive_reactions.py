@@ -34,6 +34,25 @@ from importlib.metadata import version
 
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
+from cycler import cycler
+from matplotlib.colors import LinearSegmentedColormap
+
+# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
+CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
+FIELD_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
+DIVERGING_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
+for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
+    if _cmap.name not in matplotlib.colormaps:
+        matplotlib.colormaps.register(_cmap)
+plt.rcParams.update({
+    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
+    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
+    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
+    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
+})
 
 from onesim.cad.geometry import LumpedDomain
 from onesim.meshing import LumpedMesh
@@ -167,10 +186,10 @@ fine_B = C_A0 * k1 / (k2 - k1) * (np.exp(-k1 * t_fine) - np.exp(-k2 * t_fine))
 fine_C = C_A0 - fine_A - fine_B
 ax.plot(t_fine, fine_A, color="#b5651d", lw=1.6, label="C_A exact")
 ax.plot(t_fine, fine_B, color="#1f6f78", lw=1.6, label="C_B exact")
-ax.plot(t_fine, fine_C, color="#6a4c93", lw=1.6, label="C_C exact")
+ax.plot(t_fine, fine_C, color="#CD9561", lw=1.6, label="C_C exact")
 ax.plot(times, num_A, "o", color="#b5651d", ms=3)
 ax.plot(times, num_B, "s", color="#1f6f78", ms=3)
-ax.plot(times, num_C, "^", color="#6a4c93", ms=3)
+ax.plot(times, num_C, "^", color="#CD9561", ms=3)
 ax.axvline(t_peak, color="#1f6f78", ls=":", lw=1.0)
 ax.set(xlabel="Time / s", ylabel="Concentration / (mol/m$^3$)",
        title="Consecutive reactions — lines: series solution, markers: OneSimulation 0D kinetics")

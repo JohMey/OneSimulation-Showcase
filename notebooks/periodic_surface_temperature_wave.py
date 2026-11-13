@@ -35,6 +35,25 @@ wave (the thermal analogue of the electromagnetic skin effect).
 from importlib.metadata import version
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
+from cycler import cycler
+from matplotlib.colors import LinearSegmentedColormap
+
+# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
+CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
+FIELD_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
+DIVERGING_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
+for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
+    if _cmap.name not in matplotlib.colormaps:
+        matplotlib.colormaps.register(_cmap)
+plt.rcParams.update({
+    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
+    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
+    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
+    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
+})
 
 from onesim.cad.d3 import Box
 from onesim.materials import IsotropicSolid
@@ -194,9 +213,9 @@ ax.set_facecolor("#fffaf2"); ax.grid(alpha=0.25)
 ax.plot(x_cm, A * np.exp(-sample_x / d), color="#214D43", lw=1.8, label=r"theory $A\,e^{-x/d}$")
 ax.plot(x_cm, amplitude, "o", color="#A85539", ms=3, label="OneSimulation amplitude")
 ax2 = ax.twinx()
-ax2.plot(x_cm, sample_x / d, color="#4a7fb5", lw=1.4, ls="--", label=r"theory lag $x/d$")
-ax2.plot(x_cm, phase_lag, "s", color="#4a7fb5", ms=3, mfc="none", label="OneSimulation phase lag")
-ax2.set_ylabel("Phase lag / rad", color="#4a7fb5")
+ax2.plot(x_cm, sample_x / d, color="#5F9175", lw=1.4, ls="--", label=r"theory lag $x/d$")
+ax2.plot(x_cm, phase_lag, "s", color="#5F9175", ms=3, mfc="none", label="OneSimulation phase lag")
+ax2.set_ylabel("Phase lag / rad", color="#5F9175")
 ax.axvline(100 * d, color="#9a8f7d", ls=":", lw=1.2)
 ax.text(100 * d + 0.5, 0.75 * A, r"$x=d$", color="#9a8f7d")
 ax.set(xlabel="Depth x / cm", ylabel="Temperature amplitude / K",
@@ -208,7 +227,7 @@ ax.legend(lines[0] + lines2[0], lines[1] + lines2[1], loc="center right", fontsi
 ax = axes[1]
 ax.set_facecolor("#fffaf2"); ax.grid(alpha=0.25)
 hours = (last - last[0]) / 3600.0
-colors = plt.cm.copper(np.linspace(0.2, 0.85, 4))
+colors = FIELD_CMAP(np.linspace(0.2, 0.85, 4))
 for depth_factor, c in zip((0.0, 0.5, 1.0, 2.0), colors):
     i = int(np.argmin(np.abs(sample_x - depth_factor * d)))
     ax.plot(hours, T_m + A * np.exp(-sample_x[i] / d) * np.sin(omega * last - sample_x[i] / d),

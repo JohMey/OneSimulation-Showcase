@@ -64,6 +64,25 @@ from importlib.metadata import version
 import time
 
 import matplotlib.pyplot as plt
+import matplotlib
+from cycler import cycler
+from matplotlib.colors import LinearSegmentedColormap
+
+# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
+CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
+FIELD_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
+DIVERGING_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
+for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
+    if _cmap.name not in matplotlib.colormaps:
+        matplotlib.colormaps.register(_cmap)
+plt.rcParams.update({
+    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
+    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
+    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
+    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
+})
 import numpy as np
 from matplotlib import cm, colors
 from matplotlib.tri import Triangulation
@@ -507,7 +526,7 @@ for theta_deg in (0.0, 90.0, 180.0):
 
 coords, nodal, groups = data["coordinates"], out["nodal"], data["groups"]
 outer_names = [f"outer_{s:02d}" for s in range(data["n_theta"])]
-cmap = cm.plasma
+cmap = FIELD_CMAP
 norm = colors.Normalize(vmin=nodal.min(), vmax=nodal.max())
 cream = "#fbf5eb"
 fig = plt.figure(figsize=(17, 6.2), constrained_layout=True)
@@ -550,7 +569,7 @@ ax_q = fig.add_subplot(layout[0, 2])
 ax_q.set_facecolor("#fffaf2")
 Q_vals = study["Q_in"][0]
 ax_q.plot(levels, Q_vals, "o-", color="#b5532a", label="Q through the bore")
-ax_q.plot(levels, study["Q_out"][0], "s--", mfc="none", color="#5a4a8a", label="Q to the air")
+ax_q.plot(levels, study["Q_out"][0], "s--", mfc="none", color="#8B9A8D", label="Q to the air")
 ax_q.axhline(Q_ext, color="#7a3b12", lw=1.0, ls=":", label=f"Richardson estimate {Q_ext:.4f} W")
 ax_q.set_xticks(levels)
 ax_q.set(xlabel="mesh level", ylabel="heat rate / W", title="Mesh study of the cooling power")
@@ -562,7 +581,7 @@ ax_h.set_facecolor("#fffaf2")
 T_outer, o_pts = out["h_outer"]
 h_local = air_flux(o_pts, T_outer) / np.maximum(T_outer - T_air, 1e-9)
 sc = ax_h.scatter(np.degrees(incidence(o_pts)), h_local, c=np.hypot(o_pts[:, 1], o_pts[:, 2]) / mm,
-                  s=2, cmap="viridis")
+                  s=2, cmap=FIELD_CMAP)
 fig.colorbar(sc, ax=ax_h, label="radius / mm")
 ax_h.set(xlabel="angle from the bottom theta / deg", ylabel="h_air / (W/(m^2 K))",
          title="Local natural-convection coefficient")

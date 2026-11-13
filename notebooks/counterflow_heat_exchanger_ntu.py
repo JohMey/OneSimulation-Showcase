@@ -49,6 +49,25 @@ The OneSimulation solution is checked against the closed-form counterflow effect
 from importlib.metadata import version
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
+from cycler import cycler
+from matplotlib.colors import LinearSegmentedColormap
+
+# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
+CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
+FIELD_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
+DIVERGING_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
+for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
+    if _cmap.name not in matplotlib.colormaps:
+        matplotlib.colormaps.register(_cmap)
+plt.rcParams.update({
+    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
+    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
+    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
+    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
+})
 
 from onesim.cad.d3 import Box
 from onesim.materials import IsotropicSolid
@@ -221,9 +240,9 @@ fig.patch.set_facecolor(cream); ax.set_facecolor("#fffaf2"); ax.grid(alpha=0.25)
 dense_x = np.linspace(0.0, L, 300)
 dense_hot, dense_cold = reference_profiles(dense_x)
 ax.plot(dense_x * 1000, dense_hot, color="#A85539", lw=1.7, label="closed form, hot stream (flows to the right)")
-ax.plot(dense_x * 1000, dense_cold, color="#3f6b8a", lw=1.7, label="closed form, cold stream (flows to the left)")
+ax.plot(dense_x * 1000, dense_cold, color="#39715E", lw=1.7, label="closed form, cold stream (flows to the left)")
 ax.plot(sample_x * 1000, hot_profile, "o", color="#c56838", ms=4, label="OneSimulation, hot bulk temperature")
-ax.plot(sample_x * 1000, cold_profile, "s", color="#5b8fb3", ms=4, label="OneSimulation, cold bulk temperature")
+ax.plot(sample_x * 1000, cold_profile, "s", color="#83B9AE", ms=4, label="OneSimulation, cold bulk temperature")
 ax.set(xlabel="Position along the exchanger x / mm", ylabel="Bulk temperature / K",
        title=f"Counterflow heat exchanger: NTU = {NTU:.1f}, C_r = {C_r:.1f}, effectiveness {eps:.3f}")
 ax.legend(loc="center right", fontsize=9)

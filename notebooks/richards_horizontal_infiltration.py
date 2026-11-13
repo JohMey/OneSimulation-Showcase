@@ -54,6 +54,25 @@ square-root-of-time law of the cumulative infiltration.
 from importlib.metadata import version
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
+from cycler import cycler
+from matplotlib.colors import LinearSegmentedColormap
+
+# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
+CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
+FIELD_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
+DIVERGING_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
+for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
+    if _cmap.name not in matplotlib.colormaps:
+        matplotlib.colormaps.register(_cmap)
+plt.rcParams.update({
+    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
+    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
+    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
+    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
+})
 from scipy.integrate import solve_ivp
 from scipy.optimize import brentq
 
@@ -242,7 +261,7 @@ print(f"Cumulative infiltration for t >= {probe_times[0]:.0f} s: max |I / (S sqr
 cream = "#fbf5eb"
 fig, (ax_x, ax_phi, ax_i) = plt.subplots(1, 3, figsize=(15, 4.6), constrained_layout=True)
 fig.patch.set_facecolor(cream)
-colors = plt.cm.copper(np.linspace(0.2, 0.85, len(profiles)))
+colors = FIELD_CMAP(np.linspace(0.2, 0.85, len(profiles)))
 x_fine = np.linspace(0.0, L, 1500)
 for (t_probe, theta_num), c in zip(profiles.items(), colors):
     ax_x.plot(x_fine * 1e2, theta_similarity(x_fine / np.sqrt(t_probe)), "-", color=c, lw=1.5)

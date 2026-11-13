@@ -36,6 +36,25 @@ profile (half-parabola with a shear-free surface).
 from importlib.metadata import version
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
+from cycler import cycler
+from matplotlib.colors import LinearSegmentedColormap
+
+# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
+CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
+FIELD_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
+DIVERGING_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
+for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
+    if _cmap.name not in matplotlib.colormaps:
+        matplotlib.colormaps.register(_cmap)
+plt.rcParams.update({
+    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
+    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
+    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
+    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
+})
 from scipy.integrate import simpson
 
 from onesim.cad.d3 import Box
@@ -184,8 +203,8 @@ ax.grid(alpha=0.25)
 ax.plot(u_exact * 1000, y_samples * 1000, color="#214D43", lw=1.8, label="Nusselt half-parabola")
 ax.plot(u_numeric * 1000, y_samples * 1000, "o", color="#A85539", ms=4, label="OneSimulation 3D FEM")
 ax.axhline(0.0, color="#555", lw=2)
-ax.axhline(h * 1000, color="#4a7fb5", lw=1.5, ls="--")
-ax.text(0.02 * 1000 * u_surface_reference, h * 1000 * 1.02, "free surface (shear-free)", color="#4a7fb5", fontsize=9)
+ax.axhline(h * 1000, color="#5F9175", lw=1.5, ls="--")
+ax.text(0.02 * 1000 * u_surface_reference, h * 1000 * 1.02, "free surface (shear-free)", color="#5F9175", fontsize=9)
 ax.text(0.02 * 1000 * u_surface_reference, -0.09 * h * 1000, "inclined plane (no slip)", color="#555", fontsize=9)
 ax.set(xlabel="Streamwise velocity u / (mm/s)", ylabel="Distance from the plane y / mm",
        title=f"Gravity-driven film on a {np.rad2deg(theta):.0f}° incline: velocity profile")

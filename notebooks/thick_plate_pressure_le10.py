@@ -59,6 +59,25 @@ from importlib.metadata import version
 from itertools import product
 
 import matplotlib.pyplot as plt
+import matplotlib
+from cycler import cycler
+from matplotlib.colors import LinearSegmentedColormap
+
+# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
+CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
+FIELD_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
+DIVERGING_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
+for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
+    if _cmap.name not in matplotlib.colormaps:
+        matplotlib.colormaps.register(_cmap)
+plt.rcParams.update({
+    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
+    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
+    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
+    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
+})
 import numpy as np
 from matplotlib.colors import TwoSlopeNorm
 
@@ -321,7 +340,7 @@ ax = fig.add_subplot(grid[0])
 ax.set_facecolor("#fffaf2")
 levels = np.linspace(-6, 16, 45)
 im = ax.tricontourf(top_points[:, 0], top_points[:, 1], top_tri, top_syy / 1e6, levels=levels,
-                    cmap="RdBu_r", norm=TwoSlopeNorm(vmin=-6, vcenter=0, vmax=16), extend="both")
+                    cmap=DIVERGING_CMAP, norm=TwoSlopeNorm(vmin=-6, vcenter=0, vmax=16), extend="both")
 fig.colorbar(im, ax=ax, label="sigma_yy / MPa", ticks=np.arange(-6, 17, 2))
 ax.plot(*point_D[:2], "k*", ms=11)
 ax.annotate("D", point_D[:2], xytext=(6, 6), textcoords="offset points")
@@ -334,7 +353,7 @@ ax = fig.add_subplot(grid[1])
 ax.set_facecolor("#fffaf2")
 levels = np.linspace(-8, 8, 33)
 im = ax.tricontourf(cut_points[:, 0], cut_points[:, 2], cut_tri, cut_syy / 1e6,
-                    levels=levels, cmap="RdBu_r", extend="both")
+                    levels=levels, cmap=DIVERGING_CMAP, extend="both")
 fig.colorbar(im, ax=ax, label="sigma_yy / MPa", ticks=np.arange(-8, 9, 2))
 ax.plot(point_D[0], point_D[2], "k*", ms=11, clip_on=False)
 ax.plot([a_out, a_out], [-0.015, 0.015], color="k", lw=5, solid_capstyle="butt", clip_on=False)

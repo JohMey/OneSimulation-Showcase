@@ -57,6 +57,25 @@ from importlib.metadata import version
 import time
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
+from cycler import cycler
+from matplotlib.colors import LinearSegmentedColormap
+
+# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
+CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
+FIELD_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
+DIVERGING_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
+for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
+    if _cmap.name not in matplotlib.colormaps:
+        matplotlib.colormaps.register(_cmap)
+plt.rcParams.update({
+    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
+    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
+    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
+    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
+})
 import netgen.occ as occ
 from scipy.spatial import cKDTree
 
@@ -453,7 +472,7 @@ finest = device[-1]
 Rg, Zg, Vs = section(finest["V"], R_air, 0.0, H_air, 201, 201, outside_metal)
 ax = axes[0, 0]
 Rm, Zm, Vm = np.hstack((-Rg[:, :0:-1], Rg)), np.hstack((Zg[:, :0:-1], Zg)), np.hstack((Vs[:, :0:-1], Vs))
-im = ax.contourf(100 * Rm, 100 * Zm, Vm, levels=np.linspace(0, V0, 41), cmap="RdYlBu_r")
+im = ax.contourf(100 * Rm, 100 * Zm, Vm, levels=np.linspace(0, V0, 41), cmap=DIVERGING_CMAP)
 ax.contour(100 * Rm, 100 * Zm, Vm, levels=np.linspace(0.05, 0.95, 19), colors="k", linewidths=0.5)
 metal_outline(ax)
 ax.set_aspect("equal")
@@ -462,7 +481,7 @@ fig.colorbar(im, ax=ax, label="V / V", shrink=0.85)
 
 ax = axes[0, 1]
 Rg, Zg, Es = section(finest["E"], 0.13, 0.065, 0.135, 261, 141, outside_metal)
-im = ax.contourf(100 * Rg, 100 * Zg, np.log10(Es), levels=50, cmap="viridis")
+im = ax.contourf(100 * Rg, 100 * Zg, np.log10(Es), levels=50, cmap=FIELD_CMAP)
 ax.contour(100 * Rg, 100 * Zg, section(finest["V"], 0.13, 0.065, 0.135, 261, 141, outside_metal)[2],
            levels=np.linspace(0.05, 0.95, 19), colors="w", linewidths=0.5)
 metal_outline(ax, mirror=False)
@@ -473,7 +492,7 @@ fig.colorbar(im, ax=ax, shrink=0.85)
 ax = axes[1, 0]
 ax.grid(alpha=0.25)
 tets = [run["tets"] for run in bench_N]
-ax.plot(tets, np.array([run["C"] for run in bench_N]) * 1e12, "v-", color="#3887c5", label="FEM, outer D.n = 0 (lower bound in R)")
+ax.plot(tets, np.array([run["C"] for run in bench_N]) * 1e12, "v-", color="#336B57", label="FEM, outer D.n = 0 (lower bound in R)")
 ax.plot(tets, np.array([run["C"] for run in bench_D]) * 1e12, "^-", color="#A85539", label="FEM, outer V = V0/2 (upper bound in R)")
 ax.plot(tets, np.array(bench_est) * 1e12, "o-", color="#214D43", label="(C_N + 2 C_D) / 3")
 ax.axhline(C_love * 1e12, color="k", lw=1.4, label="Love's integral equation (exact)")
@@ -487,7 +506,7 @@ ax = axes[1, 1]
 ax.grid(alpha=0.25)
 tets = [run["tets"] for run in device]
 ax.plot(tets, np.array([run["C_W"] for run in device]) * 1e12, "o-", color="#A85539", label="from field energy 2W/V0^2")
-ax.plot(tets, np.array([run["C_Q"] for run in device]) * 1e12, "s--", color="#3887c5", label="from electrode charge Q/V0")
+ax.plot(tets, np.array([run["C_Q"] for run in device]) * 1e12, "s--", color="#336B57", label="from electrode charge Q/V0")
 ax.plot([device_wide["tets"]], [device_wide["C_W"] * 1e12], "D", color="#6b8e23", label="air cylinder 40 cm (coarse mesh)")
 ax.set_xscale("log")
 ax.set(xlabel="tetrahedra (quarter model)", ylabel="C / pF",

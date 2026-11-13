@@ -54,6 +54,25 @@ from importlib.metadata import version
 import time
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
+from cycler import cycler
+from matplotlib.colors import LinearSegmentedColormap
+
+# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
+CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
+FIELD_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
+DIVERGING_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
+for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
+    if _cmap.name not in matplotlib.colormaps:
+        matplotlib.colormaps.register(_cmap)
+plt.rcParams.update({
+    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
+    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
+    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
+    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
+})
 from scipy.integrate import quad
 from scipy.spatial import Delaunay
 from scipy.special import hyp2f1
@@ -352,7 +371,7 @@ for ax, run, title in ((axes[0, 0], final, "s = 20 cm (half side 10 a)"),
     X, Y, Bmag, Az = field_map(run)
     off = run["s"] / 2
     im = ax.contourf(1e2 * (X - off), 1e2 * (Y - off), np.log10(1e6 * np.maximum(Bmag, 1e-9)),
-                     levels=np.linspace(-0.6, 1.35, 60), cmap="magma", extend="both")
+                     levels=np.linspace(-0.6, 1.35, 60), cmap=FIELD_CMAP, extend="both")
     ax.contour(1e2 * (X - off), 1e2 * (Y - off), Az, levels=14, colors="white", linewidths=0.7)
     ax.add_patch(plt.Circle((0, 0), 1e2 * wire_radius, fill=False, color="#7fd3c4", lw=1.2, ls="--"))
     ax.set_aspect("equal")
@@ -364,7 +383,7 @@ ax.grid(alpha=0.25)
 r_line = np.linspace(0.02, 9.9, 300) * wire_radius
 text = np.where(r_line < wire_radius, mu0 * current * r_line / (2 * np.pi * wire_radius**2), mu0 * current / (2 * np.pi * r_line))
 ax.plot(r_line / wire_radius, 1e6 * text, color="#214D43", lw=1.2, ls=":", label="textbook law (unbounded)")
-for name, (dx, dy), colour in (("towards side", (1, 0), "#A85539"), ("towards corner", (1 / np.sqrt(2), 1 / np.sqrt(2)), "#3887c5")):
+for name, (dx, dy), colour in (("towards side", (1, 0), "#A85539"), ("towards corner", (1 / np.sqrt(2), 1 / np.sqrt(2)), "#336B57")):
     rr = np.linspace(0.02, 9.9 if dy == 0 else 13.9, 300) * wire_radius
     Bx, By = exact_B(c + rr * dx, c + rr * dy, side, c)
     ax.plot(rr / wire_radius, 1e6 * np.hypot(Bx, By), color=colour, lw=1.8, label=f"exact, {name}")
@@ -384,7 +403,7 @@ ax = axes[1, 1]
 ax.grid(alpha=0.25, which="both")
 n_vals = np.array([run["n"] for run in runs])
 ax.loglog(n_vals, [abs(run["L_energy"] / L_ref - 1) for run in runs], "o-", color="#A85539", label="L' from field energy")
-ax.loglog(n_vals, [abs(run["L_linkage"] / L_ref - 1) for run in runs], "s--", color="#3887c5", label="L' from flux linkage")
+ax.loglog(n_vals, [abs(run["L_linkage"] / L_ref - 1) for run in runs], "s--", color="#336B57", label="L' from flux linkage")
 ax.loglog(n_vals, abs(runs[0]["L_energy"] / L_ref - 1) * (n_vals[0] / n_vals) ** 2, color="grey", lw=0.8, ls=":", label="slope -2")
 ax.set(xlabel="cells around the wire circumference", ylabel="relative deviation from exact L'",
        title=f"Mesh convergence (exact L' = {L_ref*1e9:.2f} nH/m)")

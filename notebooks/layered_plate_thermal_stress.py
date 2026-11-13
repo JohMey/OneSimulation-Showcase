@@ -74,6 +74,25 @@ with the section equilibrium and a mesh study at the free edge.
 from importlib.metadata import version
 
 import matplotlib.pyplot as plt
+import matplotlib
+from cycler import cycler
+from matplotlib.colors import LinearSegmentedColormap
+
+# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
+CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
+FIELD_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
+DIVERGING_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
+for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
+    if _cmap.name not in matplotlib.colormaps:
+        matplotlib.colormaps.register(_cmap)
+plt.rcParams.update({
+    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
+    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
+    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
+    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
+})
 import numpy as np
 
 from onesim.cad.d3 import TrilinearHexahedron
@@ -424,7 +443,7 @@ fig.patch.set_facecolor(cream)
 ax = panels[0]
 levels = np.linspace(-120, 120, 49)
 im = ax.tricontourf(points[:, 0] * 1e3, points[:, 1] * 1e3, triangles, sxx / 1e6,
-                    levels=levels, cmap="RdBu_r", extend="both")
+                    levels=levels, cmap=DIVERGING_CMAP, extend="both")
 ax.axhline(h_sub * 1e3, color="k", lw=0.6)
 fig.colorbar(im, ax=ax, label="sigma_xx / MPa", ticks=np.arange(-120, 121, 40))
 ax.set(xlabel="x / mm", ylabel="y / mm", title="Axial stress sigma_xx in the section", aspect="equal")
@@ -432,7 +451,7 @@ ax.set(xlabel="x / mm", ylabel="y / mm", title="Axial stress sigma_xx in the sec
 ax = panels[1]
 levels = np.linspace(-100, 100, 41)
 im = ax.tricontourf(points[:, 0] * 1e3, points[:, 1] * 1e3, triangles, syy / 1e6,
-                    levels=levels, cmap="PuOr_r", extend="both")
+                    levels=levels, cmap=DIVERGING_CMAP, extend="both")
 ax.axhline(h_sub * 1e3, color="k", lw=0.6)
 fig.colorbar(im, ax=ax, label="sigma_yy / MPa", ticks=np.arange(-100, 101, 25))
 ax.set(xlabel="x / mm", ylabel="y / mm", xlim=(0, 3), ylim=(7, 12),

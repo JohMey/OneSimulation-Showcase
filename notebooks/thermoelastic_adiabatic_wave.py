@@ -49,6 +49,25 @@ The OneSimulation solution is checked against the closed-form adiabatic wave spe
 from importlib.metadata import version
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
+from cycler import cycler
+from matplotlib.colors import LinearSegmentedColormap
+
+# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
+CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
+FIELD_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
+DIVERGING_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
+for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
+    if _cmap.name not in matplotlib.colormaps:
+        matplotlib.colormaps.register(_cmap)
+plt.rcParams.update({
+    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
+    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
+    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
+    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
+})
 from scipy.optimize import curve_fit
 
 from onesim.physics.multiphysics.thermomechanical import ReversibleThermoelasticProvider
@@ -185,7 +204,7 @@ axes[0].plot(dense_t * 1e6, np.cos(omega_iso * dense_t), color="#9a8f7d", lw=1.2
              label=r"closed form, isothermal $c_\mathrm{iso}$")
 axes[0].plot(sample_times * 1e6, velocity_coupled / v0, "o", color="#A85539", ms=4,
              label="OneSimulation, thermoelastic")
-axes[0].plot(sample_times * 1e6, velocity_elastic / v0, "s", color="#5b8fb3", ms=3.5,
+axes[0].plot(sample_times * 1e6, velocity_elastic / v0, "s", color="#83B9AE", ms=3.5,
              label=r"OneSimulation, $\alpha=0$")
 axes[0].set(xlabel="Time / us", ylabel=r"Velocity amplitude / $v_0$",
             title="Standing wave in an aluminium bar: adiabatic versus isothermal wave speed")

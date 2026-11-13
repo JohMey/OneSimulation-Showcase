@@ -32,6 +32,25 @@ frequencies and mode shapes of a one-dimensional acoustic cavity.
 from importlib.metadata import version
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
+from cycler import cycler
+from matplotlib.colors import LinearSegmentedColormap
+
+# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
+CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
+FIELD_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
+DIVERGING_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
+for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
+    if _cmap.name not in matplotlib.colormaps:
+        matplotlib.colormaps.register(_cmap)
+plt.rcParams.update({
+    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
+    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
+    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
+    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
+})
 
 from onesim.cad.d1 import Line
 from onesim.meshing import StructuredLineMesher
@@ -153,7 +172,7 @@ for n in modes:
 cream = "#fbf5eb"
 fig, (ax_shape, ax_trace) = plt.subplots(1, 2, figsize=(11, 4.6), constrained_layout=True)
 fig.patch.set_facecolor(cream)
-colors = plt.cm.viridis(np.linspace(0.15, 0.75, len(modes)))
+colors = FIELD_CMAP(np.linspace(0.15, 0.75, len(modes)))
 for ax in (ax_shape, ax_trace):
     ax.set_facecolor("#fffaf2")
 

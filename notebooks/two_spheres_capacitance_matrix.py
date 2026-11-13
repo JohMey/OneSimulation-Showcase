@@ -49,6 +49,25 @@ import time
 
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
+from cycler import cycler
+from matplotlib.colors import LinearSegmentedColormap
+
+# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
+CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
+FIELD_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
+DIVERGING_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
+for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
+    if _cmap.name not in matplotlib.colormaps:
+        matplotlib.colormaps.register(_cmap)
+plt.rcParams.update({
+    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
+    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
+    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
+    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
+})
 from matplotlib.colors import LogNorm
 from matplotlib.ticker import NullFormatter
 
@@ -418,7 +437,7 @@ for ax in (ax_map, ax_mesh, ax_radius):
     ax.set_facecolor("#fffaf2")
 
 # Logarithmic colour scale: the field spans two decades between the gap and the far side.
-image = ax_map.pcolormesh(X_full, Y_full, E_full, cmap="magma", shading="gouraud",
+image = ax_map.pcolormesh(X_full, Y_full, E_full, cmap=FIELD_CMAP, shading="gouraud",
                           norm=LogNorm(vmin=np.nanpercentile(E_full, 1), vmax=np.nanmax(E_full)))
 ax_map.contour(X_full, Y_full, V_full, levels=np.linspace(0.05, 0.95, 19),
                colors="white", linewidths=0.7, alpha=0.9)
@@ -432,7 +451,7 @@ ax_map.set(xlim=(gx[0], gx[-1]), ylim=(-gy[-1], gy[-1]), xlabel="x / m", ylabel=
 fig.colorbar(image, ax=ax_map, label="|E| / (V/m)", shrink=0.8)
 
 cells = np.array([row["cells"] for row in study])
-colors = {"C11": "#A85539", "C22": "#214D43", "C12": "#3887c5"}
+colors = {"C11": "#A85539", "C22": "#214D43", "C12": "#336B57"}
 for name, i, j in entries[:3]:
     ax_mesh.loglog(cells, [abs(rel(row["energy"][i, j], C_ref[i, j])) for row in study], "o-",
                    color=colors[name], label=f"{name}, field energy")

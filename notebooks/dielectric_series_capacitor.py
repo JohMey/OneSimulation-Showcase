@@ -37,6 +37,25 @@ from importlib.metadata import version
 from dataclasses import dataclass
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
+from cycler import cycler
+from matplotlib.colors import LinearSegmentedColormap
+
+# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
+CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
+FIELD_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
+DIVERGING_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
+for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
+    if _cmap.name not in matplotlib.colormaps:
+        matplotlib.colormaps.register(_cmap)
+plt.rcParams.update({
+    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
+    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
+    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
+    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
+})
 
 from onesim.cad.d3 import Box
 from onesim.meshing import StructuredHexahedralMesher
@@ -163,7 +182,7 @@ ax1.plot(xs * 1000, V_analytic(xs), color="#6b442f", label="analytic")
 ax1.plot(x * 1000, V_num, "o", color="#c56838", ms=4, label="OneSimulation FEM")
 ax1.set(ylabel="Potential / V", title="Potential V(x)"); ax1.legend()
 ax2.plot(xs * 1000, np.where(xs <= d1, E1, E2), color="#2f5b6b", label="analytic")
-ax2.plot(x * 1000, Ex_num, "o", color="#3887c5", ms=4, label="OneSimulation FEM")
+ax2.plot(x * 1000, Ex_num, "o", color="#336B57", ms=4, label="OneSimulation FEM")
 ax2.set(ylabel="Axial field E_x / (V/m)", title="Axial field E_x(x)"); ax2.legend()
 plt.show()
 

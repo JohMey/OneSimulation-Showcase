@@ -29,6 +29,25 @@ The OneSimulation solution is checked against the known closed-form Laplace solu
 from importlib.metadata import version
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
+from cycler import cycler
+from matplotlib.colors import LinearSegmentedColormap
+
+# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
+CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
+FIELD_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
+DIVERGING_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
+for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
+    if _cmap.name not in matplotlib.colormaps:
+        matplotlib.colormaps.register(_cmap)
+plt.rcParams.update({
+    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
+    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
+    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
+    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
+})
 
 from onesim.cad.d3 import Box
 from onesim.materials import IsotropicSolid
@@ -140,7 +159,7 @@ fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(9.5, 4.2), constrained_layout=True
 fig.patch.set_facecolor(cream)
 # Left: computed field as a filled contour map.
 field = num.reshape(gx.shape)
-cf = ax0.contourf(gx * 1000, gy * 1000, field, levels=16, cmap="inferno")
+cf = ax0.contourf(gx * 1000, gy * 1000, field, levels=16, cmap=FIELD_CMAP)
 ax0.set(xlabel="x / mm", ylabel="y / mm", title="OneSimulation FEM  T(x, y)")
 ax0.set_aspect("equal")
 fig.colorbar(cf, ax=ax0, label="Temperature / K", shrink=0.9)

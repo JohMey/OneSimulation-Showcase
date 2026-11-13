@@ -29,6 +29,25 @@ The OneSimulation solution is checked against the closed-form closed-loop respon
 from importlib.metadata import version
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
+from cycler import cycler
+from matplotlib.colors import LinearSegmentedColormap
+
+# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
+CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
+FIELD_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
+DIVERGING_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
+for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
+    if _cmap.name not in matplotlib.colormaps:
+        matplotlib.colormaps.register(_cmap)
+plt.rcParams.update({
+    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
+    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
+    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
+    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
+})
 
 from onesim.physics.systems import ControlSignalFlowProvider, SignalBlock
 
@@ -108,7 +127,7 @@ dense_y = steady_output * (1.0 - np.exp(-dense_t / closed_loop_time_constant))
 stride = max(1, len(times) // 40)
 axes[0].plot(dense_t, dense_y, color="#6b442f", lw=1.6, label=r"$y_\infty\,(1-e^{-t/\tau_{cl}})$")
 axes[0].plot(times[::stride], outputs[::stride], "o", color="#c56838", ms=4, label="OneSimulation RK4")
-axes[0].axhline(setpoint, color="#3f6b8a", ls="--", lw=1.0, label="Setpoint $r$")
+axes[0].axhline(setpoint, color="#39715E", ls="--", lw=1.0, label="Setpoint $r$")
 axes[0].axhline(steady_output, color="#9a8f7d", ls="--", lw=1.0, label=r"$y_\infty=KK_p r/(1+KK_p)$")
 axes[0].axvline(closed_loop_time_constant, color="#9a8f7d", ls=":", lw=1.0, label=r"$t=\tau_{cl}$")
 axes[0].set(ylabel="Plant output $y$", title="First-order plant under proportional control")

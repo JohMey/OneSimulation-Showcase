@@ -38,6 +38,25 @@ plasma frequency and its Bohm-Gross thermal correction.
 from importlib.metadata import version
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
+from cycler import cycler
+from matplotlib.colors import LinearSegmentedColormap
+
+# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
+CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
+FIELD_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
+DIVERGING_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
+for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
+    if _cmap.name not in matplotlib.colormaps:
+        matplotlib.colormaps.register(_cmap)
+plt.rcParams.update({
+    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
+    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
+    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
+    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
+})
 from scipy.constants import e, m_e, epsilon_0
 from scipy.special import erfinv
 
@@ -190,7 +209,7 @@ for T in temperatures_eV[1:]:
 cream = "#fbf5eb"
 fig, (ax_t, ax_e, ax_w) = plt.subplots(1, 3, figsize=(15, 4.4), constrained_layout=True)
 fig.patch.set_facecolor(cream)
-colors = {0.0: "#A85539", 1.0: "#214D43", 3.0: "#4B6CB7"}
+colors = {0.0: "#A85539", 1.0: "#214D43", 3.0: "#5F9175"}
 for T, run in runs.items():
     scale = np.abs(run["mode"][0])
     ax_t.plot(run["times"] * 1e9, run["mode"].real / scale, "o", ms=2.2, color=colors[T], label=f"OneSimulation, T_e = {T:.0f} eV")

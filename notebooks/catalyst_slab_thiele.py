@@ -38,6 +38,25 @@ profile and the analytic effectiveness factor of a first-order catalyst slab.
 from importlib.metadata import version
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
+from cycler import cycler
+from matplotlib.colors import LinearSegmentedColormap
+
+# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
+CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
+FIELD_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
+DIVERGING_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
+for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
+    if _cmap.name not in matplotlib.colormaps:
+        matplotlib.colormaps.register(_cmap)
+plt.rcParams.update({
+    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
+    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
+    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
+    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
+})
 
 from onesim.cad.d1 import Line
 from onesim.meshing import StructuredLineMesher
@@ -170,8 +189,8 @@ fig, ax = plt.subplots(figsize=(8, 4.8), constrained_layout=True)
 fig.patch.set_facecolor(cream)
 ax.set_facecolor("#fffaf2")
 xs = np.linspace(0.0, L, 400)
-ax.plot(xs, reference(xs), color="#2b5a8c", lw=1.8, label="closed form")
-ax.plot(x[::5], c_num[::5], "o", color="#3f87c8", ms=3, label="OneSimulation")
+ax.plot(xs, reference(xs), color="#214D43", lw=1.8, label="closed form")
+ax.plot(x[::5], c_num[::5], "o", color="#336B57", ms=3, label="OneSimulation")
 ax.set(xlabel="Position x / m", ylabel="Concentration / (mol/m^3)",
        title=f"Catalyst slab (Thiele phi = {phi:.1f}, eta = {eta_ref:.3f})"
              "\nline: closed form, dots: OneSimulation")

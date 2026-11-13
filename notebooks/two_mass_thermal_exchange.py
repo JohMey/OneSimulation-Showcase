@@ -32,6 +32,25 @@ The OneSimulation solution is checked against the closed-form two-node solution.
 from importlib.metadata import version
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
+from cycler import cycler
+from matplotlib.colors import LinearSegmentedColormap
+
+# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
+CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
+FIELD_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
+DIVERGING_CMAP = LinearSegmentedColormap.from_list(
+    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
+for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
+    if _cmap.name not in matplotlib.colormaps:
+        matplotlib.colormaps.register(_cmap)
+plt.rcParams.update({
+    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
+    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
+    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
+    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
+})
 
 from onesim.cad.geometry import LumpedDomain
 from onesim.meshing import LumpedMesh
@@ -171,9 +190,9 @@ dense_diff = (initial_temperature_1 - initial_temperature_2) * np.exp(-decay_rat
 axes[0].plot(dense_t, mean_temperature + heat_capacity_2 / (heat_capacity_1 + heat_capacity_2) * dense_diff,
              color="#6b442f", lw=1.6, label="Closed-form $T_1$")
 axes[0].plot(dense_t, mean_temperature - heat_capacity_1 / (heat_capacity_1 + heat_capacity_2) * dense_diff,
-             color="#3f6b8a", lw=1.6, label="Closed-form $T_2$")
+             color="#39715E", lw=1.6, label="Closed-form $T_2$")
 axes[0].plot(times[::4], temperatures_1[::4], "o", color="#c56838", ms=4, label="OneSimulation body 1")
-axes[0].plot(times[::4], temperatures_2[::4], "s", color="#5b8fb3", ms=4, label="OneSimulation body 2")
+axes[0].plot(times[::4], temperatures_2[::4], "s", color="#83B9AE", ms=4, label="OneSimulation body 2")
 axes[0].axhline(mean_temperature, color="#9a8f7d", ls="--", lw=1.0, label="Capacity-weighted mean")
 axes[0].set(ylabel="Temperature / K", title="Two thermal masses exchanging heat")
 axes[0].legend(loc="center right", fontsize=9)
