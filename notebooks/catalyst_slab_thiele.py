@@ -35,28 +35,7 @@ profile and the analytic effectiveness factor of a first-order catalyst slab.
 # We compare the computed steady profile and effectiveness factor with these
 # closed forms.
 
-from importlib.metadata import version
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 
 from onesim.cad.d1 import Line
 from onesim.meshing import StructuredLineMesher
@@ -68,11 +47,10 @@ from onesim.numerics.time import BDF, BackwardEuler
 from onesim.physics.chemistry import SpeciesTransport, TransportSpecies
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
-from onesim.simulation.problem_definition.boundaries import (
-    OutwardFluxBoundary, PrescribedValueBoundary,
-)
+from onesim.simulation import OutwardFluxBoundary, PrescribedValueBoundary
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -81,14 +59,14 @@ print("OneSimulation:", version("onesimulation"))
 # modulus $\phi=2$, where diffusion limits the reaction appreciably but the
 # interior is not fully starved.
 
-L = 1.0               # m, slab half-thickness (open face to sealed centre)
-cells = 200           # mesh cells
-D = 0.1               # m^2/s, effective pore diffusivity
-k = 0.4               # 1/s, first-order rate coefficient
-C_s = 1.0             # mol/m^3, external (surface) concentration
+L = 1.0
+cells = 200
+D = 0.1
+k = 0.4
+C_s = 1.0
 
-phi = L * np.sqrt(k / D)              # Thiele modulus
-eta_ref = np.tanh(phi) / phi         # analytic effectiveness factor
+phi = L * np.sqrt(k / D)
+eta_ref = np.tanh(phi) / phi
 print(f"Thiele modulus phi = {phi:.3f},  analytic effectiveness eta = {eta_ref:.4f}")
 
 
@@ -167,7 +145,6 @@ max_abs_error = float(np.max(np.abs(c_num - c_ref)))
 rel_error = max_abs_error / C_s
 print(f"maximum deviation from the closed form: {max_abs_error:.3e} mol/m^3  ({100*rel_error:.3f} % of C_s)")
 
-# Confirm steady state has been reached: compare with the profile one step back.
 previous = np.asarray(field.evaluate(points, time=float(result.times[-2]))).reshape(-1)[order]
 drift = float(np.max(np.abs(c_num - previous)))
 print(f"change over the last stored interval: {drift:.3e} mol/m^3")
@@ -184,19 +161,11 @@ print(f"effectiveness factor: numeric {eta_num:.4f}, analytic {eta_ref:.4f}, err
 
 # ## Figure
 
-cream = "#fbf5eb"
-fig, ax = plt.subplots(figsize=(8, 4.8), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-ax.set_facecolor("#fffaf2")
 xs = np.linspace(0.0, L, 400)
-ax.plot(xs, reference(xs), color="#214D43", lw=1.8, label="closed form")
-ax.plot(x[::5], c_num[::5], "o", color="#336B57", ms=3, label="OneSimulation")
-ax.set(xlabel="Position x / m", ylabel="Concentration / (mol/m^3)",
-       title=f"Catalyst slab (Thiele phi = {phi:.1f}, eta = {eta_ref:.3f})"
-             "\nline: closed form, dots: OneSimulation")
-ax.legend(frameon=False)
-ax.grid(alpha=0.25)
-plt.show()
+plots.line(points={"OneSimulation": (x[::5], c_num[::5])}, reference={"closed form": (xs, reference(xs))},
+           xlabel="position x [m]", ylabel="concentration [mol/m^3]",
+           title=f"Catalyst slab (Thiele phi = {phi:.1f}, eta = {eta_ref:.3f})")
+plots.show()
 
 
 # ## Going further

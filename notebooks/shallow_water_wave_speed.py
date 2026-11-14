@@ -27,34 +27,12 @@ The measured front speed is checked against the shallow-water celerity sqrt(g*h)
 # The initial ridge depends only on $x$, so the flow stays one-dimensional and
 # produces one left-going and one right-going pulse.
 
-from importlib.metadata import version
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
 
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
+from onesim.physics.hydrodynamics import ShallowWater2DSolver
+from onesim.visualization import theme, plots
 
-from onesim.physics.hydrodynamics.free_surface.numerics.equations.shallow_water.shallow_water_2d import (
-    ShallowWater2DSolver,
-)
-
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -64,13 +42,13 @@ print("OneSimulation:", version("onesimulation"))
 # final time is chosen so the two pulses travel well into the domain without
 # reaching the periodic boundary, so no wrap-around contaminates the measurement.
 
-g = 9.81              # m/s^2, gravitational acceleration
-h = 1.0               # m, still-water depth
-amplitude = 1.0e-3    # m, ridge height (small, so the wave stays linear)
-sigma = 0.03          # width of the Gaussian ridge
-x0 = 0.5              # centre of the domain
-n = 200               # finite-volume cells per direction
-final_time = 0.10     # s
+g = 9.81
+h = 1.0
+amplitude = 1.0e-3
+sigma = 0.03
+x0 = 0.5
+n = 200
+final_time = 0.10
 
 c_formula = np.sqrt(g * h)
 print(f"predicted celerity c = sqrt(g*h) = {c_formula:.4f} m/s,  c*t = {c_formula*final_time:.3f}")
@@ -114,28 +92,16 @@ print(f"left-going  pulse speed = {speed_left:.4f} m/s")
 print(f"measured celerity       = {speed_measured:.4f} m/s")
 print(f"relative error vs sqrt(g*h) = {100*rel_error:.2f} %")
 
-# A right-going linear wave carries positive momentum where the surface rises.
-
 
 # ## Figure
 
-cream = "#fbf5eb"
-fig, ax = plt.subplots(figsize=(8, 4.8), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-ax.set_facecolor("#fffaf2")
-ax.plot(axis, delta_h * 1000.0, color="#1f5c73", lw=1.8, label="computed surface deviation")
-for centroid, label in ((centroid_left, "left pulse"), (centroid_right, "right pulse")):
-    ax.axvline(centroid, color="#b4642e", ls="--", lw=1.2)
-for predicted in (x0 - c_formula * result.time, x0 + c_formula * result.time):
-    ax.axvline(predicted, color="#4a7a4a", ls=":", lw=1.4)
-ax.plot([], [], color="#b4642e", ls="--", lw=1.2, label="measured pulse centroid")
-ax.plot([], [], color="#4a7a4a", ls=":", lw=1.4, label=r"predicted $x_0 \pm \sqrt{gh}\,t$")
-ax.set(xlabel="Position x", ylabel="Surface deviation / mm",
-       title=f"Shallow-water pulse: measured c = {speed_measured:.3f} m/s, "
-             f"sqrt(g*h) = {c_formula:.3f} m/s")
-ax.legend(loc="upper right", fontsize=8)
-ax.grid(alpha=0.25)
-plt.show()
+predicted = [x0 - c_formula * result.time, x0 + c_formula * result.time]
+plots.line(axis, {"computed surface deviation": delta_h * 1000.0},
+           points={"predicted x0 ± sqrt(g h) t": (predicted, np.interp(predicted, axis, delta_h * 1000.0))},
+           vlines={"measured left pulse": centroid_left, "measured right pulse": centroid_right},
+           xlabel="position x [m]", ylabel="surface deviation [mm]",
+           title=f"Shallow-water pulse: measured c = {speed_measured:.3f} m/s, sqrt(g h) = {c_formula:.3f} m/s")
+plots.show()
 
 
 # ## Going further

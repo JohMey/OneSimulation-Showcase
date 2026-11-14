@@ -37,28 +37,7 @@ solution of the linear cable equation.
 # We check the computed steady profile against this form and also recover the
 # space constant $\lambda$ from a fit of the numerical solution.
 
-from importlib.metadata import version
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 
 from onesim.cad.d1 import Line
 from onesim.meshing import StructuredLineMesher
@@ -70,7 +49,9 @@ from onesim.physics.biophysics import (
     Monodomain,
 )
 
-print("OneSimulation:", version("onesimulation"))
+from onesim.visualization import theme, plots
+
+theme.set()
 
 
 # ## Parameters
@@ -79,17 +60,17 @@ print("OneSimulation:", version("onesimulation"))
 # cable is several space constants long, which makes the electrotonic decay
 # clearly visible while the sealed end still has a small, non-zero potential.
 
-L = 0.06              # m, cable length
-cells = 240           # mesh cells along the fibre
-sigma = 1.0           # S/m, axial (intracellular) conductivity
-beta = 2000.0         # 1/m, membrane surface-to-volume ratio
-C_m = 0.01            # F/m^2, membrane capacitance
-g_L = 2.0             # S/m^2, passive leak conductance
-E_L = -0.065          # V, leak reversal (resting) potential
-delta = 0.025         # V, clamp depolarisation above rest
-V0 = E_L + delta      # V, clamped potential at x = 0
+L = 0.06
+cells = 240
+sigma = 1.0
+beta = 2000.0
+C_m = 0.01
+g_L = 2.0
+E_L = -0.065
+delta = 0.025
+V0 = E_L + delta
 
-lam = np.sqrt(sigma / (beta * g_L))   # space constant
+lam = np.sqrt(sigma / (beta * g_L))
 print(f"space constant lambda = {lam*1000:.3f} mm,  L/lambda = {L/lam:.2f}")
 
 # Characteristic times: membrane charging C_m/g_L and axial spreading L^2 * beta
@@ -102,7 +83,6 @@ print(f"diffusivity = {D:.3e} m^2/s,  settling time ~ {tau:.3f} s,  end time = {
 line = Line(start=(0.0, 0.0, 0.0), end=(L, 0.0, 0.0))
 mesh = StructuredLineMesher(cells=cells).generate(line)
 
-# A single linear leak channel makes the membrane passive.
 model = Monodomain(
     conductivity=sigma,
     capacitance=C_m,
@@ -151,7 +131,6 @@ max_abs_error = float(np.max(np.abs(v_num - v_ref)))
 rel_error = max_abs_error / delta
 print(f"maximum deviation from the cosh reference: {max_abs_error*1000:.4f} mV  ({100*rel_error:.2f} % of the clamp step)")
 
-# Confirm the run really reached steady state: the last two stored profiles agree.
 drift = float(np.max(np.abs(result.voltage[-1] - result.voltage[-2])))
 print(f"change over the last stored interval: {drift*1e6:.3f} uV")
 
@@ -165,22 +144,12 @@ print(f"fitted space constant: {lam_fit*1000:.3f} mm  (reference {lam*1000:.3f} 
 
 # ## Figure
 
-cream = "#fbf5eb"
-fig, ax = plt.subplots(figsize=(8, 4.8), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-ax.set_facecolor("#fffaf2")
 xs = np.linspace(0.0, L, 400)
-ax.plot(xs * 1000, reference(xs) * 1000, color="#8c5a2b", lw=1.8, label="cable equation (cosh)")
-ax.plot(x * 1000, v_num * 1000, "o", color="#c8873f", ms=3, label="OneSimulation")
-ax.axhline(0.0, color="#999999", lw=0.8)
-ax.annotate(f"$\\lambda$ = {lam*1000:.2f} mm", xy=(lam * 1000, reference(lam) * 1000),
-            xytext=(lam * 1000 + 6, delta * 1000 * 0.6),
-            arrowprops=dict(arrowstyle="->", color="#555555"), color="#555555", fontsize=9)
-ax.set(xlabel="Position x / mm", ylabel="Depolarisation V - E_L / mV",
-       title="Steady passive cable — line: cable equation, dots: OneSimulation")
-ax.legend(frameon=False)
-ax.grid(alpha=0.25)
-plt.show()
+plots.line(points={"OneSimulation": (x * 1000, v_num * 1000)},
+           reference={"cable equation (cosh)": (xs * 1000, reference(xs) * 1000)},
+           vlines={f"length constant = {lam * 1000:.2f} mm": lam * 1000},
+           xlabel="position x [mm]", ylabel="depolarisation V - E_L [mV]", title="Steady passive cable")
+plots.show()
 
 
 # ## Going further

@@ -44,70 +44,38 @@ energy and Gauss-law charge.
 # isolated sphere.
 
 from dataclasses import dataclass
-from importlib.metadata import version
 import time
-
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
 
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
-from matplotlib.colors import LogNorm
-from matplotlib.ticker import NullFormatter
-
-from onesim.cad.geometry.backends.occt.provider import OcctCadProvider
-from onesim.cad.geometry.ports.kernel_port import SphereRequest
-from onesim.cad.geometry.primitives import Geometry
-from onesim.cad.operations.execution.model_geometry import GeometryService
+from onesim.cad.d3 import Box, Regrouped, Sphere
 from onesim.materials import VacuumPermittivity
-from onesim.meshing.generation.backends.cad.in_memory_cad import build_file_free_mesher
-from onesim.meshing.generation.contracts.requests import (
-    HighOrderMeshControl, MeshGenerationRequest, MeshRefinement, MeshRefinementSupport,
-    SpatialMeshControl,
-)
-from onesim.meshing.generation.operations.geometry.model_mesh import CadMeshingService
-from onesim.meshing.meshes.mesh_declarations import TetrahedralMesh
+from onesim.meshing import LocalRefinement, TetrahedralMesher
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import SparseDirect
 from onesim.physics.electrostatics import (
     FixedPotential, PoissonEquation, ZeroNormalElectricDisplacement,
 )
+from onesim.results.derived import derived_field
 from onesim.simulation import Problem, Simulation
-from onesim.simulation.problem_definition.values.declarations.immutable_values import FrozenMap
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 start_time = time.perf_counter()
 
 
 # ## Parameters
 
-a, b = 0.1, 0.3               # m, sphere radii
-c = 0.5                       # m, centre-to-centre distance (gap c - a - b = 0.1 m)
-x1, x2 = -c / 2, c / 2        # m, sphere centres on the x axis
-outer_radius = 4.0            # m, grounded outer sphere that truncates the air domain
+a, b_radius = 0.1, 0.3
+c = 0.5
+x1, x2 = -c / 2, c / 2
+outer_radius = 4.0
 eps0 = float(VacuumPermittivity().evaluate())
-F = 4 * np.pi * eps0          # F/m, so that F * radius is a capacitance
+F = 4 * np.pi * eps0
 
-mesh_levels = (0.034, 0.024, 0.017)   # m, target size h on sphere 1 and across the gap
-study_radii = (2.0, 3.0)              # m, extra outer radii for the truncation study
-print(f"a = {a} m, b = {b} m, c = {c} m, gap = {c - a - b:.2f} m, outer radius {outer_radius} m")
+mesh_levels = (0.034, 0.024, 0.017)
+study_radii = (2.0, 3.0)
+print(f"a = {a} m, b = {b_radius} m, c = {c} m, gap = {c - a - b_radius:.2f} m, outer radius {outer_radius} m")
 
 
 # ## Reference: exact series solution
@@ -124,12 +92,12 @@ def series_capacitance(a, b, c, terms=200):
     return np.array([[c11, c12], [c12, c22]])
 
 
-C_ref = series_capacitance(a, b, c)
-C_far = series_capacitance(a, b, 1000.0)
+C_ref = series_capacitance(a, b_radius, c)
+C_far = series_capacitance(a, b_radius, 1000.0)
 print("Exact Maxwell capacitance matrix / pF:")
 print(f"  C11 = {C_ref[0, 0]*1e12:.4f}   C12 = {C_ref[0, 1]*1e12:.4f}   C22 = {C_ref[1, 1]*1e12:.4f}")
 print(f"Isolated-sphere limit of the series (c = 1000 m): C11 / (4 pi eps0 a) = {C_far[0, 0]/(F*a):.6f}, "
-      f"C22 / (4 pi eps0 b) = {C_far[1, 1]/(F*b):.6f}")
+      f"C22 / (4 pi eps0 b) = {C_far[1, 1]/(F*b_radius):.6f}")
 
 
 # ## Geometry and mesh
@@ -137,101 +105,37 @@ print(f"Isolated-sphere limit of the series (c = 1000 m): C11 / (4 pi eps0 a) = 
 # The arrangement is rotationally symmetric about the line of centres (the $x$ axis),
 # so the planes $y=0$ and $z=0$ are symmetry planes on which the normal electric
 # displacement vanishes. The air domain is therefore one quarter of a large sphere of
-# radius $R$ with the two conducting spheres removed; it is built with boolean
-# operations in OneSimulation's CAD kernel and meshed with **curved quadratic
-# tetrahedra** (edges projected onto the exact spherical surfaces). The mesh is
-# refined on both spheres, in a ball that contains the gap and, more mildly, in the
-# near field; it coarsens towards the outer sphere. All sizes scale with one level
-# parameter $h$ (cell size on the small sphere and across the gap).
+# radius $R$ with the two conducting spheres removed. It is declared with OneSimulation's
+# CAD solids and Boolean operators: the outer sphere intersected with a box gives the
+# quarter, and the conductors are cut out as named negative bodies, so their surfaces
+# become the boundary groups `sphere_1` and `sphere_2`. `TetrahedralMesher` meshes it
+# with **curved quadratic tetrahedra** (edges projected onto the exact spherical
+# surfaces). The mesh is refined on both spheres, in a ball that contains the gap and,
+# more mildly, in the near field; it coarsens towards the outer sphere. All sizes scale
+# with one level parameter $h$ (cell size on the small sphere and across the gap).
 
-
-@dataclass(frozen=True, eq=False, kw_only=True)
-class QuarterAirDomain(Geometry):
-    """Quarter of a grounded outer sphere with conducting spheres removed."""
-
-    sphere_count: int = 2
-    dimension = 3
-
-    @property
-    def volume(self):
-        return self.domain()
-
-    def boundary_groups(self):
-        names = tuple(f"sphere_{i + 1}" for i in range(self.sphere_count)) + (
-            "outer", "plane_y", "plane_z")
-        return {**{name: (name,) for name in names}, "all": names}
+def air_domain(spheres, radius):
+    """Quarter of a grounded outer sphere with the conducting spheres [(x, r), ...] removed."""
+    air = Sphere(radius=radius) & Box(length=2 * radius, width=radius, height=radius,
+                                      origin=(-radius, 0.0, 0.0)).named("plane")
+    for i, (centre, r) in enumerate(spheres):
+        air = air - Sphere(radius=r, origin=(centre, 0.0, 0.0)).named(f"sphere_{i + 1}")
+    return Regrouped(source=air, groups={"outer": ("surface",), "section": ("plane.z_min",),
+                                         "symmetry": ("plane.y_min", "plane.z_min")})
 
 
 def quarter_mesh(spheres, radius, h):
-    """Build the quarter air domain around `spheres` [(centre_x, r), ...] and mesh it."""
-    kernel = OcctCadProvider()
-    cad = GeometryService("air", kernel)
-    outer = cad.construct(kernel.create_sphere, SphereRequest(cad.reference("outer"), radius))
-    box = cad.place(cad.box(width=2 * radius, height=radius, depth=radius, name="box"),
-                    translation=(-radius, 0.0, 0.0), name="box_placed")
-    air = cad.boolean("intersection", outer, box, name="quarter")
-    for i, (centre, r) in enumerate(spheres):
-        ball = cad.construct(kernel.create_sphere, SphereRequest(cad.reference(f"s{i}"), r))
-        ball = cad.place(ball, translation=(centre, 0.0, 0.0), name=f"s{i}_placed")
-        air = cad.boolean("difference", air, ball, name=f"air_{i}")
-    # Name every CAD face from its exact measure: a quarter sphere has area pi r^2,
-    # the two symmetry planes are recognised by their normals.
-    curved = {f"sphere_{i + 1}": np.pi * r * r for i, (_, r) in enumerate(spheres)}
-    curved["outer"] = np.pi * radius * radius
-    faces = {name: [] for name in (*curved, "plane_y", "plane_z")}
-    for face in kernel.structured_meshing_topology(air.reference).faces:
-        if face.surface_type == "plane":
-            faces["plane_y" if abs(face.normal[1]) > 0.9 else "plane_z"].append(face.entity_id)
-        else:
-            name = min(curved, key=lambda k: abs(curved[k] - face.area) / curved[k])
-            faces[name].append(face.entity_id)
-    body = next(e.entity_id for e in air.data.entities if e.kind == "body")
-    controls = [MeshRefinement(faces[f"sphere_{i + 1}"][0], h * min(r / a, 2.0), "surface")
-                for i, (_, r) in enumerate(spheres)]
+    domain = air_domain(spheres, radius)
+    b = domain.boundaries
+    refinements = [LocalRefinement(region=getattr(b, f"sphere_{i + 1}"), target_size=h * min(r / a, 2.0))
+                   for i, (_, r) in enumerate(spheres)]
     if len(spheres) == 2:
-        gap_centre = 0.5 * ((x1 + a) + (x2 - b))
-        controls.append(MeshRefinement(body, h, "volume",
-                                       MeshRefinementSupport("ball", (gap_centre, 0.0, 0.0), 0.12)))
-    controls.append(MeshRefinement(body, 6 * h, "volume",
-                                   MeshRefinementSupport("ball", (0.0, 0.0, 0.0), 0.6)))
-    request = MeshGenerationRequest(
-        air.reference.artifact_id, air.reference.version,
-        global_size=0.15 * radius, refinements=tuple(controls),
-        max_candidate_cells=1_000_000,
-        high_order=HighOrderMeshControl(polynomial_order=2),
-        spatial=SpatialMeshControl("free_tetrahedral", body, engine="cad_native"),
-    )
-    native = CadMeshingService(provider_factory=build_file_free_mesher).generate(air, request)
-    domain = QuarterAirDomain(sphere_count=len(spheres))
-    mesh = TetrahedralMesh(domain, native, FrozenMap({k: tuple(v) for k, v in faces.items()}), ())
-    return domain, mesh
-
-
-# Isoparametric quadrature on the curved 10-node tetrahedra: a collapsed (Duffy)
-# 3x3x3 Gauss rule, mapped with the quadratic geometry so that the energy integral
-# sees the exact curved cells, not their straight-sided chords.
-_g, _w = np.polynomial.legendre.leggauss(3)
-_g, _w = 0.5 * (_g + 1), 0.5 * _w
-_U, _V, _W = (m.ravel() for m in np.meshgrid(_g, _g, _g, indexing="ij"))
-_WU, _WV, _WW = (m.ravel() for m in np.meshgrid(_w, _w, _w, indexing="ij"))
-_bary = np.column_stack((1 - _U, _U * (1 - _V), _U * _V * (1 - _W), _U * _V * _W))
-_ref_weights = _WU * _WV * _WW * _U**2 * _V
-_edges = ((0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3))
-_dbary = np.array([[-1, -1, -1], [1, 0, 0], [0, 1, 0], [0, 0, 1]], float)
-_shape = np.column_stack([_bary * (2 * _bary - 1)] + [4 * _bary[:, i] * _bary[:, j] for i, j in _edges])
-_dshape = np.zeros((len(_ref_weights), 10, 3))
-for k in range(4):
-    _dshape[:, k] = (4 * _bary[:, k] - 1)[:, None] * _dbary[k]
-for m, (i, j) in enumerate(_edges):
-    _dshape[:, 4 + m] = 4 * (_bary[:, i][:, None] * _dbary[j] + _bary[:, j][:, None] * _dbary[i])
-
-
-def quadrature(mesh):
-    nodes = np.asarray(mesh.coordinates)[np.asarray(mesh.cells)]          # (cells, 10, 3)
-    points = np.einsum("qn,cnd->cqd", _shape, nodes).reshape(-1, 3)
-    jacobians = np.einsum("qnr,cnd->cqdr", _dshape, nodes)
-    weights = (np.abs(np.linalg.det(jacobians)) * _ref_weights).ravel()
-    return points, weights
+        gap_centre = 0.5 * ((x1 + a) + (x2 - b_radius))
+        refinements.append(LocalRefinement(region=Sphere(radius=0.12, origin=(gap_centre, 0.0, 0.0)), target_size=h))
+    refinements.append(LocalRefinement(region=Sphere(radius=0.6), target_size=6 * h))
+    mesher = TetrahedralMesher(target_size=0.15 * radius, refinements=tuple(refinements), geometry_order=2,
+                               max_candidate_cells=1_000_000)
+    return domain, mesher.generate(domain)
 
 
 # ## Model
@@ -239,7 +143,7 @@ def quadrature(mesh):
 # **Numerical method.**
 # - Spatial method: continuous Galerkin finite elements, isoparametric quadratic Lagrange
 #   elements (P2) on curved 10-node tetrahedra whose geometry is also quadratic, with a
-#   collapsed Gauss rule of order 5 (125 points per cell) for the curved-cell integrals.
+#   quadrature of order 5 for the curved-cell integrals.
 # - Time integration: none (stationary electrostatics).
 # - Solver: one linear system per excitation, solved with a sparse direct factorisation.
 #
@@ -249,13 +153,13 @@ def quadrature(mesh):
 
 def solve(domain, mesh, potentials):
     """Solve Laplace's equation with the given sphere potentials (outer sphere grounded)."""
+    b = domain.boundaries
     model = PoissonEquation(domain=domain.volume, permittivity=VacuumPermittivity())
-    conditions = [FixedPotential(boundary=getattr(domain.boundaries, f"sphere_{i + 1}"),
-                                 physics=model, value=v) for i, v in enumerate(potentials)]
+    conditions = [FixedPotential(boundary=getattr(b, f"sphere_{i + 1}"), physics=model, value=v)
+                  for i, v in enumerate(potentials)]
     conditions += [
-        FixedPotential(boundary=domain.boundaries.outer, physics=model, value=0.0),
-        ZeroNormalElectricDisplacement(
-            boundary=domain.boundaries.plane_y | domain.boundaries.plane_z, physics=model),
+        FixedPotential(boundary=b.outer, physics=model, value=0.0),
+        ZeroNormalElectricDisplacement(boundary=b.symmetry, physics=model),
     ]
     problem = Problem(name="Two-sphere capacitance", geometry=domain, physics=(model,),
                       boundary_conditions=tuple(conditions))
@@ -265,33 +169,36 @@ def solve(domain, mesh, potentials):
     return result.field(model.electric_field), result.field(model.potential)
 
 
-def shell_charge(points, weights, field_values, centre, r_in, r_out):
-    """Charge on a sphere from Gauss's law, averaged over a shell r_in < r < r_out.
+# Two independent routes to the charges:
+#
+# 1. **Field energy.** The reaction of the solved potential on a sphere,
+#    `potential.reaction(sphere)`, is the discrete mutual field energy
+#    $\varepsilon_0\int\nabla V_i\cdot\nabla V_j\,dV$ of the two unit solutions, i.e. the
+#    charge on sphere $i$ when sphere $j$ is at 1 V (factor 4 for the quarter domain).
+# 2. **Gauss's law over a shell.** $Q=-\varepsilon_0\int\mathbf E\cdot\nabla\eta\,dV$ with a
+#    smooth ramp $\eta$ that is 1 on the sphere and 0 beyond a shell around it: Gauss's
+#    law weighted over many closed surfaces, integrated from the solved field.
 
-    Q = -eps0 * integral(E . grad eta) with eta = 1 on the sphere and 0 beyond the
-    shell (smooth cubic ramp). This is Gauss's law weighted over many closed surfaces;
-    the factor 4 restores the full sphere from the quarter domain.
-    """
-    offset = points - np.array([centre, 0.0, 0.0])
-    r = np.linalg.norm(offset, axis=1)
-    s = np.clip((r - r_in) / (r_out - r_in), 0.0, 1.0)
-    d_eta = -6.0 * s * (1.0 - s) / (r_out - r_in)
-    radial = np.einsum("ij,ij->i", field_values, offset) / r
-    return -4.0 * eps0 * np.sum(weights * radial * d_eta)
+def shell_charge(E, centre, r_in, r_out):
+    def weighted_radial_field(values, points):
+        offset = points - np.array([centre, 0.0, 0.0])
+        r = np.linalg.norm(offset, axis=1)
+        s = np.clip((r - r_in) / (r_out - r_in), 0.0, 1.0)
+        d_eta = -6.0 * s * (1.0 - s) / (r_out - r_in)
+        return np.einsum("ij,ij->i", values, offset) / r * d_eta
+
+    integrand = derived_field(E, weighted_radial_field, name="gauss_weight", unit="V/m^2")
+    return -4.0 * eps0 * float(integrand.integrate().value)
 
 
 def capacitance_matrices(domain, mesh):
-    """Maxwell matrix from (i) mutual field energy and (ii) Gauss-law charges."""
-    points, weights = quadrature(mesh)
+    """Maxwell matrix from (i) the mutual field energy and (ii) Gauss-law charges."""
+    b = domain.boundaries
     fields = [solve(domain, mesh, (1.0, 0.0)), solve(domain, mesh, (0.0, 1.0))]
-    E = [np.asarray(f[0].evaluate(points)) for f in fields]
-    # C_ij = eps0 * integral(grad V_i . grad V_j) (factor 4 for the quarter domain);
-    # the diagonal is twice the stored energy at 1 V, the off-diagonal the mutual energy.
-    C_energy = np.array([[4 * eps0 * np.sum(weights * np.einsum("ij,ij->i", E[i], E[j]))
-                          for j in range(2)] for i in range(2)])
-    shells = ((x1, a, c - b - 0.01), (x2, b, c - a - 0.01))   # stay clear of the other sphere
-    C_charge = np.array([[shell_charge(points, weights, E[j], *shells[i])
-                          for j in range(2)] for i in range(2)])
+    spheres = (b.sphere_1, b.sphere_2)
+    C_energy = np.array([[4.0 * fields[j][1].reaction(spheres[i]) for j in range(2)] for i in range(2)])
+    shells = ((x1, a, c - b_radius - 0.01), (x2, b_radius, c - a - 0.01))
+    C_charge = np.array([[shell_charge(fields[j][0], *shells[i]) for j in range(2)] for i in range(2)])
     return C_energy, C_charge, fields
 
 
@@ -315,10 +222,9 @@ def free_space(C, radius, centres=(x1, x2)):
 # $4\pi\varepsilon_0 a$.
 
 domain_1, mesh_1 = quarter_mesh(((0.0, a),), outer_radius, mesh_levels[0])
-points_1, weights_1 = quadrature(mesh_1)
-E_single = np.asarray(solve(domain_1, mesh_1, (1.0,))[0].evaluate(points_1))
-C_single_energy = 4 * eps0 * np.sum(weights_1 * np.einsum("ij,ij->i", E_single, E_single))
-C_single_charge = shell_charge(points_1, weights_1, E_single, 0.0, a, 2 * a)
+E_single, V_single = solve(domain_1, mesh_1, (1.0,))
+C_single_energy = 4.0 * V_single.reaction(domain_1.boundaries.sphere_1)
+C_single_charge = shell_charge(E_single, 0.0, a, 2 * a)
 C_single_exact = F * a * outer_radius / (outer_radius - a)
 print(f"Single sphere ({mesh_1.cell_count} curved tetrahedra): energy {C_single_energy*1e12:.4f} pF, "
       f"charge {C_single_charge*1e12:.4f} pF, exact spherical capacitor {C_single_exact*1e12:.4f} pF")
@@ -327,13 +233,13 @@ print(f"Single sphere ({mesh_1.cell_count} curved tetrahedra): energy {C_single_
 
 study = []
 for h in mesh_levels:
-    domain, mesh = quarter_mesh(((x1, a), (x2, b)), outer_radius, h)
+    domain, mesh = quarter_mesh(((x1, a), (x2, b_radius)), outer_radius, h)
     C_energy, C_charge, fields = capacitance_matrices(domain, mesh)
     study.append(dict(h=h, cells=mesh.cell_count, nodes=len(mesh.coordinates),
                       energy=free_space(C_energy, outer_radius),
                       charge=free_space(C_charge, outer_radius), raw=C_energy))
     print(f"h = {h:.3f} m: {mesh.cell_count:6d} curved tetrahedra, {len(mesh.coordinates):6d} quadratic nodes")
-final_fields = fields          # finest mesh, used in the figure
+final_fields, final_domain = fields, domain
 
 # **Outer-radius study** on the coarsest mesh level: the raw (truncated-domain) matrix
 # changes like $1/R$, the image-corrected matrix must not.
@@ -343,7 +249,7 @@ for radius in study_radii + (outer_radius,):
     if radius == outer_radius:
         C_raw = study[0]["raw"]
     else:
-        domain, mesh = quarter_mesh(((x1, a), (x2, b)), radius, mesh_levels[0])
+        domain, mesh = quarter_mesh(((x1, a), (x2, b_radius)), radius, mesh_levels[0])
         C_raw = capacitance_matrices(domain, mesh)[0]
     radius_study.append((radius, C_raw, free_space(C_raw, radius)))
 
@@ -352,7 +258,7 @@ for radius in study_radii + (outer_radius,):
 #
 # Reference: the exact bispherical series (Smythe 1950; Lekner 2011) for the same radii
 # and separation. The finite-element matrices are shown after the image correction of
-# the grounded outer sphere. Two independent routes are compared: the field energy
+# the grounded outer sphere. The two independent routes are compared: the field energy
 # (by Dirichlet's principle the conforming finite-element energy approaches the exact
 # diagonal terms from above) and the charges from Gauss's law, whose off-diagonal
 # terms $C_{12}$ and $C_{21}$ come from two different solves and therefore also test
@@ -408,75 +314,35 @@ print(f"Total run time: {time.perf_counter() - start_time:.0f} s")
 
 
 # ## Figure
+#
+# Left: the potential on the symmetry plane $z=0$ with sphere 1 at 1 V and sphere 2
+# grounded, mirrored about $y=0$ to show the full section, with equipotentials every
+# 0.05 V. Right: mesh convergence of both routes against the exact series, and the
+# outer-boundary study.
 
-E_field, V_field = final_fields[0]           # sphere 1 at 1 V, sphere 2 grounded
-nx, ny = 361, 181
-gx = np.linspace(-0.55, 0.65, nx)
-gy = np.linspace(0.0, 0.6, ny)
-GX, GY = np.meshgrid(gx, gy)
-inside = ((np.hypot(GX - x1, GY) > a * 1.002) & (np.hypot(GX - x2, GY) > b * 1.002))
-grid = np.column_stack((GX[inside], GY[inside], np.full(inside.sum(), 1e-9)))
-V_map = np.full(GX.shape, np.nan)
-E_map = np.full(GX.shape, np.nan)
-V_map[inside] = np.asarray(V_field.evaluate(grid)).ravel()
-E_map[inside] = np.linalg.norm(np.asarray(E_field.evaluate(grid)), axis=1)
-# The plane z = 0 is a symmetry plane: mirror the upper half to show the full section.
-X_full = np.vstack((GX[::-1], GX[1:]))
-Y_full = np.vstack((-GY[::-1], GY[1:]))
-V_full = np.vstack((V_map[::-1], V_map[1:]))
-E_full = np.vstack((E_map[::-1], E_map[1:]))
-
-cream = "#fbf5eb"
-fig = plt.figure(figsize=(14, 7.6), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-grid_spec = fig.add_gridspec(2, 2, width_ratios=(1.3, 1))
-ax_map = fig.add_subplot(grid_spec[:, 0])
-ax_mesh = fig.add_subplot(grid_spec[0, 1])
-ax_radius = fig.add_subplot(grid_spec[1, 1])
-for ax in (ax_map, ax_mesh, ax_radius):
-    ax.set_facecolor("#fffaf2")
-
-# Logarithmic colour scale: the field spans two decades between the gap and the far side.
-image = ax_map.pcolormesh(X_full, Y_full, E_full, cmap=FIELD_CMAP, shading="gouraud",
-                          norm=LogNorm(vmin=np.nanpercentile(E_full, 1), vmax=np.nanmax(E_full)))
-ax_map.contour(X_full, Y_full, V_full, levels=np.linspace(0.05, 0.95, 19),
-               colors="white", linewidths=0.7, alpha=0.9)
-for centre, r, label in ((x1, a, "1 V"), (x2, b, "0 V")):
-    ax_map.add_patch(plt.Circle((centre, 0), r, fc="#c9b89a", ec="#4a3b2a", lw=1.2))
-    ax_map.text(centre, 0, label, ha="center", va="center", fontsize=10, color="#2b2118")
-ax_map.set_aspect("equal")
-ax_map.set(xlim=(gx[0], gx[-1]), ylim=(-gy[-1], gy[-1]), xlabel="x / m", ylabel="y / m",
-           title="Section z = 0 of the 3D field (sphere 1 at 1 V):\n"
-                 "|E| (colour) and equipotentials 0.05 ... 0.95 V")
-fig.colorbar(image, ax=ax_map, label="|E| / (V/m)", shrink=0.8)
-
+V_field = final_fields[0][1]
 cells = np.array([row["cells"] for row in study])
-colors = {"C11": "#A85539", "C22": "#214D43", "C12": "#336B57"}
-for name, i, j in entries[:3]:
-    ax_mesh.loglog(cells, [abs(rel(row["energy"][i, j], C_ref[i, j])) for row in study], "o-",
-                   color=colors[name], label=f"{name}, field energy")
-    ax_mesh.loglog(cells, [abs(rel(row["charge"][i, j], C_ref[i, j])) for row in study], "s--",
-                   color=colors[name], mfc="none", label=f"{name}, Gauss-law charge")
-ax_mesh.set_xticks(cells, [f"{n}" for n in cells])
-ax_mesh.xaxis.set_minor_formatter(NullFormatter())
-ax_mesh.grid(alpha=0.25, which="both")
-ax_mesh.set(xlabel="Curved quadratic tetrahedra (quarter domain)",
-            ylabel="|deviation from exact series| / %", title="Mesh convergence at R = 4 m")
-ax_mesh.legend(fontsize=7.5, ncol=2)
-
 radii = np.array([item[0] for item in radius_study])
-for name, i, j in entries[:3]:
-    ax_radius.plot(1 / radii, [rel(item[1][i, j], C_ref[i, j]) for item in radius_study], "o:",
-                   color=colors[name], label=f"{name}, truncated domain")
-    ax_radius.plot(1 / radii, [rel(item[2][i, j], C_ref[i, j]) for item in radius_study], "o-",
-                   color=colors[name], label=f"{name}, image-corrected")
-ax_radius.set_yscale("symlog", linthresh=0.2)
-ax_radius.axhline(0.0, color="#777", lw=1)
-ax_radius.grid(alpha=0.25)
-ax_radius.set(xlabel="1 / R  (outer radius R in m)", ylabel="Deviation from exact series / %",
-              title="Outer-boundary study (coarsest mesh)")
-ax_radius.legend(fontsize=7.5, ncol=2)
-plt.show()
+index = {name: (i, j) for name, i, j in entries[:3]}
+colour = {name: n for n, name in enumerate(index)}
+fig = plots.figure(layout=[["map", "mesh"], ["map", "radius"]], size=(14, 7.6))
+plots.surface(V_field, boundary=final_domain.boundaries.section, symmetry={"planes": [((0, 1, 0), (0, 0, 0))]},
+              limits=(0.0, 1.0), contours=19, subdivisions=3, label="potential [V]",
+              title="Section z = 0 of the 3D field (sphere 1 at 1 V, sphere 2 grounded)",
+              xlimits=(-0.55, 0.65), ylimits=(-0.6, 0.6), ax=fig["map"])
+plots.line(cells, {**{f"{name}, field energy": [abs(rel(row["energy"][ij], C_ref[ij])) for row in study] for name, ij in index.items()},
+                   **{f"{name}, Gauss-law charge": [abs(rel(row["charge"][ij], C_ref[ij])) for row in study] for name, ij in index.items()}},
+           colors={f"{name}, {kind}": colour[name] for name in index for kind in ("field energy", "Gauss-law charge")},
+           styles={f"{name}, Gauss-law charge": "dashed" for name in index}, markers=True, scale="loglog",
+           xlabel="curved quadratic tetrahedra (quarter domain)", ylabel="|deviation from exact series| [%]",
+           title="Mesh convergence at R = 4 m", ax=fig["mesh"])
+plots.line(1 / radii, {**{f"{name}, truncated domain": [rel(item[1][ij], C_ref[ij]) for item in radius_study] for name, ij in index.items()},
+                       **{f"{name}, image-corrected": [rel(item[2][ij], C_ref[ij]) for item in radius_study] for name, ij in index.items()}},
+           colors={f"{name}, {kind}": colour[name] for name in index for kind in ("truncated domain", "image-corrected")},
+           styles={f"{name}, truncated domain": "dotted" for name in index}, markers=True, hlines=0.0,
+           xlabel="1 / R (outer radius R in m)", ylabel="deviation from exact series [%]",
+           title="Outer-boundary study (coarsest mesh)", ax=fig["radius"])
+plots.show()
 
 
 # ## Going further

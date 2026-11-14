@@ -27,28 +27,7 @@ The OneSimulation solution is checked against the closed-form parabolic profile.
 #
 # We check the computed profile against this parabola.
 
-from importlib.metadata import version
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 
 from onesim.cad.d3 import Box
 from onesim.materials import NewtonianFluid
@@ -60,9 +39,10 @@ from onesim.numerics.nonlinear import Newton
 from onesim.physics.hydrodynamics import FixedVelocity, IncompressibleNavierStokes, NoSlipWall
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.field_constraints import MeanValue
-from onesim.simulation.initial_conditions.values import InitialValue
+from onesim.simulation.initial_conditions import InitialValue
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -71,12 +51,12 @@ print("OneSimulation:", version("onesimulation"))
 # ($z$) only serve to form a short 3D channel. The flow is fully developed, so the
 # solution is independent of $x$ and $z$. The body force sets the flow rate.
 
-length = 0.020        # m, streamwise extent (x)
-height = 0.010        # m, plate gap (y), the only physically resolved direction
-span = 0.005          # m, spanwise extent (z)
-mu = 1.0e-3           # Pa·s, dynamic viscosity
-rho = 1.0             # kg/m^3, density (unit value: the inertial term vanishes here)
-body_force = 0.8      # Pa/m = N/m^3, constant streamwise forcing G
+length = 0.020
+height = 0.010
+span = 0.005
+mu = 1.0e-3
+rho = 1.0
+body_force = 0.8
 
 u_max_reference = body_force * height**2 / (8.0 * mu)
 u_mean_reference = 2.0 / 3.0 * u_max_reference
@@ -98,7 +78,6 @@ fluid = NewtonianFluid(density=rho, dynamic_viscosity=mu)
 
 
 def forcing(y):
-    # Constant streamwise body force (per unit volume); y only fixes the array shape.
     return np.column_stack((np.full_like(y, body_force), np.zeros_like(y), np.zeros_like(y)))
 
 
@@ -155,24 +134,14 @@ u_max_numeric = float(np.max(u_numeric))
 print(f"Maximum velocity: FEM {u_max_numeric:.5f} m/s,  reference {u_max_reference:.5f} m/s")
 print(f"Maximum absolute profile error: {max_abs_error:.3e} m/s  ({100*rel_error:.2e} % of u_max)")
 
-# Mean velocity must equal two thirds of the peak (property of the parabola).
-
 
 # ## Figure
 
-cream = "#fbf5eb"
-fig, ax = plt.subplots(figsize=(8, 4.8), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-ax.set_facecolor("#fffaf2")
-ax.grid(alpha=0.25)
-ax.plot(u_exact * 1000, y_samples * 1000, color="#214D43", lw=1.8, label="Parabolic reference")
-ax.plot(u_numeric * 1000, y_samples * 1000, "o", color="#A85539", ms=4, label="OneSimulation 3D FEM")
-ax.axhline(0.0, color="#555", lw=2)
-ax.axhline(height * 1000, color="#555", lw=2)
-ax.set(xlabel="Streamwise velocity u / (mm/s)", ylabel="Wall-normal position y / mm",
-       title="Poiseuille channel flow: velocity profile between no-slip plates")
-ax.legend()
-plt.show()
+plots.line(points={"OneSimulation 3D FEM": (u_numeric * 1000, y_samples * 1000)},
+           reference={"parabolic reference": (u_exact * 1000, y_samples * 1000)}, hlines=[0.0, height * 1000],
+           xlabel="streamwise velocity u [mm/s]", ylabel="wall-normal position y [mm]",
+           title="Poiseuille channel flow: velocity profile between no-slip plates")
+plots.show()
 
 
 # ## Going further

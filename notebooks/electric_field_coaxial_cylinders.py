@@ -25,28 +25,7 @@ The OneSimulation solution is checked against the closed-form coaxial solution.
 #
 # We check potential and field along a radial cut against these formulas.
 
-from importlib.metadata import version
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 
 from onesim.cad.d3 import AnnularCylinder
 from onesim.materials import VacuumPermittivity
@@ -58,16 +37,17 @@ from onesim.physics.electrostatics import (
     FixedPotential, PoissonEquation, ZeroNormalElectricDisplacement,
 )
 from onesim.simulation import Problem, Simulation
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters and model
 
-a = 0.01              # m, inner radius
-b = 0.03              # m, outer radius
-H = 0.02              # m, height (axial, field-free in z)
-V0 = 100.0            # V, potential at the inner conductor
+a = 0.01
+b = 0.03
+H = 0.02
+V0 = 100.0
 eps0 = 8.8541878128e-12
 
 geometry = AnnularCylinder(inner_radius=a, outer_radius=b, length=H)
@@ -102,7 +82,7 @@ r = np.linspace(a + 1e-4, b - 1e-4, 40)
 pts = np.column_stack((r, np.zeros_like(r), np.full_like(r, H / 2)))
 V_num = np.asarray(result.field(model.potential).evaluate(pts)).reshape(-1)
 E_num = np.asarray(result.field(model.electric_field).evaluate(pts))
-Er_num = E_num[:, 0]  # radial component = x component on the x axis
+Er_num = E_num[:, 0]
 
 V_ana = V0 * np.log(b / r) / np.log(b / a)
 Er_ana = V0 / (r * np.log(b / a))
@@ -117,18 +97,12 @@ print(f"analytic capacitance per length: {C_per_length_ana*1e12:.3f} pF/m")
 
 # ## Figure
 
-cream = "#fbf5eb"
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.5), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-for ax in (ax1, ax2):
-    ax.set_facecolor("#fffaf2"); ax.grid(alpha=0.25); ax.set_xlabel("Radius r / mm")
-ax1.plot(r * 1000, V_ana, color="#6b442f", label="analytic")
-ax1.plot(r * 1000, V_num, "o", color="#c56838", ms=4, label="OneSimulation FEM")
-ax1.set(ylabel="Potential / V", title="Potential V(r)"); ax1.legend()
-ax2.plot(r * 1000, Er_ana, color="#2f5b6b", label="analytic")
-ax2.plot(r * 1000, np.abs(Er_num), "o", color="#336B57", ms=4, label="OneSimulation FEM")
-ax2.set(ylabel="Radial field |E_r| / (V/m)", title="Radial field E_r(r)"); ax2.legend()
-plt.show()
+fig = plots.figure(1, 2, size=(11, 4.5))
+plots.line(r * 1000, points={"OneSimulation FEM": V_num}, reference={"analytic": V_ana},
+           xlabel="radius r [mm]", ylabel="potential [V]", title="Potential V(r)", ax=fig[0])
+plots.line(r * 1000, points={"OneSimulation FEM": np.abs(Er_num)}, reference={"analytic": Er_ana},
+           xlabel="radius r [mm]", ylabel="radial field |E_r| [V/m]", title="Radial field E_r(r)", ax=fig[1])
+plots.show()
 
 
 # ## Going further

@@ -32,35 +32,13 @@ discontinuity, and the full density, velocity and pressure profiles at t = 0.2.
 # $p_*\approx0.3031$, $u_*\approx0.9275$, $\rho_{*L}\approx0.4263$ and the
 # post-shock density $\rho_{*R}\approx0.2656$.
 
-from importlib.metadata import version
-
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 import numpy as np
-from onesim.physics.hydrodynamics.incompressible.execution.composition.service import (
-    HydrodynamicPublicApi,
-)
 from scipy.optimize import brentq
 
-print("OneSimulation:", version("onesimulation"))
+from onesim.physics.hydrodynamics import HydrodynamicPublicApi
+from onesim.visualization import theme, plots
+
+theme.set()
 
 
 # ## Parameters
@@ -78,7 +56,7 @@ rho_L, u_L, p_L = 1.0, 0.0, 1.0
 rho_R, u_R, p_R = 0.125, 0.0, 0.1
 x_diaphragm = 0.5
 end_time = 0.2
-x_lo, x_hi = -0.5, 1.5                 # periodic box
+x_lo, x_hi = -0.5, 1.5
 PARTICLES = 1600
 dx = (x_hi - x_lo) / PARTICLES
 smoothing_length = 2.5 * dx
@@ -96,7 +74,7 @@ def _sound(rho, p):
 
 def _f(p, rho_k, p_k):
     a_k = _sound(rho_k, p_k)
-    if p > p_k:                                           # shock
+    if p > p_k:
         A = 2.0 / ((gamma + 1.0) * rho_k)
         B = (gamma - 1.0) / (gamma + 1.0) * p_k
         return (p - p_k) * np.sqrt(A / (p + B))
@@ -105,7 +83,7 @@ def _f(p, rho_k, p_k):
 
 p_star = brentq(lambda p: _f(p, rho_L, p_L) + _f(p, rho_R, p_R) + u_R - u_L, 1e-6, 10.0, xtol=1e-14)
 u_star = 0.5 * (u_L + u_R) + 0.5 * (_f(p_star, rho_R, p_R) - _f(p_star, rho_L, p_L))
-rho_star_L = rho_L * (p_star / p_L) ** (1.0 / gamma)                         # isentropic
+rho_star_L = rho_L * (p_star / p_L) ** (1.0 / gamma)
 ratio = p_star / p_R
 rho_star_R = rho_R * (ratio + (gamma - 1) / (gamma + 1)) / ((gamma - 1) / (gamma + 1) * ratio + 1.0)
 a_L, a_R = _sound(rho_L, p_L), _sound(rho_R, p_R)
@@ -156,8 +134,8 @@ gas = HydrodynamicPublicApi.create_provider(
     specific_internal_energy=p_init / ((gamma - 1.0) * rho_init),
     smoothing_length=smoothing_length,
     gamma=gamma,
-    viscosity_alpha=1.0, viscosity_beta=2.0,          # Monaghan artificial viscosity
-    periodic_bounds=((x_lo, x_hi),),                  # boundary condition: periodic box
+    viscosity_alpha=1.0, viscosity_beta=2.0,
+    periodic_bounds=((x_lo, x_hi),),
     final_time=end_time,
     time_step=1.0e-3,
     cfl=0.25,
@@ -238,22 +216,13 @@ print(f"Shock position: SPH {sph_shock_position:.4f}, exact {x_shock:.4f}")
 # ## Figure
 
 x_fine = np.linspace(0.0, 1.0, 1200)
-rho_fine, u_fine, p_fine = exact_solution(x_fine, end_time)
-cream = "#fbf5eb"
-fig, axes = plt.subplots(1, 3, figsize=(13, 4.2), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-panels = (
-    (axes[0], rho, rho_fine, "Density", r"$\rho$"),
-    (axes[1], velocity, u_fine, "Velocity", "$u$"),
-    (axes[2], pressure, p_fine, "Pressure", "$p$"),
-)
-for ax, sph_values, exact_values, title, label in panels:
-    ax.set_facecolor("#fffaf2"); ax.grid(alpha=0.25)
-    ax.plot(x_fine, exact_values, color="#A85539", lw=1.6, label="exact Riemann solution")
-    ax.plot(x[window], sph_values[window], ".", color="#39715e", ms=3, label=f"SPH particles ({PARTICLES} total)")
-    ax.set(xlabel="Position x", ylabel=label, xlim=(0, 1), title=f"{title} at t = {end_time:g}")
-    ax.legend(frameon=False, fontsize=9)
-plt.show()
+fig = plots.figure(1, 3, size=(13, 4.2))
+for panel, name, particles, exact in zip(fig, ("density", "velocity", "pressure"), (rho, velocity, pressure),
+                                         exact_solution(x_fine, end_time)):
+    plots.line(points={f"SPH particles ({PARTICLES} total)": (x[window], particles[window])},
+               reference={"exact Riemann solution": (x_fine, exact)}, xlimits=(0, 1), xlabel="position x",
+               ylabel=name, title=f"{name.capitalize()} at t = {end_time:g}", ax=panel)
+plots.show()
 
 
 # ## Going further

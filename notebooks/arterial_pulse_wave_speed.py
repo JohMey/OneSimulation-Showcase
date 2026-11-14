@@ -46,28 +46,7 @@ against the characteristic impedance rho*c0/A0.
 # forward-running pulse also fixes the ratio of its pressure and flow
 # perturbations, the characteristic impedance $Z_0=\rho c_0/A_0$; we check both.
 
-from importlib.metadata import version
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 
 from onesim.physics.biophysics import (
     ArterialNetwork,
@@ -76,7 +55,9 @@ from onesim.physics.biophysics import (
     WindkesselTerminal,
 )
 
-print("OneSimulation:", version("onesimulation"))
+from onesim.visualization import theme, plots
+
+theme.set()
 
 
 # ## Parameters
@@ -87,23 +68,23 @@ print("OneSimulation:", version("onesimulation"))
 # two pulses reach the ends of the vessel, so the terminals do not influence the
 # speed measurement.
 
-rho = 1060.0          # kg/m^3, blood density
-r0 = 0.010            # m, resting lumen radius
-h = 1.5e-3            # m, wall thickness
-E = 4.0e5             # Pa, Young's modulus of the wall
-nu = 0.5              # Poisson ratio of the (incompressible) wall
-L = 1.0               # m, vessel length
-x0 = 0.5 * L          # m, centre of the initial pulse
-sigma = 0.03          # m, width of the Gaussian pulse
-amplitude = 1.0e-3    # relative area perturbation (small, so the wave stays linear)
-cells = 400           # finite-volume cells along the vessel
-final_time = 0.05     # s
+rho = 1060.0
+r0 = 0.010
+h = 1.5e-3
+E = 4.0e5
+nu = 0.5
+L = 1.0
+x0 = 0.5 * L
+sigma = 0.03
+amplitude = 1.0e-3
+cells = 400
+final_time = 0.05
 
-A0 = np.pi * r0 ** 2                                   # m^2, resting area
-beta = np.sqrt(np.pi) * E * h / ((1.0 - nu ** 2) * np.sqrt(A0))   # Pa, tube-law stiffness
-c_formula = np.sqrt(E * h / (2.0 * rho * (1.0 - nu ** 2) * r0))  # m/s, Moens-Korteweg speed
-c_tube_law = np.sqrt(beta / (2.0 * rho))                        # m/s, from the model's wall law
-Z0 = rho * c_formula / A0                                        # Pa·s/m^3, characteristic impedance
+A0 = np.pi * r0 ** 2
+beta = np.sqrt(np.pi) * E * h / ((1.0 - nu ** 2) * np.sqrt(A0))
+c_formula = np.sqrt(E * h / (2.0 * rho * (1.0 - nu ** 2) * r0))
+c_tube_law = np.sqrt(beta / (2.0 * rho))
+Z0 = rho * c_formula / A0
 print(f"A0 = {A0*1e4:.3f} cm^2,  beta = {beta:.0f} Pa")
 print(f"Moens-Korteweg speed c0 = {c_formula:.4f} m/s,  tube-law speed sqrt(beta/2rho) = {c_tube_law:.4f} m/s,"
       f"  c0*t = {c_formula*final_time:.3f} m")
@@ -121,10 +102,7 @@ network = ArterialNetwork(
     segments=(vessel,),
     density=rho,
     terminals=(
-        # Inlet: held at the resting transmural pressure (a large upstream reservoir).
         ArterialPressure(node="inlet", pressure=0.0),
-        # Outlet: three-element windkessel whose proximal resistance equals the
-        # characteristic impedance, so an arriving forward pulse is absorbed.
         WindkesselTerminal(
             node="outlet", proximal_resistance=Z0, distal_resistance=5.0 * Z0,
             compliance=1.0e-9, reference_pressure=0.0, initial_pressure=0.0,
@@ -171,7 +149,6 @@ print(f"backward pulse speed = {speed_left:.4f} m/s")
 print(f"measured pulse speed = {speed_measured:.4f} m/s")
 print(f"relative error vs Moens-Korteweg = {100*rel_error:.2f} %")
 
-# Characteristic impedance from the peak of each pulse.
 peak_right = np.argmax(np.where(right, delta_a, -np.inf))
 peak_left = np.argmax(np.where(left, delta_a, -np.inf))
 Z_right = pressure_final[peak_right] / flow_final[peak_right]
@@ -186,35 +163,18 @@ print(f"characteristic impedance: measured {Z_measured:.4e}, rho*c0/A0 = {Z0:.4e
 
 # ## Figure
 
-cream = "#fbf5eb"
-fig, axes = plt.subplots(1, 2, figsize=(12, 4.8), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-
-ax = axes[0]
-ax.set_facecolor("#fffaf2")
-ax.plot(x, (result.area["aorta"][0] / A0 - 1.0) * 1e3, color="#9a9a9a", lw=1.2, ls="-.",
-        label="initial area bump")
-ax.plot(x, delta_a * 1e3, color="#1f5c73", lw=1.8, label=f"computed, t = {t_end*1e3:.0f} ms")
-for centroid in (centroid_left, centroid_right):
-    ax.axvline(centroid, color="#b4642e", ls="--", lw=1.2)
-for predicted in (x0 - c_formula * t_end, x0 + c_formula * t_end):
-    ax.axvline(predicted, color="#4a7a4a", ls=":", lw=1.4)
-ax.plot([], [], color="#b4642e", ls="--", lw=1.2, label="measured pulse centroid")
-ax.plot([], [], color="#4a7a4a", ls=":", lw=1.4, label=r"predicted $x_0 \pm c_0\,t$")
-ax.set(xlabel="Position along the vessel x / m", ylabel=r"Area perturbation $\delta A/A_0$ / ‰",
-       title=f"Pulse speed: measured {speed_measured:.3f} m/s, Moens-Korteweg {c_formula:.3f} m/s")
-ax.legend(loc="upper right", fontsize=8)
-ax.grid(alpha=0.25)
-
-ax = axes[1]
-ax.set_facecolor("#fffaf2")
-ax.plot(x, pressure_final, color="#6b442f", lw=1.8, label="pressure perturbation")
-ax.plot(x, Z0 * flow_final, color="#c56838", lw=1.4, ls="--", label=r"$Z_0\,Q$ with $Z_0=\rho c_0/A_0$")
-ax.set(xlabel="Position along the vessel x / m", ylabel="Pressure / Pa",
-       title="Forward pulse: p = +Z0 Q,  backward pulse: p = -Z0 Q")
-ax.legend(loc="upper right", fontsize=8)
-ax.grid(alpha=0.25)
-plt.show()
+predicted = [x0 - c_formula * t_end, x0 + c_formula * t_end]
+fig = plots.figure(1, 2, size=(12, 4.8))
+plots.line(x, {f"computed, t = {t_end * 1e3:.0f} ms": delta_a * 1e3,
+               "initial area bump": (result.area["aorta"][0] / A0 - 1.0) * 1e3},
+           points={"predicted x0 ± c0 t": (predicted, np.interp(predicted, x, delta_a * 1e3))},
+           vlines={"measured pulse centroids": centroid_left, "": centroid_right},
+           xlabel="position along the vessel x [m]", ylabel="area perturbation dA/A0 [‰]",
+           title=f"Pulse speed: measured {speed_measured:.3f} m/s, Moens-Korteweg {c_formula:.3f} m/s", ax=fig[0])
+plots.line(x, {"pressure perturbation": pressure_final}, reference={"Z0 Q with Z0 = rho c0 / A0": Z0 * flow_final},
+           xlabel="position along the vessel x [m]", ylabel="pressure [Pa]",
+           title="Forward pulse: p = +Z0 Q, backward pulse: p = -Z0 Q", ax=fig[1])
+plots.show()
 
 
 # ## Going further

@@ -28,32 +28,12 @@ The OneSimulation solution is checked against the closed-form square-root law.
 # stored time, recover $t_e$ from the simulated curve, and check that the drained
 # volume equals the integrated orifice flow.
 
-from importlib.metadata import version
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 
 from onesim.physics.systems import HydraulicBranch, HydraulicNode, HydraulicSystemsProvider
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters and model
@@ -63,23 +43,23 @@ print("OneSimulation:", version("onesimulation"))
 # deeper than the orifice. The values describe a 0.5 m² water tank, 1.2 m deep,
 # emptying through a sharp-edged 20 mm hole.
 
-gravity = 9.81                       # m/s^2
-density = 1000.0                     # kg/m^3, water
-tank_area = 0.5                      # m^2, A
-orifice_diameter = 0.02              # m
-orifice_area = np.pi * (orifice_diameter / 2.0) ** 2   # m^2, a
-discharge_coefficient = 0.62         # C_d, sharp-edged orifice
-initial_level = 1.2                  # m, h0
+gravity = 9.81
+density = 1000.0
+tank_area = 0.5
+orifice_diameter = 0.02
+orifice_area = np.pi * (orifice_diameter / 2.0) ** 2
+discharge_coefficient = 0.62
+initial_level = 1.2
 
-drain_rate = discharge_coefficient * orifice_area * np.sqrt(2.0 * gravity) / (2.0 * tank_area)  # m^0.5/s
+drain_rate = discharge_coefficient * orifice_area * np.sqrt(2.0 * gravity) / (2.0 * tank_area)
 empty_time = np.sqrt(initial_level) / drain_rate
-end_time = 0.9 * empty_time          # stop shortly before the orifice runs dry (h = 1 % of h0)
-time_step = 1.0                      # s
+end_time = 0.9 * empty_time
+time_step = 1.0
 print(f"orifice area = {orifice_area * 1e4:.3f} cm^2,  initial outflow = "
       f"{discharge_coefficient * orifice_area * np.sqrt(2 * gravity * initial_level) * 1e3:.3f} L/s")
 print(f"emptying time t_e = {empty_time:.1f} s ({empty_time / 60:.1f} min)")
 
-compliance = tank_area / (density * gravity)   # m^3/Pa, C = A/(rho g)
+compliance = tank_area / (density * gravity)
 
 
 def orifice_flow(upstream_pressure, downstream_pressure, time, parameters):
@@ -91,7 +71,7 @@ def orifice_flow(upstream_pressure, downstream_pressure, time, parameters):
 network = HydraulicSystemsProvider(
     nodes=(
         HydraulicNode("tank", compliance=compliance, initial_pressure=density * gravity * initial_level),
-        HydraulicNode("atmosphere", imposed_pressure=0.0),   # gauge pressure reference
+        HydraulicNode("atmosphere", imposed_pressure=0.0),
     ),
     branches=(
         HydraulicBranch(
@@ -127,11 +107,9 @@ reference_levels = (np.sqrt(initial_level) - drain_rate * times) ** 2
 max_level_error = float(np.max(np.abs(levels - reference_levels)))
 print(f"Maximum level error: {max_level_error:.3e} m  (h0 = {initial_level} m, final level {levels[-1] * 1e2:.2f} cm)")
 
-# sqrt(h) is a straight line; its intercept with zero is the emptying time.
 slope, intercept = np.polyfit(times, np.sqrt(levels), 1)
 fitted_empty_time = -intercept / slope
 print(f"Emptying time: extrapolated {fitted_empty_time:.2f} s, exact {empty_time:.2f} s")
-# ...and the integrated outflow equals the volume that left the tank.
 drained_volume = tank_area * (initial_level - levels[-1])
 integrated_outflow = float(np.trapezoid(outflows, times))
 print(f"Drained volume: {drained_volume * 1e3:.2f} L, integrated orifice flow: {integrated_outflow * 1e3:.2f} L")
@@ -139,25 +117,17 @@ print(f"Drained volume: {drained_volume * 1e3:.2f} L, integrated orifice flow: {
 
 # ## Figure
 
-fig, axes = plt.subplots(2, 1, figsize=(8, 7), sharex=True, constrained_layout=True)
-fig.patch.set_facecolor("#fbf5eb")
-for ax in axes:
-    ax.set_facecolor("#fffaf2")
-    ax.grid(alpha=0.25)
 dense_t = np.linspace(0.0, empty_time, 600)
 dense_h = (np.sqrt(initial_level) - drain_rate * dense_t) ** 2
 stride = max(1, len(times) // 40)
-axes[0].plot(dense_t / 60, dense_h, color="#6b442f", lw=1.6,
-             label=r"$\left(\sqrt{h_0}-\frac{C_d a}{2A}\sqrt{2g}\,t\right)^2$")
-axes[0].plot(times[::stride] / 60, levels[::stride], "o", color="#c56838", ms=4, label="OneSimulation RK4")
-axes[0].axvline(empty_time / 60, color="#9a8f7d", ls=":", lw=1.0, label=r"Emptying time $t_e$")
-axes[0].set(ylabel="Liquid level / m", title="Tank draining through an orifice")
-axes[0].legend(loc="upper right")
-axes[1].plot(dense_t / 60, np.sqrt(dense_h), color="#6b442f", lw=1.6, label="Closed-form (straight line)")
-axes[1].plot(times[::stride] / 60, np.sqrt(levels[::stride]), "o", color="#c56838", ms=4, label="OneSimulation RK4")
-axes[1].set(xlabel="Time / min", ylabel=r"$\sqrt{h}$ / m$^{1/2}$")
-axes[1].legend(loc="upper right")
-plt.show()
+fig = plots.figure(2, 1, size=(8, 7))
+plots.line(points={"OneSimulation RK4": (times[::stride] / 60, levels[::stride])},
+           reference={"Torricelli closed form": (dense_t / 60, dense_h)}, vlines={"emptying time": empty_time / 60},
+           ylabel="liquid level [m]", title="Tank draining through an orifice", ax=fig[0])
+plots.line(points={"OneSimulation RK4": (times[::stride] / 60, np.sqrt(levels[::stride]))},
+           reference={"closed form (straight line)": (dense_t / 60, np.sqrt(dense_h))},
+           xlabel="time [min]", ylabel="sqrt(h) [m^1/2]", ax=fig[1])
+plots.show()
 
 
 # ## Going further

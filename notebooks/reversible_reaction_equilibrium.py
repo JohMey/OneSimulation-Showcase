@@ -31,29 +31,7 @@ The OneSimulation solution is checked against the known closed-form relaxation.
 # $C_B^{\mathrm{eq}}/C_A^{\mathrm{eq}}=k_f/k_r$. We compare both the transient and
 # the equilibrium ratio.
 
-from importlib.metadata import version
-
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 
 from onesim.cad.geometry import LumpedDomain
 from onesim.meshing import LumpedMesh
@@ -68,8 +46,9 @@ from onesim.physics.chemistry import (
 )
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -78,10 +57,10 @@ print("OneSimulation:", version("onesimulation"))
 # relaxation rate $\lambda=k_f+k_r$ and the equilibrium split. The window spans
 # twelve relaxation times, so the system is essentially at equilibrium at the end.
 
-k_f = 1.2             # 1/s, forward rate coefficient A -> B
-k_r = 0.4             # 1/s, reverse rate coefficient B -> A
-C_A0 = 1.0            # mol/m^3, initial concentration of A
-C_B0 = 0.0            # mol/m^3, initial concentration of B
+k_f = 1.2
+k_r = 0.4
+C_A0 = 1.0
+C_B0 = 0.0
 
 relaxation_rate = k_f + k_r
 C_total = C_A0 + C_B0
@@ -146,14 +125,8 @@ result = simulation.run(start_time=0.0, end_time=end_time, time_step=time_step)
 # closed-form exponential relaxation, and the final state is compared with the
 # equilibrium split and the detailed-balance ratio.
 
-def series(field):
-    history = result.field(field).history
-    times = np.asarray(history["times"], dtype=float)
-    values = np.asarray([value[0] for value in history["values"]], dtype=float)
-    return times, values
-
-times, num_A = series(C_A)
-_, num_B = series(C_B)
+times, num_A = result.field(C_A).time_series()
+_, num_B = result.field(C_B).time_series()
 
 exact_A = C_A_eq + (C_A0 - C_A_eq) * np.exp(-relaxation_rate * times)
 exact_B = C_B_eq + (C_B0 - C_B_eq) * np.exp(-relaxation_rate * times)
@@ -163,37 +136,26 @@ rel_error = err / C_total
 print(f"Maximum absolute error against the relaxation: {err:.3e} mol/m^3"
       f"  ({100 * rel_error:.4f} % of total)")
 
-# Equilibrium: final concentrations and the detailed-balance ratio.
 final_A, final_B = num_A[-1], num_B[-1]
 print(f"final C_A = {final_A:.5f} (eq {C_A_eq:.5f}),  final C_B = {final_B:.5f} (eq {C_B_eq:.5f})")
 ratio = final_B / final_A
 print(f"equilibrium ratio C_B/C_A = {ratio:.4f},  k_f/k_r = {k_f / k_r:.4f}")
 
-# Physical sanity: total mass conserved throughout.
 mass_error = float(np.max(np.abs(num_A + num_B - C_total)))
 print(f"Maximum mass-balance error C_A+C_B-C_total: {mass_error:.3e} mol/m^3")
 
 
 # ## Figure
 
-cream = "#fbf5eb"
-fig, ax = plt.subplots(figsize=(8, 4.8), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-ax.set_facecolor("#fffaf2")
 t_fine = np.linspace(0.0, end_time, 400)
-ax.plot(t_fine, C_A_eq + (C_A0 - C_A_eq) * np.exp(-relaxation_rate * t_fine),
-        color="#b5651d", lw=1.6, label="C_A exact")
-ax.plot(t_fine, C_B_eq + (C_B0 - C_B_eq) * np.exp(-relaxation_rate * t_fine),
-        color="#1f6f78", lw=1.6, label="C_B exact")
-ax.plot(times, num_A, "o", color="#b5651d", ms=4, label="C_A OneSimulation")
-ax.plot(times, num_B, "s", color="#1f6f78", ms=4, label="C_B OneSimulation")
-ax.axhline(C_A_eq, color="#b5651d", ls=":", lw=1.0)
-ax.axhline(C_B_eq, color="#1f6f78", ls=":", lw=1.0)
-ax.set(xlabel="Time / s", ylabel="Concentration / (mol/m$^3$)",
-       title="Reversible reaction — lines: relaxation, markers: OneSimulation 0D kinetics")
-ax.grid(alpha=0.25)
-ax.legend(frameon=False)
-plt.show()
+shown = slice(None, None, max(1, len(times) // 40))
+plots.line(points={"C_A": (times[shown], num_A[shown]), "C_B": (times[shown], num_B[shown])},
+           reference={"C_A": (t_fine, C_A_eq + (C_A0 - C_A_eq) * np.exp(-relaxation_rate * t_fine)),
+                      "C_B": (t_fine, C_B_eq + (C_B0 - C_B_eq) * np.exp(-relaxation_rate * t_fine))},
+           hlines={"equilibrium C_A": C_A_eq, "equilibrium C_B": C_B_eq},
+           xlabel="time [s]", ylabel="concentration [mol/m^3]",
+           title="Reversible reaction: OneSimulation (markers) and exact relaxation (dashed)")
+plots.show()
 
 
 # ## Going further

@@ -23,28 +23,7 @@ The 3D FEM solution is checked against the ideal infinite-solenoid interior valu
 # let a little flux escape). A tolerance of a few per cent covers this finite-length
 # effect and the magnetic insulation on the finite computational domain.
 
-from importlib.metadata import version
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 
 from onesim.cad.d3 import Cylinder
 from onesim.materials import VacuumPermeability
@@ -57,21 +36,22 @@ from onesim.physics.magnetostatics import (
     Magnetostatics, SolenoidCurrent,
 )
 from onesim.simulation import Problem, Simulation
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters and model
 
-domain_length, domain_radius = 0.40, 0.05       # m, finite computational cylinder
-coil_length = 0.20                              # m, solenoid length (>> radius)
-inner_radius, outer_radius = 0.010, 0.015       # m, homogenised winding annulus
-turns, current = 400, 1.0                       # -, A
-center_z = domain_length / 2.0                  # coil centred in the domain
+domain_length, domain_radius = 0.40, 0.05
+coil_length = 0.20
+inner_radius, outer_radius = 0.010, 0.015
+turns, current = 400, 1.0
+center_z = domain_length / 2.0
 
-turns_per_metre = turns / coil_length           # n
+turns_per_metre = turns / coil_length
 mu0 = float(VacuumPermeability().evaluate())
-field_reference = mu0 * turns_per_metre * current  # ideal infinite-solenoid interior B
+field_reference = mu0 * turns_per_metre * current
 
 geometry = Cylinder(radius=domain_radius, length=domain_length)
 coil = SolenoidCurrent(
@@ -121,16 +101,11 @@ print(f"Axial non-uniformity over the central half: {100*uniformity:.2f} %")
 
 # ## Figure
 
-cream = "#fbf5eb"
-fig, ax = plt.subplots(figsize=(8, 4.6), constrained_layout=True)
-fig.patch.set_facecolor(cream); ax.set_facecolor("#fffaf2"); ax.grid(alpha=0.25)
-ax.axhline(field_reference * 1e3, color="#214D43", lw=1.8, ls="--", label="ideal $\\mu_0 n I$")
-ax.plot((axial_z - center_z) * 1e3, Bz_axial * 1e3, "o-", color="#A85539", ms=4,
-        label="OneSimulation 3D FEM")
-ax.set(xlabel="Axial position from centre z / mm", ylabel="Axial flux density $B_z$ / mT",
-       title="Long solenoid: interior axial field")
-ax.legend()
-plt.show()
+plots.line((axial_z - center_z) * 1e3, {"OneSimulation 3D FEM": Bz_axial * 1e3},
+           hlines={"ideal mu_0 n I": field_reference * 1e3}, markers=True,
+           xlabel="axial position from centre z [mm]", ylabel="axial flux density B_z [mT]",
+           title="Long solenoid: interior axial field")
+plots.show()
 
 
 # ## Going further

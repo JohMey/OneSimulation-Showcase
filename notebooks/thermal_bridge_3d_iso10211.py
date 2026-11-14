@@ -61,61 +61,35 @@ tolerances, the far-field one-dimensional solution, the energy balance and mesh 
 # solution far from the bar, the energy balance (heat in = heat out) and three-level mesh
 # studies with observed order and Richardson estimate for both methods.
 
-from dataclasses import dataclass, replace
-from hashlib import sha256
-from importlib.metadata import version
+from dataclasses import replace
 import time
-
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 import numpy as np
-from matplotlib import cm, colors
-from matplotlib.tri import Triangulation
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-from scipy import sparse
-from scipy.optimize import brentq
 
-from onesim.cad.geometry.primitives import Geometry
+from onesim.cad.d3 import Box, Regrouped
 from onesim.materials import IsotropicSolid
-from onesim.meshing.generation.backends.structured.volume.hexahedral import StructuredHexahedralMesh
-from onesim.meshing.generation.contracts.hexahedral_geometry import FACES, affine_hexahedral_geometry
+from onesim.meshing import Geometric, Piecewise, StructuredHexahedralMesher, region_mesh
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.fvm import CentralDifference, FiniteVolume, LeastSquaresGradient
 from onesim.numerics.linear import SparseDirect
 from onesim.physics.heat_transfer import ConvectiveHeatFlux, HeatConduction, HeatFlux
-from onesim.simulation import Problem, Simulation
+from onesim.results.comparisons import convergence
+from onesim.cad.d2 import Plane
+from onesim.simulation import Problem, Simulation, regionwise
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
 
-k_ins, k_iron = 0.1, 50.0        # W/(m K)
-h_s = 1.0 / 0.10                 # W/(m^2 K), surface coefficient from R_s = 0.10 m^2 K/W
-T_int, T_ext = 274.15, 273.15    # K (1 degC and 0 degC)
-x_bar, z_bar = 0.55, 0.525       # outer faces of the bar in the quarter model
-t_ins, y_tip = 0.2, 0.6          # insulation thickness, end of the bar
-Phi_ref, Phi_tol = 0.540, 0.01   # W and relative tolerance (EN ISO 10211, case 4)
-T_ref, T_tol = 0.805, 0.005      # degC and absolute tolerance
+k_ins, k_iron = 0.1, 50.0
+h_s = 1.0 / 0.10
+T_int, T_ext = 274.15, 273.15
+x_bar, z_bar = 0.55, 0.525
+t_ins, y_tip = 0.2, 0.6
+Phi_ref, Phi_tol = 0.540, 0.01
+T_ref, T_tol = 0.805, 0.005
 U_1d = 1.0 / (0.10 + t_ins / k_ins + 0.10)
 print(f"1D far field: U = {U_1d:.5f} W/(m^2 K), heat flux {U_1d * 1.0:.5f} W/m^2, "
       f"external surface temperature {U_1d * 0.10:.5f} degC")
@@ -123,133 +97,68 @@ print(f"1D far field: U = {U_1d:.5f} W/(m^2 K), heat flux {U_1d * 1.0:.5f} W/m^2
 
 # ## Geometry and mesh
 #
-# The quarter model is covered by a tensor-product block mesh whose cells inside the
-# insulation and inside the bar are kept and whose cells in the air beside the protruding
-# bar are dropped. Spacing: geometric grading away from the bar surfaces $x=0.55$ and
-# $z=0.525$ (with the same width on both sides of each surface), towards both faces of
-# the insulation in $y$, and along the protruding bar from $y=0.2$. A mesh level $\ell$
-# scales the cell counts by $\ell$ and the smallest cell width ($8$ mm$/\ell$) by $1/\ell$.
-# The hexahedra are handed to OneSimulation as a native hexahedral mesh with five named
-# boundary groups.
+# The quarter model ($x\ge0.5$, $z\ge0.5$) is the insulation slab joined with the bar
+# (`|`); the joined faces keep the names of the part they lie on (`bar.` for the bar)
+# and are grouped into the four boundary kinds of the standard. The mesh is a graded
+# tensor-product block mesh of the bounding box with a node plane on every material
+# interface, restricted to the solid (`region_mesh`): geometric grading away from the bar
+# surfaces $x=0.55$ and $z=0.525$ (same first width on both sides), towards both faces
+# of the insulation in $y$ and along the protruding bar. A mesh level $\ell$ scales the
+# cell counts by $\ell$ and the smallest cell width ($8$ mm$/\ell$) by $1/\ell$.
 
-@dataclass(frozen=True, eq=False, kw_only=True)
-class QuarterBridge(Geometry):
-    """Quarter of the ISO 10211 case 4 construction."""
-
-    dimension = 3
-
-    def boundary_groups(self):
-        names = ("external", "internal", "symmetry", "layer_edges")
-        return {**{name: (name,) for name in names}, "all": names}
-
-
-def from_surface(length, first, n):
-    """n cells over length, the first one of width `first`, geometric growth."""
-    if n == 1 or abs(n * first - length) < 1e-12:
-        return np.linspace(0.0, length, n + 1)
-    lo, hi = (1.0 + 1e-9, 20.0) if n * first < length else (1e-3, 1.0 - 1e-9)
-    r = brentq(lambda r: first * (r**n - 1) / (r - 1) - length, lo, hi)
-    out = np.concatenate(([0.0], np.cumsum(first * r ** np.arange(n))))
-    out[-1] = length
-    return out
+slab = Box(length=0.5, width=t_ins, height=0.5, origin=(0.5, 0.0, 0.5))
+bar = Box(length=x_bar - 0.5, width=y_tip, height=z_bar - 0.5, origin=(0.5, 0.0, 0.5))
+construction = Regrouped(source=slab | bar.named("bar"), groups={
+    "external": ("y_min",),
+    "internal": ("y_max", "bar.x_max", "bar.z_max", "bar.y_max"),
+    "symmetry": ("x_min", "z_min", "bar.x_min", "bar.z_min"),
+    "layer_edges": ("x_max", "z_max"),
+})
+bounding_box = Box(length=0.5, width=y_tip, height=0.5, origin=(0.5, 0.0, 0.5))
 
 
-def axes_for(level):
-    c = lambda base: int(round(base * level))
-    h0 = 0.008 / level
-    xs = np.concatenate((x_bar - from_surface(0.05, h0, c(2))[::-1][:-1], x_bar + from_surface(0.45, h0, c(5))))
-    zs = np.concatenate((z_bar - from_surface(0.025, h0, c(1))[::-1][:-1], z_bar + from_surface(0.475, h0, c(5))))
-    y_cold = from_surface(t_ins / 2, h0, c(3))
-    ys = np.concatenate((y_cold[:-1], t_ins - y_cold[::-1][:-1], t_ins + from_surface(y_tip - t_ins, h0, c(3))))
-    return xs, ys, zs
-
-
-def in_solid(x, y, z):
-    return (y < t_ins) | ((x < x_bar) & (z < z_bar))
-
-
-class BridgeMesh(StructuredHexahedralMesh):
-    """Hex8 block mesh of the quarter construction (insulation + bar)."""
-
-    def __init__(self, geometry, xs, ys, zs):
-        self.geometry = geometry
-        centres = np.meshgrid(*(0.5 * (v[1:] + v[:-1]) for v in (xs, ys, zs)), indexing="ij")
-        keep = in_solid(*centres)
-        index = -np.ones((len(xs), len(ys), len(zs)), dtype=np.int64)
-        coordinates, cells = [], []
-        corners = ((0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0), (0, 0, 1), (1, 0, 1), (1, 1, 1), (0, 1, 1))
-        for i, j, k in zip(*np.nonzero(keep)):
-            ids = []
-            for p, q, r in corners:
-                node = (i + p, j + q, k + r)
-                if index[node] < 0:
-                    index[node] = len(coordinates)
-                    coordinates.append((xs[node[0]], ys[node[1]], zs[node[2]]))
-                ids.append(index[node])
-            cells.append(ids)
-        data = affine_hexahedral_geometry(np.array(coordinates), np.array(cells))
-        self.coordinates, self.cells, self.cell_volumes = data.coordinates, data.cells, data.volumes
-        self.cell_count = len(self.cells)
-        self.shape = (len(xs) - 1, len(ys) - 1, len(zs) - 1)
-        self.mesh_id = "iso10211-case4:" + sha256(self.coordinates.tobytes() + self.cells.tobytes()).hexdigest()
-        owners = {}
-        for cell in self.cells:
-            for face in FACES:
-                owners.setdefault(tuple(sorted(cell[list(face)])), []).append(tuple(cell[list(face)]))
-        self._facets = {name: [] for name in geometry.boundary_groups()["all"]}
-        for matches in owners.values():
-            if len(matches) == 1:
-                q = self.coordinates[list(matches[0])]
-                if np.allclose(q[:, 1], 0.0):
-                    name = "external"
-                elif np.allclose(q[:, 0], 0.5) or np.allclose(q[:, 2], 0.5):
-                    name = "symmetry"
-                elif np.allclose(q[:, 0], 1.0) or np.allclose(q[:, 2], 1.0):
-                    name = "layer_edges"
-                else:
-                    name = "internal"
-                self._facets[name].append(matches[0])
-        self._carrier = self._build_carrier()
+def mesh_for(level):
+    cells = lambda base: int(round(base * level))
+    first = 0.008 / level
+    grading = (
+        Piecewise(((x_bar - 0.5, Geometric(cells(2), first=first, toward="end")),
+                   (1.0 - x_bar, Geometric(cells(5), first=first)))),
+        Piecewise(((t_ins / 2, Geometric(cells(3), first=first)),
+                   (t_ins / 2, Geometric(cells(3), first=first, toward="end")),
+                   (y_tip - t_ins, Geometric(cells(3), first=first)))),
+        Piecewise(((z_bar - 0.5, Geometric(cells(1), first=first, toward="end")),
+                   (1.0 - z_bar, Geometric(cells(5), first=first)))),
+    )
+    counts = tuple(g.cells for g in grading)
+    block = StructuredHexahedralMesher(cells=counts, grading=grading).generate(bounding_box)
+    return region_mesh(block, construction)
 
 
 # ## Model
 #
-# One `HeatConduction` problem serves both methods. The conductivity is a
-# position-dependent material law: 50 W/(m K) in the bar, 0.1 W/(m K) in the insulation
-# and, on the bar-insulation interface (where only the finite-volume faces sample it),
-# the harmonic mean of the two. Quadrature points of the finite elements always lie
-# inside a cell, so the elements see the two plain values.
+# One `HeatConduction` problem serves both methods. The conductivity is region-wise:
+# 50 W/(m K) in the bar and 0.1 W/(m K) in the insulation. On the bar-insulation interface,
+# where only the finite-volume faces sample it, `interfaces="harmonic"` returns the
+# harmonic mean (the series resistance of the two equal half cells); the quadrature
+# points of the finite elements always lie inside a cell and see the plain values.
 
-@dataclass(frozen=True)
-class BridgeConductivity:
-    unit: str = "W/m/K"
-
-    def evaluate(self, *, x, y, z, **state):
-        x, y, z = np.asarray(x), np.asarray(y), np.asarray(z)
-        tol = 1e-9
-        inner = (x < x_bar - tol) & (z < z_bar - tol)
-        closed = (x < x_bar + tol) & (z < z_bar + tol)
-        interface = closed & ~inner & (y < t_ins - tol)
-        return np.where(interface, 2 * k_iron * k_ins / (k_iron + k_ins), np.where(closed, k_iron, k_ins))
-
-
+conductivity = regionwise(((bar, k_iron),), default=k_ins, unit="W/m/K", interfaces="harmonic")
 material = replace(IsotropicSolid(density=500.0, specific_heat_capacity=1700.0, thermal_conductivity=k_ins,
                                   youngs_modulus=1e9, poisson_ratio=0.3, thermal_expansion_coefficient=0.0),
-                   thermal_conductivity=BridgeConductivity())
+                   thermal_conductivity=conductivity)
 
 METHODS = {
     "FV": FiniteVolume(gradient=LeastSquaresGradient(), diffusion=CentralDifference()),
     "Q2": FiniteElement(element=Lagrange(order=2)),
 }
+b = construction.boundaries
 
 
 def solve(level, method):
     start = time.time()
-    geometry = QuarterBridge()
-    mesh = BridgeMesh(geometry, *axes_for(level))
-    model = HeatConduction(domain=geometry.domain(), material=material, heating=0.0)
-    b = geometry.boundaries
-    problem = Problem(name="ISO 10211 case 4 thermal bridge", geometry=geometry, physics=(model,),
+    mesh = mesh_for(level)
+    model = HeatConduction(domain=construction.domain(), material=material, heating=0.0)
+    problem = Problem(name="ISO 10211 case 4 thermal bridge", geometry=construction, physics=(model,),
                       boundary_conditions=(
                           ConvectiveHeatFlux(boundary=b.internal, physics=model, heat_transfer_coefficient=h_s,
                                              ambient_temperature=T_int),
@@ -259,77 +168,21 @@ def solve(level, method):
     result = Simulation(problem=problem, mesh=mesh, numerics=Numerics(
         spatial=METHODS[method], linear_solver=SparseDirect())).solve_stationary()
     field = result.field(model.temperature)
-    operator = result.operators[model.model_id]
-    out = dict(level=level, method=method, mesh=mesh, field=field, unknowns=operator.problem_size)
-    out.update(fv_surface(mesh, operator, field) if method == "FV" else fe_surface(mesh, field))
-    out["seconds"] = time.time() - start
-    return out
-
-
-# **Surface quantities.** Finite volumes: the heat flow through a boundary is the sum of
-# the conservative face fluxes that the cell balance itself uses
-# (`conservative_face_fluxes`), and the surface temperature of an external face follows
-# from its flux, $T_s=T_e+q/h$. Finite elements: the Robin flux $h\,(T-T_e)$ is integrated
-# with 3 x 3 Gauss points per face (exact for the biquadratic trace), and the surface
-# temperature is the Q2 trace itself.
-
-def fv_surface(mesh, operator, field):
-    g = operator.geometry
-    flux = operator.conservative_face_fluxes(field.values)
-    to_faces = sparse.csr_matrix(g.quadrature_to_faces)
-    area = np.asarray(to_faces.sum(axis=1)).ravel()
-    centre = (to_faces @ g.points) / area[:, None]
-    boundary = np.unique(g.face_indices[g.boundary])
-    cold = boundary[np.abs(centre[boundary, 1]) < 1e-12]
-    warm = boundary[(centre[boundary, 1] > 1e-12)
-                    & (np.abs(centre[boundary, 0] - 0.5) > 1e-12) & (np.abs(centre[boundary, 2] - 0.5) > 1e-12)
-                    & (np.abs(centre[boundary, 0] - 1.0) > 1e-12) & (np.abs(centre[boundary, 2] - 1.0) > 1e-12)]
-    T_face = T_ext + flux[cold] / area[cold] / h_s
-    far = np.argmin(np.sum((centre[cold] - np.array([1.0, 0.0, 1.0])) ** 2, axis=1))
-    return dict(Phi_out=4 * float(flux[cold].sum()), Phi_in=-4 * float(flux[warm].sum()),
-                T_max=float(T_face.max()) - 273.15, T_far=float(T_face[far]) - 273.15,
-                cold_centres=centre[cold], cold_T=T_face - 273.15)
-
-
-GAUSS = np.array([0.5 - 0.5 * np.sqrt(0.6), 0.5, 0.5 + 0.5 * np.sqrt(0.6)])
-GW = np.array([5.0, 8.0, 5.0]) / 18.0
-
-
-def face_rule(mesh, names):
-    pts, wts = [], []
-    for name in names:
-        for face in mesh._facets[name]:
-            q = mesh.coordinates[list(face)]
-            lo, hi = q.min(axis=0), q.max(axis=0)
-            flat = int(np.argmin(hi - lo))
-            u, v = [ax for ax in range(3) if ax != flat]
-            for i, gu in enumerate(GAUSS):
-                for j, gv in enumerate(GAUSS):
-                    p = lo.copy()
-                    p[u] += (hi[u] - lo[u]) * gu
-                    p[v] += (hi[v] - lo[v]) * gv
-                    pts.append(p)
-                    wts.append(GW[i] * GW[j] * (hi[u] - lo[u]) * (hi[v] - lo[v]))
-    return np.array(pts), np.array(wts)
-
-
-def fe_surface(mesh, field):
-    pc, wc = face_rule(mesh, ("external",))
-    pw, ww = face_rule(mesh, ("internal",))
-    Tc = np.asarray(field.evaluate(pc)).ravel()
-    Tw = np.asarray(field.evaluate(pw)).ravel()
-    corner = float(np.asarray(field.evaluate(np.array([[0.5, 0.0, 0.5]]))).ravel()[0])
-    far = float(np.asarray(field.evaluate(np.array([[1.0, 0.0, 1.0]]))).ravel()[0])
-    return dict(Phi_out=4 * float(np.sum(wc * h_s * (Tc - T_ext))), Phi_in=4 * float(np.sum(ww * h_s * (T_int - Tw))),
-                T_max=max(corner, float(Tc.max())) - 273.15, T_far=far - 273.15)
+    external = field.sample(along=b.external, subdivisions=4)
+    return dict(
+        level=level, method=method, mesh=mesh, field=field,
+        unknowns=result.operators[model.model_id].problem_size,
+        Phi_out=4 * field.boundary_flux(b.external), Phi_in=-4 * field.boundary_flux(b.internal),
+        T_max=float(np.max(external.values)) - 273.15,
+        T_far=float(field.evaluate([[1.0, 0.0, 1.0]])[0]) - 273.15,
+        seconds=time.time() - start,
+    )
 
 
 # ## Solve
 #
-# Three levels per method. The finite-volume levels $\ell=2,3,4$ have about 2 100, 7 000
-# and 16 500 cells; the finite-element levels $\ell=1,2,3$ use the same mesh family
-# (levels 2 and 3 are the two coarser finite-volume meshes) with about 2 600, 18 700 and
-# 60 500 Q2 nodes.
+# Three levels per method. The finite-volume levels $\ell=2,3,4$ and the finite-element
+# levels $\ell=1,2,3$ use the same mesh family.
 
 runs = {"FV": [], "Q2": []}
 for method, levels in (("FV", (2, 3, 4)), ("Q2", (1, 2, 3))):
@@ -342,17 +195,6 @@ for method, levels in (("FV", (2, 3, 4)), ("Q2", (1, 2, 3))):
 
 # ## Comparison with the reference
 
-def richardson(values, refinement):
-    f1, f2, f3 = values
-    h1, h2, h3 = 1.0 / np.asarray(refinement, float)
-    ratio = (f1 - f2) / (f2 - f3) if f2 != f3 else np.inf
-    try:
-        p = brentq(lambda p: (h1**p - h2**p) / (h2**p - h3**p) - ratio, 0.2, 12.0)
-    except ValueError:
-        return np.nan, f3
-    return p, f3 + (f3 - f2) / ((h2 / h3) ** p - 1.0)
-
-
 print("EN ISO 10211 case 4, finest mesh of each method")
 print("   quantity                       reference      FV (cells)     Q2 (elements)")
 fv, fe = runs["FV"][-1], runs["Q2"][-1]
@@ -362,13 +204,15 @@ print(f"     deviation (tolerance 1 %)                 {100 * (fv['Phi_out'] / P
 print(f"   max external T / degC          {T_ref:9.3f}    {fv['T_max']:9.4f}      {fe['T_max']:9.4f}")
 print(f"     deviation (tolerance 0.005 K)              {fv['T_max'] - T_ref:+8.4f} K     {fe['T_max'] - T_ref:+8.4f} K")
 
-print("Mesh studies (h ~ 1/level)")
+print("Mesh studies (cell size ~ 1/level)")
 for method, levels in (("FV", (2, 3, 4)), ("Q2", (1, 2, 3))):
     for key, label in (("Phi_out", "Phi / W"), ("T_max", "T_max / degC")):
-        vals = [r[key] for r in runs[method]]
-        p, ext = richardson(vals, levels)
-        print(f"   {method} {label:13s} " + "  ".join(f"{v:.5f}" for v in vals)
-              + f"   order {p:.2f}, Richardson {ext:.5f}, change last two meshes {abs(vals[-1] - vals[-2]):.1e}")
+        values = [r[key] for r in runs[method]]
+        study = convergence(values, [1.0 / level for level in levels])
+        order = "-" if study.order is None else f"{study.order:.2f}"
+        extra = study.reason if study.extrapolated is None else f"{study.extrapolated:.5f}"
+        print(f"   {method} {label:13s} " + "  ".join(f"{v:.5f}" for v in values)
+              + f"   order {order}, Richardson {extra}, change last two meshes {abs(values[-1] - values[-2]):.1e}")
 
 print("Energy balance (heat entering on the warm side = heat leaving on the cold side)")
 for method in runs:
@@ -385,106 +229,35 @@ print(f"Thermal bridge effect: Phi - U A = {fe['Phi_out'] - U_1d * 1.0:.4f} W "
 
 # ## Figure
 #
-# Left: surface temperature of the whole construction (the quarter mirrored), seen from
-# the warm side with the protruding bar, and from the cold side with the warm spot where
-# the bar ends. Middle: the section $z=0.5$ through the bar axis. Right: the external
-# surface temperature around the bar end, and the mesh convergence of both methods.
+# Left: surface temperature of the whole construction (the quarter mirrored about both
+# symmetry planes), seen from the warm side with the protruding bar and from the cold side
+# with the warm spot where the bar ends. Middle: the section $z=0.5$ through the bar axis.
+# Right: the external surface around the bar end, and the mesh convergence of both methods.
 
-fine = runs["Q2"][-1]
-mesh, field = fine["mesh"], fine["field"]
-nodal = np.asarray(field.evaluate(mesh.coordinates)).ravel() - 273.15
-norm = colors.Normalize(vmin=0.0, vmax=1.0)
-mirrors = [np.array([sx, 1.0, sz]) for sx in (1, -1) for sz in (1, -1)]
-centre_shift = np.array([0.5, 0.0, 0.5])
-
-
-def surface_polygons(names):
-    polys, vals = [], []
-    for name in names:
-        for face in mesh._facets[name]:
-            q = mesh.coordinates[list(face)]
-            v = nodal[list(face)].mean()
-            for m in mirrors:
-                polys.append((q - centre_shift) * m + centre_shift)
-                vals.append(v)
-    return np.array(polys), np.array(vals)
-
-
-fig = plt.figure(figsize=(17, 10), constrained_layout=True)
-grid = fig.add_gridspec(2, 3, width_ratios=(1.15, 1.2, 1.0))
-polys, vals = surface_polygons(("external", "internal", "layer_edges"))
-for row, (elev, azim, title) in enumerate(((18, 40, "Warm side: surface temperature"),
-                                           (22, 230, "Cold side: surface temperature"))):
-    ax3 = fig.add_subplot(grid[row, 0], projection="3d")
-    shade = FIELD_CMAP(norm(vals))
-    ax3.add_collection3d(Poly3DCollection(polys[:, :, [0, 1, 2]], facecolors=shade, edgecolors=shade,
-                                          linewidths=0.3, antialiased=False))
-    ax3.set(xlim=(0, 1), ylim=(0, 0.6), zlim=(0, 1), xlabel="x / m", ylabel="y / m", zlabel="z / m", title=title)
-    ax3.set_box_aspect((1, 0.6, 1))
-    ax3.view_init(elev=elev, azim=azim)
-    fig.colorbar(cm.ScalarMappable(norm=norm, cmap=FIELD_CMAP), ax=ax3, shrink=0.6, label="T / degC")
-
-ax = fig.add_subplot(grid[:, 1])
-section = [f for f in mesh._facets["symmetry"] if np.allclose(mesh.coordinates[list(f)][:, 2], 0.5)]
-tris = np.array([t for f in section for t in ((f[0], f[1], f[2]), (f[0], f[2], f[3]))])
-used = np.unique(tris)
-local = -np.ones(len(mesh.coordinates), dtype=int)
-local[used] = np.arange(len(used))
-X, Y = mesh.coordinates[used, 0], mesh.coordinates[used, 1]
-for sign in (1, -1):
-    tri = Triangulation(0.5 + sign * (X - 0.5), Y, local[tris])
-    cs = ax.tricontourf(tri, nodal[used], levels=np.linspace(0, 1, 41), cmap=FIELD_CMAP)
-    ax.tricontour(tri, nodal[used], levels=np.linspace(0.05, 0.95, 19), colors=CREAM, linewidths=0.5)
-ax.add_patch(plt.Rectangle((0.45, 0.0), 0.1, y_tip, fill=False, ec=INK, lw=0.8))
-ax.axhline(t_ins, color=INK, lw=0.6, ls=":")
-ax.set(xlim=(0.15, 0.85), ylim=(0, 0.62), aspect="equal", xlabel="x / m", ylabel="y / m (cold face at y = 0)",
-       title="Section z = 0.5 through the bar axis (Q2)")
-fig.colorbar(cs, ax=ax, shrink=0.7, label="T / degC")
-
-ax = fig.add_subplot(grid[0, 2])
-cold = [f for f in mesh._facets["external"]]
-tris = np.array([t for f in cold for t in ((f[0], f[1], f[2]), (f[0], f[2], f[3]))])
-used = np.unique(tris)
-local[:] = -1
-local[used] = np.arange(len(used))
-Xc, Zc = mesh.coordinates[used, 0], mesh.coordinates[used, 2]
-for sx in (1, -1):
-    for sz in (1, -1):
-        tri = Triangulation(0.5 + sx * (Xc - 0.5), 0.5 + sz * (Zc - 0.5), local[tris])
-        cs = ax.tricontourf(tri, nodal[used], levels=np.linspace(0, 0.82, 42), cmap=FIELD_CMAP)
-        ax.tricontour(tri, nodal[used], levels=[0.06, 0.1, 0.2, 0.4, 0.6, 0.8], colors=CREAM, linewidths=0.5)
-ax.add_patch(plt.Rectangle((0.45, 0.475), 0.1, 0.05, fill=False, ec=INK, lw=0.8))
-ax.set(xlim=(0.25, 0.75), ylim=(0.35, 0.65), aspect="equal", xlabel="x / m", ylabel="z / m",
-       title=f"External surface around the bar end (max {fine['T_max']:.3f} degC)")
-fig.colorbar(cs, ax=ax, shrink=0.8, label="T / degC")
-
-ax = fig.add_subplot(grid[1, 2])
-for method, marker, color in (("FV", "o", COPPER), ("Q2", "s", GREEN)):
-    cells = [r["mesh"].cell_count for r in runs[method]]
-    ax.semilogx(cells, [100 * (r["Phi_out"] / Phi_ref - 1) for r in runs[method]], marker + "-", color=color,
-                label=f"{method}: heat flow")
-for sign in (1, -1):
-    ax.axhline(sign * 100 * Phi_tol, color=COPPER, lw=0.8, ls=":")
-ax.axhline(0.0, color="#9FA593", lw=0.6)
-ax.set(xlabel="hexahedral cells (quarter model)", ylabel="heat flow: deviation from 0.540 W / %",
-       title="Mesh convergence against the ISO values\n(dotted: tolerances 1 % and 0.005 K)", ylim=(-1.2, 1.2))
-ax2 = ax.twinx()
-for method, marker, color in (("FV", "o", COPPER), ("Q2", "s", GREEN)):
-    cells = [r["mesh"].cell_count for r in runs[method]]
-    ax2.semilogx(cells, [1e3 * (r["T_max"] - T_ref) for r in runs[method]], marker + "--", mfc="none", color=color,
-                 label=f"{method}: max external T")
-for sign in (1, -1):
-    ax2.axhline(sign * 1e3 * T_tol, color=GREEN, lw=0.8, ls=":")
-ax2.set(ylabel="max external T: deviation from 0.805 degC / mK", ylim=(-6, 6))
-lines = ax.get_legend_handles_labels()
-lines2 = ax2.get_legend_handles_labels()
-ax.legend(lines[0] + lines2[0], lines[1] + lines2[1], fontsize=7, loc="lower right")
-plt.show()
+fine = runs["Q2"][-1]["field"]
+celsius = lambda values, positions: values - 273.15
+mirror = {"planes": [((1, 0, 0), (0.5, 0, 0)), ((0, 0, 1), (0, 0, 0.5))]}
+cells = {method: [run["mesh"].cell_count for run in runs[method]] for method in ("FV", "Q2")}
+fig = plots.figure(layout=[["warm", "cut", "outside"], ["cold", "cut", "convergence"]], size=(17, 10))
+plots.surface(fine, component=celsius, symmetry=mirror, camera=plots.Camera(elevation=18, azimuth=40), limits=(0.0, 1.0),
+              label="T [°C]", title="Warm side: surface temperature", ax=fig["warm"])
+plots.surface(fine, component=celsius, symmetry=mirror, camera=plots.Camera(elevation=22, azimuth=230), limits=(0.0, 1.0),
+              label="T [°C]", title="Cold side: surface temperature", ax=fig["cold"])
+plots.section(fine, plane=Plane(origin=(0.5, 0.0, 0.5), normal=(0, 0, 1)), component=celsius,
+              symmetry={"planes": [((1, 0, 0), (0.5, 0, 0))]}, limits=(0.0, 1.0), contours=19, label="T [°C]",
+              title="Section z = 0.5 through the bar axis (Q2)", xlimits=(0.15, 0.85), ylimits=(0, 0.62),
+              ylabel="y [m] (cold face at y = 0)", ax=fig["cut"])
+plots.surface(fine, boundary=b.external, component=celsius, symmetry=mirror, contours=12, label="T [°C]", subdivisions=4,
+              title=f"External surface around the bar end (max {runs['Q2'][-1]['T_max']:.3f} °C)",
+              xlimits=(0.25, 0.75), ylimits=(0.35, 0.65), ax=fig["outside"])
+plots.line(y={f"{method}: heat flow": (cells[method], [100 * (run["Phi_out"] / Phi_ref - 1) for run in runs[method]])
+              for method in cells},
+           right={f"{method}: max external T": (cells[method], [1e3 * (run["T_max"] - T_ref) for run in runs[method]])
+                  for method in cells},
+           hlines={"heat-flow tolerance ±1 %": 100 * Phi_tol, "": -100 * Phi_tol}, markers=True, scale="logx",
+           xlabel="hexahedral cells (quarter model)", ylabel="heat flow: deviation from 0.540 W [%]",
+           right_label="max external T: deviation from 0.805 °C [mK]", title="Mesh convergence against the ISO values",
+           legend="lower right", ax=fig["convergence"])
+plots.show()
 
 
-# ## Going further
-#
-# Run the other three ISO 10211 test cases (two 2D sections and the 3D corner of case 3);
-# replace the bar by a stainless-steel anchor ($k=15$ W/(m K)) and compare the point
-# thermal transmittance $\chi$; or add a thermal-break pad of low conductivity inside the
-# insulation and watch the warm spot on the external face disappear.

@@ -35,28 +35,7 @@ closed-form Womersley solution for an oscillating pressure gradient.
 # first. We check the profiles at four phases of the last cycle, the amplitude and
 # phase lag of the centreline velocity, and the transverse velocity components.
 
-from importlib.metadata import version
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 
 from onesim.cad.d3 import Box
 from onesim.materials import NewtonianFluid
@@ -69,10 +48,11 @@ from onesim.numerics.time import BDF, BackwardEuler
 from onesim.physics.hydrodynamics import IncompressibleNavierStokes, NoSlipWall
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.field_constraints import MeanValue
-from onesim.simulation.initial_conditions.values import InitialValue
-from onesim.simulation.problem_definition.boundaries import PeriodicBoundary
+from onesim.simulation.initial_conditions import InitialValue
+from onesim.simulation import PeriodicBoundary
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -84,21 +64,21 @@ print("OneSimulation:", version("onesimulation"))
 # three cycles less than 1 % of it is left, so the fourth cycle is compared with the
 # periodic reference.
 
-length = 0.0005       # m, streamwise extent (x)
-gap = 0.002           # m, plate spacing 2h (y), the only physically resolved direction
-span = 0.0005         # m, spanwise extent (z)
-rho = 1000.0          # kg/m^3, density of water
-mu = 1.0e-3           # Pa·s, dynamic viscosity of water
-nu = mu / rho         # m^2/s, kinematic viscosity
-half_gap = gap / 2.0  # m, h
+length = 0.0005
+gap = 0.002
+span = 0.0005
+rho = 1000.0
+mu = 1.0e-3
+nu = mu / rho
+half_gap = gap / 2.0
 
-womersley = 3.0                                   # alpha = h sqrt(omega / nu)
-omega = (womersley / half_gap) ** 2 * nu          # rad/s
-period = 2.0 * np.pi / omega                      # s
-forcing_amplitude = 1.0                           # N/m^3, G (pressure-gradient amplitude)
+womersley = 3.0
+omega = (womersley / half_gap) ** 2 * nu
+period = 2.0 * np.pi / omega
+forcing_amplitude = 1.0
 steps_per_period = 40
 time_step = period / steps_per_period
-compared_cycle = 3                                # compare during the fourth cycle (t in [3T, 3.75T])
+compared_cycle = 3
 end_time = (compared_cycle + 0.75) * period
 
 stokes_layer = np.sqrt(2.0 * nu / omega)
@@ -129,13 +109,11 @@ fluid = NewtonianFluid(density=rho, dynamic_viscosity=mu)
 
 
 def pulsatile_forcing(x, t):
-    # Oscillating streamwise pressure gradient as a body force; x fixes the array shape.
     zeros = np.zeros_like(x)
     return np.column_stack((np.full_like(x, forcing_amplitude * np.cos(omega * t)), zeros, zeros))
 
 
 def womersley_profile(y, t):
-    # Closed-form periodic solution; y is measured from the channel centre.
     k = np.sqrt(1j * omega / nu)
     complex_amplitude = forcing_amplitude / (1j * rho * omega) * (1.0 - np.cosh(k * y) / np.cosh(k * half_gap))
     return np.real(complex_amplitude * np.exp(1j * omega * t))
@@ -189,7 +167,7 @@ velocity = result.field(model.velocity)
 k_complex = np.sqrt(1j * omega / nu)
 centre_complex = forcing_amplitude / (1j * rho * omega) * (1.0 - 1.0 / np.cosh(k_complex * half_gap))
 centre_amplitude = float(abs(centre_complex))
-centre_lag = float(-np.angle(centre_complex))            # rad, lag of u(0,t) behind G cos(omega t)
+centre_lag = float(-np.angle(centre_complex))
 quasi_steady_amplitude = forcing_amplitude * half_gap**2 / (2.0 * mu)
 print(f"Centreline amplitude |U(0)| = {1e3*centre_amplitude:.4f} mm/s "
       f"({centre_amplitude/quasi_steady_amplitude:.3f} of the quasi-steady value G h^2/2mu)")
@@ -235,34 +213,20 @@ print(f"Centreline phase lag: FEM {np.degrees(lag_numeric):.2f} deg,  reference 
 
 # ## Figure
 
-cream = "#fbf5eb"
-colors = ("#214D43", "#A85539", "#1f5c73", "#8a6d1f")
-fig, (ax_profile, ax_centre) = plt.subplots(1, 2, figsize=(11, 4.8), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-for ax in (ax_profile, ax_centre):
-    ax.set_facecolor("#fffaf2")
-    ax.grid(alpha=0.25)
-for color, (accepted, (u_numeric, u_exact, _)) in zip(colors, profiles.items()):
-    phase_deg = np.degrees(omega * accepted) % 360
-    ax_profile.plot(u_exact * 1000, (y_samples - half_gap) * 1000, color=color, lw=1.8,
-                    label=f"Womersley, ωt = {phase_deg:.0f}°")
-    ax_profile.plot(u_numeric[::2] * 1000, (y_samples[::2] - half_gap) * 1000, "o", color=color, ms=4,
-                    label=f"OneSimulation, ωt = {phase_deg:.0f}°")
-ax_profile.axhline(half_gap * 1000, color="#555", lw=2)
-ax_profile.axhline(-half_gap * 1000, color="#555", lw=2)
-ax_profile.set(xlabel="Streamwise velocity u / (mm/s)", ylabel="Distance from the centre y / mm",
-               title=f"Pulsatile channel flow, α = {womersley:.0f}: profiles in the fourth cycle")
-ax_profile.legend(fontsize=7, ncol=2)
+phases = {f"ωt = {np.degrees(omega * accepted) % 360:.0f}°": values for accepted, values in profiles.items()}
 fine_times = np.linspace(cycle_times[0], cycle_times[-1], 200)
-ax_centre.plot(fine_times / period, womersley_profile(0.0, fine_times) * 1000, color="#214D43", lw=1.8,
-               label="Womersley centreline u(0,t)")
-ax_centre.plot(cycle_times / period, centre_series * 1000, "o", color="#A85539", ms=4, label="OneSimulation")
-ax_centre.plot(fine_times / period, quasi_steady_amplitude * np.cos(omega * fine_times) * 1000, "--",
-               color="#888", lw=1.2, label="Quasi-steady response (α → 0)")
-ax_centre.set(xlabel="Time t / T", ylabel="Centreline velocity / (mm/s)",
-              title="Centreline velocity: amplitude reduction and phase lag")
-ax_centre.legend(fontsize=8)
-plt.show()
+fig = plots.figure(1, 2, size=(11, 4.8))
+plots.line(points={label: (u_numeric[::2] * 1000, (y_samples[::2] - half_gap) * 1000) for label, (u_numeric, _, _) in phases.items()},
+           reference={label: (u_exact * 1000, (y_samples - half_gap) * 1000) for label, (_, u_exact, _) in phases.items()},
+           hlines=[-half_gap * 1000, half_gap * 1000], xlabel="streamwise velocity u [mm/s]",
+           ylabel="distance from the centre y [mm]",
+           title=f"Pulsatile channel flow, α = {womersley:.0f}: OneSimulation (markers), Womersley (dashed)", ax=fig[0])
+plots.line(points={"OneSimulation": (cycle_times / period, centre_series * 1000)},
+           reference={"Womersley centreline u(0, t)": (fine_times / period, womersley_profile(0.0, fine_times) * 1000),
+                      "quasi-steady response (α → 0)": (fine_times / period, quasi_steady_amplitude * np.cos(omega * fine_times) * 1000)},
+           xlabel="time t / T", ylabel="centreline velocity [mm/s]",
+           title="Centreline velocity: amplitude reduction and phase lag", ax=fig[1])
+plots.show()
 
 
 # ## Going further

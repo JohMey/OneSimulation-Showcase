@@ -23,29 +23,8 @@ The OneSimulation modal solution is checked against Euler-Bernoulli beam theory.
 # and is therefore an approximate target for a three-dimensional solid of finite
 # slenderness; the deviation grows for stubby beams.
 
-from importlib.metadata import version
 from math import pi, sqrt
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 
 from onesim.cad.d3 import Box
 from onesim.materials import IsotropicSolid
@@ -55,8 +34,9 @@ from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import SparseDirect
 from onesim.physics.solid_mechanics import FixedDisplacement, LinearElasticity, TractionFree, structural_modes
 from onesim.simulation import Problem, Simulation
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters and model
@@ -64,11 +44,11 @@ print("OneSimulation:", version("onesimulation"))
 # A slender beam ($L/h=20$) keeps the Euler-Bernoulli target accurate even for the
 # relatively high wavenumber of the clamped-clamped fundamental.
 
-length, side = 0.240, 0.012                      # m, square cross-section
-E, nu, density = 210e9, 0.30, 7850.0             # Pa, -, kg/m^3 (structural steel)
-inertia = side * side**3 / 12.0                  # I = b h^3 / 12, square section
-area = side * side                               # A = b h
-beta_1 = 4.730041                                # first clamped-clamped eigenvalue beta_1 * L
+length, side = 0.240, 0.012
+E, nu, density = 210e9, 0.30, 7850.0
+inertia = side * side**3 / 12.0
+area = side * side
+beta_1 = 4.730041
 frequency_reference = beta_1**2 / (2.0 * pi) * sqrt(E * inertia / (density * area * length**4))
 
 geometry = Box(length=length, width=side, height=side)
@@ -81,7 +61,6 @@ problem = Problem(
     name="Doubly clamped beam natural modes",
     geometry=geometry, physics=(model,),
     boundary_conditions=(
-        # Clamped on both end faces, traction-free everywhere else.
         FixedDisplacement(boundary=geometry.boundaries.x_min, physics=model, value=(0.0, 0.0, 0.0)),
         FixedDisplacement(boundary=geometry.boundaries.x_max, physics=model, value=(0.0, 0.0, 0.0)),
         TractionFree(boundary=geometry.boundaries.all - geometry.boundaries.x_min - geometry.boundaries.x_max,
@@ -112,16 +91,10 @@ print("First four frequencies / Hz:", [round(f, 2) for f in modes.frequencies])
 
 # ## Figure
 
-cream = "#fbf5eb"
-labels = ["Mode 1\n(bending)", "Mode 2\n(bending)", "Mode 3", "Mode 4"]
-fig, ax = plt.subplots(figsize=(8, 4.6), constrained_layout=True)
-fig.patch.set_facecolor(cream); ax.set_facecolor("#fffaf2"); ax.grid(alpha=0.25, axis="y")
-ax.bar(range(4), modes.frequencies, color="#A85539", width=0.6, label="OneSimulation modal")
-ax.axhline(frequency_reference, color="#214D43", lw=1.8, ls="--", label="Euler-Bernoulli $f_1$")
-ax.set(xticks=range(4), xticklabels=labels, ylabel="Natural frequency / Hz",
-       title="Doubly clamped beam: natural frequencies")
-ax.legend()
-plt.show()
+plots.bars(["Mode 1\n(bending)", "Mode 2\n(bending)", "Mode 3", "Mode 4"], {"OneSimulation": modes.frequencies},
+           reference={"Euler-Bernoulli": [frequency_reference, frequency_reference, np.nan, np.nan]},
+           ylabel="natural frequency [Hz]", title="Doubly clamped beam: natural frequencies")
+plots.show()
 
 
 # ## Going further

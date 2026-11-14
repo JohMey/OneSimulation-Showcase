@@ -27,28 +27,7 @@ The OneSimulation solution is checked against Newton's law of cooling.
 # with time constant $\tau=C/(hA)$. We compare every stored time against this
 # expression.
 
-from importlib.metadata import version
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 
 from onesim.cad.geometry import LumpedDomain
 from onesim.meshing import LumpedMesh
@@ -59,8 +38,9 @@ from onesim.physics.systems import ThermalCapacitance
 from onesim.results.storage import MemoryOutputSink, Output
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters and model
@@ -69,13 +49,13 @@ print("OneSimulation:", version("onesimulation"))
 # the heat capacity, area, heat-transfer coefficient and ambient temperature are
 # constant. The values describe a small metal part cooling in quiet air.
 
-heat_capacity = 900.0           # J/K, total heat capacity C
-heat_transfer_coefficient = 15.0  # W/(m²·K), convective coefficient h
-area = 0.06                     # m², exposed surface area A
-ambient_temperature = 300.0     # K, surrounding temperature
-initial_temperature = 350.0     # K, body temperature at t = 0
+heat_capacity = 900.0
+heat_transfer_coefficient = 15.0
+area = 0.06
+ambient_temperature = 300.0
+initial_temperature = 350.0
 
-conductance = heat_transfer_coefficient * area  # W/K, equals h*A
+conductance = heat_transfer_coefficient * area
 time_constant = heat_capacity / conductance
 end_time = 3.0 * time_constant
 time_step = 0.05 * time_constant
@@ -111,11 +91,7 @@ result = simulation.run(
     time_step=time_step,
     output=Output(fields=(model.temperature,), interval=time_step, sink=sink),
 )
-times = np.asarray([float(s.time) for s in sink.snapshots])
-temperatures = np.asarray([
-    float(np.asarray(s.fields[model.temperature.field_id].values).reshape(-1)[0])
-    for s in sink.snapshots
-])
+times, temperatures = sink.time_series(model.temperature)
 
 
 # ## Comparison with the closed-form solution
@@ -136,21 +112,13 @@ print(f"Maximum absolute error against the exponential: {max_abs_error:.3e} K")
 
 # ## Figure
 
-fig, ax = plt.subplots(figsize=(8, 4.5), constrained_layout=True)
-fig.patch.set_facecolor("#fbf5eb")
-ax.set_facecolor("#fffaf2")
 dense_t = np.linspace(0.0, end_time, 400)
-dense_ref = ambient_temperature + (initial_temperature - ambient_temperature) * np.exp(
-    -conductance * dense_t / heat_capacity
-)
-ax.plot(dense_t, dense_ref, color="#6b442f", lw=1.8, label="Newton's law of cooling")
-ax.plot(times, temperatures, "o", color="#c56838", ms=4, label="OneSimulation RK4")
-ax.axhline(ambient_temperature, color="#9a8f7d", ls="--", lw=1.0, label="Ambient")
-ax.set(xlabel="Time / s", ylabel="Temperature / K",
-       title="Convective cooling of a lumped thermal mass")
-ax.grid(alpha=0.25)
-ax.legend()
-plt.show()
+plots.line(points={"OneSimulation RK4": (times, temperatures)},
+           reference={"Newton's law of cooling": (dense_t, ambient_temperature + (initial_temperature - ambient_temperature)
+                                                  * np.exp(-conductance * dense_t / heat_capacity))},
+           hlines={"ambient": ambient_temperature}, xlabel="time [s]", ylabel="temperature [K]",
+           title="Convective cooling of a lumped thermal mass")
+plots.show()
 
 
 # ## Going further

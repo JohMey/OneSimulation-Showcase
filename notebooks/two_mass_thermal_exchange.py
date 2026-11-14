@@ -29,28 +29,7 @@ The OneSimulation solution is checked against the closed-form two-node solution.
 #
 # Both statements are checked at every stored time.
 
-from importlib.metadata import version
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 
 from onesim.cad.geometry import LumpedDomain
 from onesim.meshing import LumpedMesh
@@ -64,8 +43,9 @@ from onesim.results.storage import MemoryOutputSink, Output
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.field_connections import FieldCoupling
 from onesim.simulation.initial_conditions import InitialValue
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters and model
@@ -75,11 +55,11 @@ print("OneSimulation:", version("onesimulation"))
 # pair. The values describe a hot 1.3 kg copper block bolted to a cooler 1.7 kg
 # aluminium block through a thin bridge.
 
-heat_capacity_1 = 500.0     # J/K, C1 (hot body)
-heat_capacity_2 = 1500.0    # J/K, C2 (cool body)
-conductance = 2.0           # W/K, G of the bridge between the bodies
-initial_temperature_1 = 360.0  # K
-initial_temperature_2 = 300.0  # K
+heat_capacity_1 = 500.0
+heat_capacity_2 = 1500.0
+conductance = 2.0
+initial_temperature_1 = 360.0
+initial_temperature_2 = 300.0
 
 decay_rate = conductance * (1.0 / heat_capacity_1 + 1.0 / heat_capacity_2)
 time_constant = 1.0 / decay_rate
@@ -95,14 +75,14 @@ body_1 = ThermalCapacitance(
     domain=domain.system,
     heat_capacity=heat_capacity_1,
     conductance=conductance,
-    ambient_temperature=None,   # supplied by body 2 through the coupling below
+    ambient_temperature=None,
     heating=0.0,
 )
 body_2 = ThermalCapacitance(
     domain=domain.system,
     heat_capacity=heat_capacity_2,
     conductance=conductance,
-    ambient_temperature=None,   # supplied by body 1 through the coupling below
+    ambient_temperature=None,
     heating=0.0,
 )
 problem = Problem(
@@ -141,18 +121,11 @@ result = simulation.run(
         sink=sink,
     ),
 )
-times = np.asarray([float(s.time) for s in sink.snapshots])
+times = sink.times
 
 
-def series(field):
-    return np.asarray([
-        float(np.asarray(s.fields[field.field_id].values).reshape(-1)[0])
-        for s in sink.snapshots
-    ])
-
-
-temperatures_1 = series(body_1.temperature)
-temperatures_2 = series(body_2.temperature)
+temperatures_1 = sink.time_series(body_1.temperature)[1]
+temperatures_2 = sink.time_series(body_2.temperature)[1]
 
 
 # ## Comparison with the closed-form solution
@@ -180,27 +153,19 @@ print(f"Decay rate: fitted {fitted_rate:.6f} 1/s, exact G(1/C1+1/C2) = {decay_ra
 
 # ## Figure
 
-fig, axes = plt.subplots(2, 1, figsize=(8, 7), sharex=True, constrained_layout=True)
-fig.patch.set_facecolor("#fbf5eb")
-for ax in axes:
-    ax.set_facecolor("#fffaf2")
-    ax.grid(alpha=0.25)
 dense_t = np.linspace(0.0, end_time, 400)
 dense_diff = (initial_temperature_1 - initial_temperature_2) * np.exp(-decay_rate * dense_t)
-axes[0].plot(dense_t, mean_temperature + heat_capacity_2 / (heat_capacity_1 + heat_capacity_2) * dense_diff,
-             color="#6b442f", lw=1.6, label="Closed-form $T_1$")
-axes[0].plot(dense_t, mean_temperature - heat_capacity_1 / (heat_capacity_1 + heat_capacity_2) * dense_diff,
-             color="#39715E", lw=1.6, label="Closed-form $T_2$")
-axes[0].plot(times[::4], temperatures_1[::4], "o", color="#c56838", ms=4, label="OneSimulation body 1")
-axes[0].plot(times[::4], temperatures_2[::4], "s", color="#83B9AE", ms=4, label="OneSimulation body 2")
-axes[0].axhline(mean_temperature, color="#9a8f7d", ls="--", lw=1.0, label="Capacity-weighted mean")
-axes[0].set(ylabel="Temperature / K", title="Two thermal masses exchanging heat")
-axes[0].legend(loc="center right", fontsize=9)
-axes[1].semilogy(dense_t, dense_diff, color="#6b442f", lw=1.6, label=r"$\Delta T_0\,e^{-G(1/C_1+1/C_2)t}$")
-axes[1].semilogy(times[::4], difference[::4], "o", color="#c56838", ms=4, label="OneSimulation $T_1-T_2$")
-axes[1].set(xlabel="Time / s", ylabel="Temperature difference / K")
-axes[1].legend(loc="upper right")
-plt.show()
+total_capacity = heat_capacity_1 + heat_capacity_2
+fig = plots.figure(2, 1, size=(8, 7))
+plots.line(points={"body 1": (times[::4], temperatures_1[::4]), "body 2": (times[::4], temperatures_2[::4])},
+           reference={"body 1": (dense_t, mean_temperature + heat_capacity_2 / total_capacity * dense_diff),
+                      "body 2": (dense_t, mean_temperature - heat_capacity_1 / total_capacity * dense_diff)},
+           hlines={"capacity-weighted mean": mean_temperature}, ylabel="temperature [K]",
+           title="Two thermal masses: OneSimulation (markers) and closed form (dashed)", legend="center right", ax=fig[0])
+plots.line(points={"OneSimulation T_1 - T_2": (times[::4], difference[::4])},
+           reference={"exponential decay": (dense_t, dense_diff)}, scale="logy",
+           xlabel="time [s]", ylabel="temperature difference [K]", ax=fig[1])
+plots.show()
 
 
 # ## Going further

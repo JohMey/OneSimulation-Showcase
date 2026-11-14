@@ -24,29 +24,8 @@ relations for a normal shock of a given shock Mach number.
 # ratios must reproduce the closed-form relations above, and the measured front
 # speed must match $S$.
 
-from importlib.metadata import version
-
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 import numpy as np
+
 from onesim.cad.d1 import Line
 from onesim.meshing import StructuredLineMesher
 from onesim.numerics import Numerics
@@ -59,8 +38,9 @@ from onesim.physics.hydrodynamics import (
 )
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters and the exact shock state
@@ -71,12 +51,11 @@ print("OneSimulation:", version("onesimulation"))
 # in the $+x$ direction; it is stopped well before it reaches the open end.
 
 gamma = 1.4
-M1 = 2.0               # shock Mach number S / a1
+M1 = 2.0
 rho1, p1, u1 = 1.0, 1.0, 0.0
 a1 = np.sqrt(gamma * p1 / rho1)
-S = M1 * a1            # shock speed in the laboratory frame
+S = M1 * a1
 
-# Exact Rankine-Hugoniot post-shock state (gas initially at rest).
 pressure_ratio = (2 * gamma * M1**2 - (gamma - 1)) / (gamma + 1)
 density_ratio = ((gamma + 1) * M1**2) / ((gamma - 1) * M1**2 + 2)
 p2 = p1 * pressure_ratio
@@ -85,8 +64,8 @@ u2 = (2 * a1 / (gamma + 1)) * (M1 - 1.0 / M1)
 print(f"a1 = {a1:.4f},  shock speed S = {S:.4f}")
 print(f"exact ratios:  p2/p1 = {pressure_ratio:.4f},  rho2/rho1 = {density_ratio:.4f},  u2 = {u2:.4f}")
 
-x0 = 0.30              # initial shock position
-end_time = 0.15        # stops the front near x = 0.30 + S*end_time (< 0.9)
+x0 = 0.30
+end_time = 0.15
 DT = 2.0e-5
 POINTS = 2000
 
@@ -151,8 +130,8 @@ pressure = np.asarray(result.field(gas.pressure).values)
 velocity = np.asarray(result.field(gas.velocity).values)
 
 front = x0 + S * end_time
-left = (x > 0.05) & (x < front - 0.08)     # shocked plateau
-right = (x > front + 0.08) & (x < 0.95)     # quiescent plateau
+left = (x > 0.05) & (x < front - 0.08)
+right = (x > front + 0.08) & (x < 0.95)
 
 num_rho2, num_rho1 = rho[left].mean(), rho[right].mean()
 num_p2, num_p1 = pressure[left].mean(), pressure[right].mean()
@@ -165,7 +144,6 @@ print(f"  rho2/rho1 : {num_density_ratio:.4f}  vs  {density_ratio:.4f}")
 print(f"  p2/p1     : {num_pressure_ratio:.4f}  vs  {pressure_ratio:.4f}")
 print(f"  u2        : {num_u2:.4f}  vs  {u2:.4f}   (ahead: {num_u1:.4e})")
 
-# Shock speed from the half-density crossing of the front.
 mid = 0.5 * (rho1 + rho2)
 crossing = np.where((rho[:-1] - mid) * (rho[1:] - mid) < 0)[0]
 front_x = x[crossing[np.argmax(np.abs(np.diff(rho))[crossing])]]
@@ -173,27 +151,16 @@ measured_speed = (front_x - x0) / end_time
 print(f"  shock speed: {measured_speed:.4f}  vs  {S:.4f}")
 
 
-
 # ## Figure
 
-cream = "#fbf5eb"
-fig, axes = plt.subplots(1, 3, figsize=(13, 4.2), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-exact = {
-    "Density": np.where(x < front, rho2, rho1),
-    "Pressure": np.where(x < front, p2, p1),
-    "Velocity": np.where(x < front, u2, u1),
-}
-numeric = {"Density": rho, "Pressure": pressure, "Velocity": velocity}
-for ax, name in zip(axes, exact):
-    ax.set_facecolor("#fffaf2")
-    ax.plot(x, exact[name], color="#b4aa98", lw=1.1, ls="--", label="exact shock state")
-    ax.plot(x, numeric[name], color="#39715e", lw=1.8, label="OneSimulation")
-    ax.set(xlabel="Position x", ylabel=name, xlim=(0, 1), title=name)
-    ax.grid(alpha=0.25)
-axes[0].legend(frameon=False, fontsize=9)
-fig.suptitle(f"Moving normal shock, M1 = {M1:g} — Rankine-Hugoniot jumps reproduced")
-plt.show()
+exact = {"density": np.where(x < front, rho2, rho1), "pressure": np.where(x < front, p2, p1),
+         "velocity": np.where(x < front, u2, u1)}
+numeric = {"density": rho, "pressure": pressure, "velocity": velocity}
+fig = plots.figure(1, 3, size=(13, 4.2), title=f"Moving normal shock, M1 = {M1:g}: Rankine-Hugoniot jumps reproduced")
+for panel, name in zip(fig, exact):
+    plots.line(x, {"OneSimulation": numeric[name]}, reference={"exact shock state": exact[name]},
+               xlimits=(0, 1), xlabel="position x", ylabel=name, title=name.capitalize(), ax=panel)
+plots.show()
 
 
 # ## Going further

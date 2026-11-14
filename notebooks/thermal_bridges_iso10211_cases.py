@@ -74,62 +74,40 @@ elements, an element-order comparison (Q1, Q2, Q3 on the same mesh) and the ener
 # factors. The standard requires heat flows within 1 % and temperatures within 0.1 K.
 # Supporting checks: the energy balance and a three-level h-study of the cubic elements.
 
-from dataclasses import dataclass, replace
-from hashlib import sha256
-from importlib.metadata import version
+from dataclasses import replace
 import gc
 import time
-
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 import numpy as np
-from matplotlib import cm, colors
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-from scipy.optimize import brentq
 
-from onesim.cad.geometry.primitives import Geometry
+from onesim.cad.d2 import Plane
+from onesim.cad.d3 import Box
 from onesim.materials import IsotropicSolid
-from onesim.meshing.generation.backends.structured.volume.hexahedral import StructuredHexahedralMesh
-from onesim.meshing.generation.contracts.hexahedral_geometry import FACES, affine_hexahedral_geometry
+from onesim.meshing import (
+    ExplicitGeometry, Geometric, Piecewise, StructuredHexahedralMesher, Uniform, region_mesh,
+)
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import SparseDirect
 from onesim.physics.heat_transfer import ConvectiveHeatFlux, HeatConduction, HeatFlux
-from onesim.simulation import Problem, Simulation
+from onesim.results.comparisons import convergence
+from onesim.simulation import Problem, Simulation, regionwise
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
 
-LAMBDA = {"brick": 1.0, "insulation": 0.04, "aerated": 0.7, "slab": 2.5, "finish": 1.0}   # W/(m K)
-THETA = {"alpha": 20.0, "beta": 15.0, "gamma": 0.0}       # degC
-H_S = {"alpha": 1 / 0.20, "beta": 1 / 0.20, "gamma": 1 / 0.05}   # W/(m^2 K) from R_s
-X_END, Y_BAL, Z_TOP = 1.3, -0.6, 2.15                      # cut planes, balcony front, wall top
-Z_SLAB, Z_FLOOR, Z_FINISH = 1.0, 1.15, 1.2                 # slab soffit, slab top, floor surface
-REF = {"Phi_alpha": 46.09, "Phi_beta": 13.89, "Phi_gamma": 59.98,          # W
-       "L_ag": 1.781, "L_bg": 1.624, "L_ab": 2.094,                       # W/K
-       "T_alpha": 11.32, "T_beta": 11.11,                                 # degC
-       "g_alpha": (0.378, 0.399, 0.223), "g_beta": (0.331, 0.214, 0.455)}  # (gamma, alpha, beta) weights
-TOL_PHI, TOL_T = 0.01, 0.1                                 # 1 % and 0.1 K (EN ISO 10211)
+LAMBDA = {"brick": 1.0, "insulation": 0.04, "aerated": 0.7, "slab": 2.5, "finish": 1.0}
+THETA = {"alpha": 20.0, "beta": 15.0, "gamma": 0.0}
+H_S = {"alpha": 1 / 0.20, "beta": 1 / 0.20, "gamma": 1 / 0.05}
+X_END, Y_BAL, Z_TOP = 1.3, -0.6, 2.15
+Z_SLAB, Z_FLOOR, Z_FINISH = 1.0, 1.15, 1.2
+REF = {"Phi_alpha": 46.09, "Phi_beta": 13.89, "Phi_gamma": 59.98,
+       "L_ag": 1.781, "L_bg": 1.624, "L_ab": 2.094,
+       "T_alpha": 11.32, "T_beta": 11.11,
+       "g_alpha": (0.378, 0.399, 0.223), "g_beta": (0.331, 0.214, 0.455)}
+TOL_PHI, TOL_T = 0.01, 0.1
 
 # One-dimensional U-values of the undisturbed wall (between the surface resistances) as
 # orientation: lower room to outside and upper room to outside.
@@ -140,169 +118,98 @@ print(f"undisturbed wall: R = {R_wall:.4f} m^2 K/W, U = {U_wall:.4f} W/(m^2 K)")
 
 # ## Geometry and mesh
 #
-# A tensor-product block mesh is laid over the bounding box; its planes contain every
-# material interface ($x,y\in\{0,0.10,0.15,0.30\}$, $y=-0.6$, $z\in\{1.0,1.15,1.2\}$), and
-# the hexahedra outside the construction (the two rooms and the air around the balcony)
-# are dropped. Each layer gets several cells (brick 2, insulation 2, interior leaf 3,
-# slab 3, floor finish 2 on the finest mesh), and the cells in the rooms and in the
+# The construction is declared as a union of boxes: the two wall legs of the external
+# corner, the slab that runs through the wall into the balcony, and the floor finish. A
+# graded tensor-product block mesh of the bounding box has a node plane on every material
+# interface ($x,y\in\{0,0.10,0.15,0.30\}$, $y=-0.6$, $z\in\{1.0,1.15,1.2\}$); `region_mesh`
+# keeps the hexahedra inside the construction (the two rooms and the air around the
+# balcony are dropped). Each layer gets several cells (brick 2, insulation 2, interior
+# leaf 3, slab 3, floor finish 2 on the finest mesh), and the cells in the rooms and in the
 # balcony are geometrically graded from 20 mm next to the wall, the slab and the balcony
 # root. A mesh level $\ell$ scales the cell counts by $\ell$ and the first cell width by
-# $1/\ell$. The hexahedra are handed to OneSimulation as a native hexahedral mesh with the
-# four named boundary groups $\alpha,\beta,\gamma,\delta$.
+# $1/\ell$.
+#
+# The boundary faces are assigned to the environments of the standard by their position:
+# $\gamma$ outside (the external wall faces and the balcony), $\alpha$ the lower room
+# (below the slab soffit), $\beta$ the upper room, and $\delta$ the adiabatic cut planes. The
+# room faces are further split into walls and horizontal faces for the figure.
 
-@dataclass(frozen=True, eq=False, kw_only=True)
-class CornerConstruction(Geometry):
-    """External corner with balcony slab of ISO 10211 case 3."""
-
-    dimension = 3
-
-    def boundary_groups(self):
-        names = ("alpha", "beta", "gamma", "delta")
-        return {**{name: (name,) for name in names}, "all": names}
-
-
-def graded(a, b, n, first, towards="a"):
-    """n cells on [a, b], the cell at the `towards` end of width `first`, geometric growth."""
-    length = b - a
-    if n == 1 or n * first >= length:
-        s = np.linspace(0.0, length, n + 1)
-    else:
-        r = brentq(lambda r: first * (r**n - 1) / (r - 1) - length, 1 + 1e-9, 50.0)
-        s = np.concatenate(([0.0], np.cumsum(first * r ** np.arange(n))))
-    if towards == "b":
-        s = s[-1] - s[::-1]
-    out = a + s * length / s[-1]
-    out[0], out[-1] = a, b
-    return out
+wall_x = Box(length=0.30, width=X_END, height=Z_TOP)
+wall_y = Box(length=X_END - 0.30, width=0.30, height=Z_TOP, origin=(0.30, 0.0, 0.0))
+slab = Box(length=X_END - 0.15, width=X_END - Y_BAL, height=Z_FLOOR - Z_SLAB, origin=(0.15, Y_BAL, Z_SLAB))
+finish = Box(length=X_END - 0.30, width=X_END - 0.30, height=Z_FINISH - Z_FLOOR, origin=(0.30, 0.30, Z_FLOOR))
+construction = wall_x | wall_y | slab.named("slab") | finish.named("finish")
+bounding_box = Box(length=X_END, width=X_END - Y_BAL, height=Z_TOP, origin=(0.0, Y_BAL, 0.0))
 
 
-def axes_for(level):
+def environment(point, normal):
+    """Environment of a boundary face from its centre and normal."""
+    x, y, z = point
+    if min(abs(z), abs(z - Z_TOP), abs(x - X_END), abs(y - X_END)) < 1e-9:
+        return "delta"
+    if abs(x) < 1e-9 or abs(y) < 1e-9 or y < 0.0:
+        return "gamma"
+    room = "alpha" if z <= Z_SLAB + 1e-9 else "beta"
+    return room + ("_wall" if abs(normal[2]) < 0.5 else "_horizontal")
+
+
+environments = ExplicitGeometry(
+    dimension=3, boundary_names=("alpha_wall", "alpha_horizontal", "beta_wall", "beta_horizontal", "gamma", "delta"),
+    groups={"alpha": ("alpha_wall", "alpha_horizontal"), "beta": ("beta_wall", "beta_horizontal")},
+    classifier=environment)
+
+
+def graded(length, cells, first, toward="start"):
+    """Geometric cells growing away from ``toward``; uniform when they cannot grow."""
+    return (length, Uniform(cells) if cells * first >= length or cells == 1
+            else Geometric(cells, first=first, toward=toward))
+
+
+def mesh_for(level):
     c = lambda n: max(1, int(np.floor(n * level + 0.5)))
     h0 = 0.02 / level
-    walls = lambda: [graded(0.0, 0.10, c(2), h0), graded(0.10, 0.15, c(2), h0),
-                     graded(0.15, 0.30, c(3), h0, "b"), graded(0.30, X_END, c(5), h0)]
-    xs = np.unique(np.concatenate(walls()))
-    ys = np.unique(np.concatenate([graded(Y_BAL, 0.0, c(4), h0, "b")] + walls()))
-    zs = np.unique(np.concatenate([graded(0.0, Z_SLAB, c(5), h0, "b"), graded(Z_SLAB, Z_FLOOR, c(3), h0),
-                                   graded(Z_FLOOR, Z_FINISH, c(2), h0), graded(Z_FINISH, Z_TOP, c(5), h0)]))
-    return xs, ys, zs
-
-
-def in_slab(x, y, z):
-    return (x > 0.15) & (y > Y_BAL) & (z > Z_SLAB) & (z < Z_FLOOR)
-
-
-def in_finish(x, y, z):
-    return (x > 0.30) & (y > 0.30) & (z > Z_FLOOR) & (z < Z_FINISH)
-
-
-def in_wall(x, y, z):
-    return (np.minimum(x, y) < 0.30) & (x > 0.0) & (y > 0.0)
-
-
-def in_solid(x, y, z):
-    return in_slab(x, y, z) | in_finish(x, y, z) | in_wall(x, y, z)
-
-
-def face_group(q):
-    """Environment of a boundary face from its four corner points."""
-    x, y, z = q.mean(axis=0)
-    if (np.allclose(q[:, 2], 0.0) or np.allclose(q[:, 2], Z_TOP)
-            or np.allclose(q[:, 0], X_END) or np.allclose(q[:, 1], X_END)):
-        return "delta"
-    if np.allclose(q[:, 0], 0.0) or np.allclose(q[:, 1], 0.0) or y < 0.0:
-        return "gamma"
-    return "alpha" if z <= Z_SLAB + 1e-12 else "beta"
-
-
-class CornerMesh(StructuredHexahedralMesh):
-    """Hex8 block mesh of the construction with the boundary groups alpha, beta, gamma, delta."""
-
-    def __init__(self, geometry, xs, ys, zs):
-        self.geometry = geometry
-        centres = np.meshgrid(*(0.5 * (v[1:] + v[:-1]) for v in (xs, ys, zs)), indexing="ij")
-        i, j, k = np.nonzero(in_solid(*centres))
-        corners = np.array(((0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0), (0, 0, 1), (1, 0, 1), (1, 1, 1), (0, 1, 1)))
-        grid = np.stack([np.stack((i + a, j + b, k + c), axis=1) for a, b, c in corners], axis=1)
-        shape = (len(xs), len(ys), len(zs))
-        used, cells = np.unique(np.ravel_multi_index(grid.reshape(-1, 3).T, shape), return_inverse=True)
-        gi = np.unravel_index(used, shape)
-        data = affine_hexahedral_geometry(np.column_stack((xs[gi[0]], ys[gi[1]], zs[gi[2]])), cells.reshape(-1, 8))
-        self.coordinates, self.cells, self.cell_volumes = data.coordinates, data.cells, data.volumes
-        self.cell_count = len(self.cells)
-        self.shape = (len(xs) - 1, len(ys) - 1, len(zs) - 1)
-        self.mesh_id = "iso10211-case3:" + sha256(self.coordinates.tobytes() + self.cells.tobytes()).hexdigest()
-        owners = {}
-        for cell in self.cells:
-            for face in FACES:
-                owners.setdefault(tuple(sorted(cell[list(face)])), []).append(tuple(cell[list(face)]))
-        self._facets = {name: [] for name in geometry.boundary_groups()["all"]}
-        for found in owners.values():
-            if len(found) == 1:
-                self._facets[face_group(self.coordinates[list(found[0])])].append(found[0])
-        self._carrier = self._build_carrier()
+    wall = (graded(0.10, c(2), h0), graded(0.05, c(2), h0), graded(0.15, c(3), h0, "end"),
+            graded(X_END - 0.30, c(5), h0))
+    grading = (Piecewise(wall), Piecewise((graded(-Y_BAL, c(4), h0, "end"),) + wall),
+               Piecewise((graded(Z_SLAB, c(5), h0, "end"), graded(Z_FLOOR - Z_SLAB, c(3), h0),
+                          graded(Z_FINISH - Z_FLOOR, c(2), h0), graded(Z_TOP - Z_FINISH, c(5), h0))))
+    block = StructuredHexahedralMesher(cells=tuple(g.cells for g in grading), grading=grading).generate(bounding_box)
+    return region_mesh(block, construction, geometry=environments)
 
 
 LEVELS = (0.5, 0.75, 1.0)
-geometry = CornerConstruction()
-meshes = {level: CornerMesh(geometry, *axes_for(level)) for level in LEVELS}
+meshes = {level: mesh_for(level) for level in LEVELS}
 for level, mesh in meshes.items():
-    spans = {name: np.ptp(mesh.coordinates[np.array(mesh._facets[name])], axis=1) for name in ("alpha", "beta", "gamma")}
-    area = {name: float(np.sum(np.prod(np.where(d > 1e-12, d, 1.0), axis=1))) for name, d in spans.items()}
-    print(f"level {level}: {mesh.cell_count} hexahedra, volume {mesh.cell_volumes.sum():.5f} m^3, surface areas "
-          + ", ".join(f"{name} {a:.4f} m^2" for name, a in area.items()))
+    print(f"level {level}: {mesh.cell_count} hexahedra, volume {mesh.cell_volumes.sum():.5f} m^3")
 
 
 # ## Model
 #
-# The conductivity is a position-dependent material law built from the table above.
-# Every quadrature point of the elements lies strictly inside one hexahedron and every
-# hexahedron lies inside one material, so each element sees exactly one conductivity.
+# The conductivity is region-wise (first match wins): the slab (it runs through the
+# wall), the floor finish, the brick and insulation layers of the wall (L-shaped, at
+# depths 0-0.10 m and 0.10-0.15 m from the outside), and the aerated concrete of the
+# interior leaf everywhere else. Every quadrature point lies strictly inside one
+# hexahedron and every hexahedron inside one material, so each element sees exactly one
+# conductivity.
 
-@dataclass(frozen=True)
-class CaseThreeConductivity:
-    unit: str = "W/m/K"
-
-    def evaluate(self, *, x, y, z, **state):
-        x, y, z = np.asarray(x), np.asarray(y), np.asarray(z)
-        depth = np.minimum(x, y)
-        k = np.where(depth < 0.10, LAMBDA["brick"], np.where(depth < 0.15, LAMBDA["insulation"], LAMBDA["aerated"]))
-        k = np.where(in_finish(x, y, z), LAMBDA["finish"], k)
-        return np.where(in_slab(x, y, z), LAMBDA["slab"], k)
-
-
+brick = Box(length=0.10, width=X_END, height=Z_TOP) | Box(length=X_END, width=0.10, height=Z_TOP)
+insulation = (Box(length=0.05, width=X_END - 0.10, height=Z_TOP, origin=(0.10, 0.10, 0.0))
+              | Box(length=X_END - 0.10, width=0.05, height=Z_TOP, origin=(0.10, 0.10, 0.0)))
+conductivity = regionwise(((slab, LAMBDA["slab"]), (finish, LAMBDA["finish"]), (brick, LAMBDA["brick"]),
+                           (insulation, LAMBDA["insulation"])), default=LAMBDA["aerated"], unit="W/m/K")
 material = replace(IsotropicSolid(density=1500.0, specific_heat_capacity=1000.0, thermal_conductivity=1.0,
                                   youngs_modulus=1e9, poisson_ratio=0.3, thermal_expansion_coefficient=0.0),
-                   thermal_conductivity=CaseThreeConductivity())
-
-GAUSS, GAUSS_W = np.polynomial.legendre.leggauss(6)
-GAUSS, GAUSS_W = 0.5 * (GAUSS + 1.0), 0.5 * GAUSS_W
-
-
-def face_points(mesh, name, s, t):
-    """Points at local coordinates (s, t) on every face of a group, and the face sizes."""
-    pts, sizes = [], []
-    S, T = np.meshgrid(s, t, indexing="ij")
-    for face in mesh._facets[name]:
-        q = mesh.coordinates[list(face)]
-        lo, hi = q.min(axis=0), q.max(axis=0)
-        u, v = [a for a in range(3) if hi[a] - lo[a] > 1e-12]
-        p = np.repeat(lo[None], S.size, axis=0)
-        p[:, u] += (hi[u] - lo[u]) * S.ravel()
-        p[:, v] += (hi[v] - lo[v]) * T.ravel()
-        pts.append(p)
-        sizes.append((hi[u] - lo[u]) * (hi[v] - lo[v]))
-    return np.array(pts), np.array(sizes)
+                   thermal_conductivity=conductivity)
+b = environments.boundaries
 
 
 def solve(level, order, theta, keep_field=False):
     """One steady solve; returns heat flows and surface temperatures (and the field if asked)."""
     start = time.time()
     mesh = meshes[level]
-    model = HeatConduction(domain=geometry.domain(), material=material, heating=0.0)
-    b = geometry.boundaries
+    model = HeatConduction(domain=environments.domain(), material=material, heating=0.0)
     problem = Problem(
-        name="ISO 10211 case 3", geometry=geometry, physics=(model,),
+        name="ISO 10211 case 3", geometry=environments, physics=(model,),
         boundary_conditions=tuple(
             ConvectiveHeatFlux(boundary=getattr(b, name), physics=model, heat_transfer_coefficient=H_S[name],
                                ambient_temperature=273.15 + theta[name]) for name in ("alpha", "beta", "gamma"))
@@ -314,22 +221,17 @@ def solve(level, order, theta, keep_field=False):
                unknowns=result.operators[model.model_id].problem_size)
     if keep_field:
         out["field"] = field
-    W = np.outer(GAUSS_W, GAUSS_W).ravel()
-    nodes = np.linspace(0.0, 1.0, 2 * order + 1)
     for name in ("alpha", "beta", "gamma"):
-        # heat flow into the construction: h (theta - T) integrated with 6 x 6 Gauss points per face
-        pts, sizes = face_points(mesh, name, GAUSS, GAUSS)
-        T = np.asarray(field.evaluate(pts.reshape(-1, 3))).reshape(len(sizes), -1) - 273.15
-        out["Phi_" + name] = float(np.sum(sizes[:, None] * W * H_S[name] * (theta[name] - T)))
-        # lowest surface temperature: element nodes and edge midpoints of every face
-        pts, _ = face_points(mesh, name, nodes, nodes)
-        T = np.asarray(field.evaluate(pts.reshape(-1, 3))).ravel() - 273.15
+        boundary = getattr(b, name)
+        out["Phi_" + name] = -field.boundary_flux(boundary)
+        surface = field.sample(along=boundary, subdivisions=2 * order)
+        T = np.asarray(surface.values).ravel() - 273.15
         out["T_" + name] = float(T.min())
-        out["where_" + name] = pts.reshape(-1, 3)[np.argmin(T)]
+        out["where_" + name] = np.asarray(surface.positions)[np.argmin(T)]
         out["surface_" + name] = T
     out["seconds"] = time.time() - start
     del result, field
-    gc.collect()                      # release the assembled system before the next solve
+    gc.collect()
     return out
 
 
@@ -368,7 +270,7 @@ F = fine["field"]
 
 
 def weights(name):
-    k = np.argmin(fine["surface_" + name])          # surface point of the lowest design temperature
+    k = np.argmin(fine["surface_" + name])
     g_a = unit["surface_" + name][k]
     g_b = (fine["T_" + name] - THETA["alpha"] * g_a) / THETA["beta"]
     return 1.0 - g_a - g_b, g_a, g_b
@@ -403,28 +305,17 @@ print(f"   Phi_alpha + Phi_beta = {fine['Phi_alpha'] + fine['Phi_beta']:.5f} W, 
       f"relative difference {abs(fine['Phi_alpha'] + fine['Phi_beta'] + fine['Phi_gamma']) / -fine['Phi_gamma']:.1e}")
 
 
-def richardson(values, levels):
-    f1, f2, f3 = values
-    h1, h2, h3 = 1.0 / np.asarray(levels, float)
-    if (f1 - f2) * (f2 - f3) <= 0:
-        return np.nan, np.nan
-    ratio = (f1 - f2) / (f2 - f3)
-    try:
-        p = brentq(lambda p: (h1**p - h2**p) / (h2**p - h3**p) - ratio, 0.1, 15.0)
-    except ValueError:
-        return np.nan, np.nan
-    return p, f3 + (f3 - f2) / ((h2 / h3) ** p - 1.0)
-
-
 print("h-study of the cubic elements (h ~ 1/level; levels " + ", ".join(str(l) for l in LEVELS) + ")")
 for key, label in (("Phi_alpha", "Phi_alpha / W"), ("Phi_beta", "Phi_beta / W"), ("Phi_gamma", "Phi_gamma / W"),
                    ("T_alpha", "T_min,alpha / degC"), ("T_beta", "T_min,beta / degC")):
     vals = [r[key] for r in runs[:3]]
     line = f"   {label:19s} " + "  ".join(f"{v:9.4f}" for v in vals)
     if key.startswith("Phi"):
-        p, ext = richardson(vals, LEVELS)
-        line += f"   change last two meshes {abs(vals[-1] / vals[-2] - 1):.1e}, observed order {p:.2f}, Richardson {ext:.4f}"
-    else:   # point value at the re-entrant room corner: no asymptotic order, report the change only
+        estimate = convergence(vals, [1.0 / level for level in LEVELS])
+        order = f"{estimate.order:.2f}" if estimate.order is not None else "n/a"
+        ext = f"{estimate.extrapolated:.4f}" if estimate.extrapolated is not None else "n/a"
+        line += f"   change last two meshes {abs(vals[-1] / vals[-2] - 1):.1e}, observed order {order}, Richardson {ext}"
+    else:
         line += f"   change last two meshes {abs(vals[-1] - vals[-2]):.4f} K"
     print(line)
 print("Element order on the finest mesh")
@@ -436,122 +327,44 @@ for r in (runs[3], runs[4], runs[2]):
 
 # ## Figure
 #
-# Top: surface temperature seen from the rooms (left) and from outside with the balcony
+# Top: surface temperature of the room walls (left) and seen from outside with the balcony
 # (middle), and the temperature along the inner room corner $x=y=0.3$ (right). Bottom:
 # vertical section $x=0.8$ m through the wall, the slab and the balcony; horizontal section
 # through the slab $z=1.075$ m; and the convergence of the heat flow and of the minimum
 # temperatures against the tolerances of the standard.
 
-mesh = meshes[LEVELS[-1]]
-norm = colors.Normalize(vmin=0.0, vmax=20.0)
-sub = np.linspace(0.0, 1.0, 5)
-
-
-def surface_quads(names):
-    polys, vals = [], []
-    for name in names:
-        pts, _ = face_points(mesh, name, sub, sub)
-        T = np.asarray(F.evaluate(pts.reshape(-1, 3))).reshape(len(pts), 5, 5) - 273.15
-        P = pts.reshape(len(pts), 5, 5, 3)
-        for a in range(4):
-            for b in range(4):
-                polys.append(np.stack((P[:, a, b], P[:, a + 1, b], P[:, a + 1, b + 1], P[:, a, b + 1]), axis=1))
-                vals.append(0.25 * (T[:, a, b] + T[:, a + 1, b] + T[:, a + 1, b + 1] + T[:, a, b + 1]))
-    return np.concatenate(polys), np.concatenate(vals)
-
-
-fig = plt.figure(figsize=(18, 11), constrained_layout=True)
-grid = fig.add_gridspec(2, 3)
-views = ((("alpha", "beta"), 20, 45, norm, "Inner wall faces of both rooms (alpha 20 degC, beta 15 degC)"),
-         (("gamma",), 20, 225, colors.Normalize(vmin=0.0, vmax=2.5), "Seen from outside: external faces and balcony"))
-for col, (names, elev, azim, scale, title) in enumerate(views):
-    ax3 = fig.add_subplot(grid[0, col], projection="3d")
-    polys, vals = surface_quads(names)
-    if col == 0:   # walls only: the floor and the slab soffit would hide the room corner
-        vertical = np.ptp(polys[:, :, 2], axis=1) > 1e-12
-        polys, vals = polys[vertical], vals[vertical]
-    shade = FIELD_CMAP(scale(vals))
-    ax3.add_collection3d(Poly3DCollection(polys, facecolors=shade, edgecolors=shade, linewidths=0.2,
-                                          antialiased=False))
-    ax3.set(xlim=(0, X_END), ylim=(Y_BAL, X_END), zlim=(0, Z_TOP), xlabel="x / m", ylabel="y / m", zlabel="z / m",
-            title=title)
-    ax3.set_box_aspect((X_END, X_END - Y_BAL, Z_TOP))
-    ax3.view_init(elev=elev, azim=azim)
-    fig.colorbar(cm.ScalarMappable(norm=scale, cmap=FIELD_CMAP), ax=ax3, shrink=0.6, label="surface temperature / degC")
-
-ax = fig.add_subplot(grid[0, 2])
+celsius = lambda T, p: T - 273.15
 zline = np.linspace(0.0, Z_TOP, 431)
-for z_lo, z_hi, colour, label in ((0.0, Z_SLAB, COPPER, "alpha: lower room"), (Z_FINISH, Z_TOP, GREEN, "beta: upper room")):
-    zz = zline[(zline >= z_lo) & (zline <= z_hi)]
-    T = np.asarray(F.evaluate(np.column_stack((np.full_like(zz, 0.3), np.full_like(zz, 0.3), zz)))).ravel() - 273.15
-    ax.plot(T, zz, color=colour, lw=2, label=label)
-ax.axhspan(Z_SLAB, Z_FINISH, color="#D5D7C8", alpha=0.6, lw=0, label="slab and floor finish")
-ax.plot([REF["T_alpha"], REF["T_beta"]], [Z_SLAB, Z_FINISH], "o", mfc="none", mec=INK, ms=9,
-        label="ISO 10211 minimum temperatures")
-ax.set(xlabel="surface temperature in the room corner x = y = 0.3 m / degC", ylabel="z / m", ylim=(0, Z_TOP),
-       title="Inner room corner: the cold spots sit at the slab")
-ax.legend(fontsize=8, loc="lower left")
-ax.grid(alpha=0.5)
-
-
-def section(ax, axis_value, plane, extent, n=(260, 300)):
-    a = np.linspace(extent[0][0] + 1e-6, extent[0][1] - 1e-6, n[0])
-    b = np.linspace(extent[1][0] + 1e-6, extent[1][1] - 1e-6, n[1])
-    A, B = np.meshgrid(a, b, indexing="ij")
-    if plane == "x":
-        P = np.column_stack((np.full(A.size, axis_value), A.ravel(), B.ravel()))
-    else:
-        P = np.column_stack((A.ravel(), B.ravel(), np.full(A.size, axis_value)))
-    inside = in_solid(P[:, 0], P[:, 1], P[:, 2])
-    T = np.full(len(P), np.nan)
-    T[inside] = np.asarray(F.evaluate(P[inside])).ravel() - 273.15
-    T = T.reshape(A.shape)
-    cs = ax.contourf(A, B, T, levels=np.linspace(0, 20, 41), cmap=FIELD_CMAP)
-    ax.contour(A, B, T, levels=np.arange(1, 20, 1), colors=CREAM, linewidths=0.5)
-    return cs
-
-
-ax = fig.add_subplot(grid[1, 0])
-cs = section(ax, 0.8, "x", ((Y_BAL, X_END), (0.0, Z_TOP)))
-for y0 in (0.10, 0.15, 0.30):
-    ax.plot([y0, y0], [0, Z_SLAB], color=INK, lw=0.5, ls=":")
-    ax.plot([y0, y0], [Z_FLOOR, Z_TOP], color=INK, lw=0.5, ls=":")
-ax.set(aspect="equal", xlabel="y / m (outside at y < 0)", ylabel="z / m", xlim=(Y_BAL, X_END), ylim=(0, Z_TOP),
-       title="Section x = 0.8 m: wall, slab and balcony")
-fig.colorbar(cs, ax=ax, shrink=0.8, label="T / degC")
-
-ax = fig.add_subplot(grid[1, 1])
-cs = section(ax, 0.5 * (Z_SLAB + Z_FLOOR), "z", ((0.0, X_END), (Y_BAL, X_END)))
-ax.plot([0.10, 0.10, 0.15], [X_END, 0.10, 0.10], color=INK, lw=0.5, ls=":")
-ax.plot([0.15, 0.15], [Y_BAL, X_END], color=INK, lw=0.5, ls=":")
-ax.set(aspect="equal", xlabel="x / m", ylabel="y / m", xlim=(0, X_END), ylim=(Y_BAL, X_END),
-       title="Section z = 1.075 m through the slab and balcony")
-fig.colorbar(cs, ax=ax, shrink=0.8, label="T / degC")
-
-ax = fig.add_subplot(grid[1, 2])
-cells = [r["unknowns"] for r in runs[:3]]
-ax.semilogx(cells, [100 * (-r["Phi_gamma"] / REF["Phi_gamma"] - 1) for r in runs[:3]], "s-", color=GREEN,
-            label="Q3 h-study: heat flow gamma")
-ax.semilogx([r["unknowns"] for r in runs[3:5]], [100 * (-r["Phi_gamma"] / REF["Phi_gamma"] - 1) for r in runs[3:5]],
-            "o", color=COPPER, ms=8, label="Q1, Q2 on the finest mesh: heat flow gamma")
-for sign in (1, -1):
-    ax.axhline(sign * 100 * TOL_PHI, color=GREEN, lw=0.8, ls=":")
-ax.axhline(0.0, color="#9FA593", lw=0.6)
-ax.set(xlabel="unknowns", ylabel="heat flow: deviation from 59.98 W / %", ylim=(-2.5, 2.5),
-       title="Convergence against the ISO values\n(dotted: tolerances 1 % and 0.1 K)")
-ax2 = ax.twinx()
-for key, marker in (("T_alpha", "^"), ("T_beta", "v")):
-    ax2.semilogx(cells, [r[key] - REF[key] for r in runs[:3]], marker + "--", color=COPPER, mfc="none",
-                 label=f"Q3: min. temperature {key[2:]}")
-for sign in (1, -1):
-    ax2.axhline(sign * TOL_T, color=COPPER, lw=0.8, ls=":")
-ax2.set(ylabel="min. surface temperature: deviation / K", ylim=(-0.25, 0.25))
-ax.set_xticks([3e3, 1e4, 3e4, 6e4], ["3 000", "10 000", "30 000", "60 000"])
-ax.xaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
-h1, l1 = ax.get_legend_handles_labels()
-h2, l2 = ax2.get_legend_handles_labels()
-ax.legend(h1 + h2, l1 + l2, fontsize=7, loc="lower right")
-plt.show()
+rooms = {"alpha: lower room": zline[zline <= Z_SLAB], "beta: upper room": zline[zline >= Z_FINISH]}
+corner = lambda zz: np.asarray(F.evaluate(np.column_stack((np.full_like(zz, 0.3), np.full_like(zz, 0.3), zz)))).ravel() - 273.15
+cells = [run["unknowns"] for run in runs[:3]]
+fig = plots.figure(2, 3, size=(18, 11))
+plots.surface(F, boundary=b.alpha_wall | b.beta_wall, component=celsius, limits=(0.0, 20.0), subdivisions=3,
+              camera=plots.Camera(elevation=20, azimuth=45), label="surface temperature [°C]",
+              title="Room walls (alpha 20 °C below, beta 15 °C above the slab)", ax=fig[0])
+plots.surface(F, boundary=b.gamma, component=celsius, limits=(0.0, 2.5), subdivisions=3,
+              camera=plots.Camera(elevation=20, azimuth=225), label="surface temperature [°C]",
+              title="Seen from outside: external faces and balcony", ax=fig[1])
+plots.line(y={label: (corner(zz), zz) for label, zz in rooms.items()},
+           points={"ISO 10211 minimum temperatures": ([REF["T_alpha"], REF["T_beta"]], [Z_SLAB, Z_FINISH])},
+           hlines={"slab and floor finish": Z_SLAB, "": Z_FINISH}, ylimits=(0, Z_TOP),
+           xlabel="surface temperature in the room corner x = y = 0.3 m [°C]", ylabel="z [m]",
+           title="Inner room corner: the cold spots sit at the slab", legend="lower left", ax=fig[2])
+plots.section(F, plane=Plane(origin=(0.8, 0.0, 0.0), normal=(1.0, 0.0, 0.0)), component=celsius, limits=(0.0, 20.0),
+              contours=19, subdivisions=3, label="T [°C]", title="Section x = 0.8 m: wall, slab and balcony",
+              xlabel="y [m] (outside at y < 0)", ylabel="z [m]", ax=fig[3])
+plots.section(F, plane=Plane(origin=(0.0, 0.0, 0.5 * (Z_SLAB + Z_FLOOR)), normal=(0.0, 0.0, 1.0)), component=celsius,
+              limits=(0.0, 20.0), contours=19, subdivisions=3, label="T [°C]",
+              title="Section z = 1.075 m through the slab and balcony", ax=fig[4])
+plots.line(y={"Q3 h-study: heat flow gamma": (cells, [100 * (-run["Phi_gamma"] / REF["Phi_gamma"] - 1) for run in runs[:3]])},
+           points={"Q1, Q2 on the finest mesh: heat flow gamma":
+                   ([run["unknowns"] for run in runs[3:5]], [100 * (-run["Phi_gamma"] / REF["Phi_gamma"] - 1) for run in runs[3:5]])},
+           right={f"Q3: min. temperature {key[2:]}": (cells, [run[key] - REF[key] for run in runs[:3]]) for key in ("T_alpha", "T_beta")},
+           hlines={"heat-flow tolerance ±1 %": 100 * TOL_PHI, "": -100 * TOL_PHI}, markers=True, scale="logx",
+           xlabel="unknowns", ylabel="heat flow: deviation from 59.98 W [%]",
+           right_label="min. surface temperature: deviation [K]", title="Convergence against the ISO values",
+           legend="lower right", ax=fig[5])
+plots.show()
 
 
 # ## Going further

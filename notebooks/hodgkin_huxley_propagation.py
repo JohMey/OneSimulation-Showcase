@@ -42,38 +42,20 @@ classical observations.
 # after-hyperpolarisation below rest, a sub-millisecond spike at this
 # temperature, and a wave that keeps its shape while it travels.
 
-from importlib.metadata import version
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 
 from onesim.cad.d1 import Line
 from onesim.meshing import StructuredLineMesher
+from onesim.results.sampling import crossing_times
 from onesim.physics.biophysics import (
     HodgkinHuxley1952,
     MembraneCurrentElectrode,
     Monodomain,
 )
 
-print("OneSimulation:", version("onesimulation"))
+from onesim.visualization import theme, plots
+
+theme.set()
 
 
 # ## Parameters
@@ -82,23 +64,23 @@ print("OneSimulation:", version("onesimulation"))
 # computation; the published membrane constants (conductances in S/m², reversal
 # potentials relative to a -65 mV rest) are built into `HodgkinHuxley1952`.
 
-radius = 238.0e-6                 # m, axon radius
-resistivity = 0.354               # Ohm m, axoplasm resistivity (35.4 Ohm cm)
-C_m = 0.0101                      # F/m^2, membrane capacitance (1.01 uF/cm^2)
-temperature = 291.65              # K, 18.5 degC
-L = 0.16                          # m, axon length
-refinements = ((120, 16.0e-6), (240, 8.0e-6), (480, 4.0e-6))   # (cells, max time step / s)
-end_time = 9.0e-3                 # s
-rest = -0.065                     # V, resting potential
-stimulus_length = 0.007           # m, initially depolarised segment at x = 0
-stimulus_voltage = -0.025         # V, initial potential of that segment
-sensors = (0.045, 0.105)          # m, positions of the two recording sites
-velocity_published = 18.8         # m/s, Hodgkin & Huxley 1952 computed value
-velocity_converged = 18.6         # m/s, OneSimulation mesh-converged reference
-amplitude_published = 0.0905      # V, Hodgkin & Huxley 1952 computed spike amplitude at 18.5 degC
+radius = 238.0e-6
+resistivity = 0.354
+C_m = 0.0101
+temperature = 291.65
+L = 0.16
+refinements = ((120, 16.0e-6), (240, 8.0e-6), (480, 4.0e-6))
+end_time = 9.0e-3
+rest = -0.065
+stimulus_length = 0.007
+stimulus_voltage = -0.025
+sensors = (0.045, 0.105)
+velocity_published = 18.8
+velocity_converged = 18.6
+amplitude_published = 0.0905
 
 sigma = 1.0 / resistivity
-beta = 2.0 / radius               # surface-to-volume ratio of a cylinder
+beta = 2.0 / radius
 print(f"axial conductivity = {sigma:.3f} S/m,  surface-to-volume = {beta:.0f} 1/m")
 
 line = Line(start=(0.0, 0.0, 0.0), end=(L, 0.0, 0.0))
@@ -121,12 +103,6 @@ electrodes = (
 times = np.linspace(0.0, end_time, 451)
 
 
-def arrival_time(wave):
-    """Interpolated instant at which the membrane potential first crosses 0 V."""
-    k = int(np.flatnonzero(wave >= 0.0)[0])
-    return times[k - 1] + (times[k] - times[k - 1]) * (-wave[k - 1]) / (wave[k] - wave[k - 1])
-
-
 velocities = []
 for cells, max_step in refinements:
     mesh = StructuredLineMesher(cells=cells).generate(line)
@@ -139,11 +115,10 @@ for cells, max_step in refinements:
     )
     position = result.coordinates[:, 0]
     sensor_nodes = [int(np.argmin(np.abs(position - x))) for x in sensors]
-    arrivals = [arrival_time(result.voltage[:, node]) for node in sensor_nodes]
+    arrivals = [crossing_times(times, result.voltage[:, node], 0.0)[0] for node in sensor_nodes]
     velocities.append(float(np.diff(position[sensor_nodes])[0] / np.diff(arrivals)[0]))
     print(f"{cells:4d} cells ({1e3 * L / cells:.3f} mm), max step {1e6 * max_step:4.0f} us:  "
           f"arrivals {1e3 * arrivals[0]:.3f} ms / {1e3 * arrivals[1]:.3f} ms,  velocity {velocities[-1]:.2f} m/s")
-# The finest run is kept for the shape checks and the figure.
 
 
 # ## Conduction velocity
@@ -175,13 +150,11 @@ print(f"spike amplitude above rest: {1e3 * (peaks[1] - rest):.1f} mV  (published
 
 wave_0 = result.voltage[:, sensor_nodes[0]]
 wave_1 = result.voltage[:, sensor_nodes[1]]
-# Half-amplitude duration of the spike at the first sensor.
 half_level = rest + 0.5 * (peaks[0] - rest)
 above = times[wave_0 > half_level]
 half_width = float(above[-1] - above[0])
 print(f"half-amplitude duration of the spike: {1e3 * half_width:.2f} ms")
 
-# Shape invariance: shift the second trace back by the measured delay and compare.
 delay = arrivals[1] - arrivals[0]
 window = (times >= arrivals[0] - 1.0e-3) & (times <= arrivals[0] + 4.0e-3)
 shifted = np.interp(times[window] + delay, times, wave_1)
@@ -191,34 +164,15 @@ print(f"maximum difference between the two aligned traces: {1e3 * shape_error:.2
 
 # ## Figure
 
-cream = "#fbf5eb"
-fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.6), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-ax = axes[0]
-ax.set_facecolor("#fffaf2")
-for node, color, x in zip(sensor_nodes, ("#1f6f78", "#c56838"), sensors):
-    ax.plot(times * 1e3, result.voltage[:, node] * 1e3, color=color, lw=1.6, label=f"x = {1e3 * x:.0f} mm")
-ax.axhline(rest * 1e3, color="#9a8f7d", ls="--", lw=0.9, label="rest")
-ax.axhline(0.0, color="#999999", lw=0.6)
-ax.set(xlabel="Time / ms", ylabel="Membrane potential / mV",
-       title=f"Hodgkin-Huxley axon: v = {velocity:.1f} m/s (published 18.8 m/s)")
-ax.legend(frameon=False, loc="upper right")
-ax.grid(alpha=0.25)
-
-ax = axes[1]
-ax.set_facecolor("#fffaf2")
-snapshot_times = (2.0e-3, 4.0e-3, 6.0e-3)
-shades = ("#d8b48c", "#b5651d", "#6b442f")
-for t_snap, shade in zip(snapshot_times, shades):
-    k = int(np.argmin(np.abs(times - t_snap)))
-    ax.plot(position * 1e3, result.voltage[k] * 1e3, color=shade, lw=1.6, label=f"t = {1e3 * times[k]:.1f} ms")
-for x in sensors:
-    ax.axvline(1e3 * x, color="#bbbbbb", lw=0.8, ls=":")
-ax.set(xlabel="Position x / mm", ylabel="Membrane potential / mV",
-       title="Travelling action potential (dotted: sensor positions)")
-ax.legend(frameon=False, loc="upper right")
-ax.grid(alpha=0.25)
-plt.show()
+snapshots = [int(np.argmin(np.abs(times - t))) for t in (2.0e-3, 4.0e-3, 6.0e-3)]
+fig = plots.figure(1, 2, size=(11.5, 4.6))
+plots.line(times * 1e3, {f"x = {1e3 * x:.0f} mm": result.voltage[:, node] * 1e3 for node, x in zip(sensor_nodes, sensors)},
+           hlines={"rest": rest * 1e3}, xlabel="time [ms]", ylabel="membrane potential [mV]",
+           title=f"Hodgkin-Huxley axon: v = {velocity:.1f} m/s (published 18.8 m/s)", ax=fig[0])
+plots.line(position * 1e3, {f"t = {1e3 * times[k]:.1f} ms": result.voltage[k] * 1e3 for k in snapshots},
+           vlines=[1e3 * x for x in sensors], xlabel="position x [mm]", ylabel="membrane potential [mV]",
+           title="Travelling action potential (dotted: sensor positions)", ax=fig[1])
+plots.show()
 
 
 # ## Going further

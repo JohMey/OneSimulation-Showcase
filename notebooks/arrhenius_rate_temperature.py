@@ -37,29 +37,7 @@ each temperature and against the Arrhenius ratio of the rate coefficients.
 # exponential, read the effective rate coefficient off each computed decay, and
 # verify the ratio and the slope of the Arrhenius plot.
 
-from importlib.metadata import version
-
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 
 from onesim.cad.geometry import LumpedDomain
 from onesim.meshing import LumpedMesh
@@ -74,8 +52,9 @@ from onesim.physics.chemistry import (
 )
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -86,11 +65,11 @@ print("OneSimulation:", version("onesimulation"))
 # characteristic times $1/k(T)$ of its own temperature, so $A$ always decays to
 # about $e^{-5}\approx 0.7\,\%$ of its initial value.
 
-A_pre = 1.0e6                 # 1/s, pre-exponential factor
-E_a = 50.0e3                  # J/mol, activation energy
-R_gas = 8.314462618           # J/(mol K), molar gas constant
-C_A0 = 1.0                    # mol/m^3, initial concentration of A
-temperatures = (290.0, 310.0, 330.0, 350.0)   # K, isothermal reactor temperatures
+A_pre = 1.0e6
+E_a = 50.0e3
+R_gas = 8.314462618
+C_A0 = 1.0
+temperatures = (290.0, 310.0, 330.0, 350.0)
 
 
 def k_arrhenius(T):
@@ -123,7 +102,7 @@ network = ReactionNetworkIR(
                 "kind": "arrhenius",
                 "pre_exponential": A_pre,
                 "activation_energy": E_a,
-                "boltzmann_constant": R_gas,   # molar form: E_a in J/mol, R in J/(mol K)
+                "boltzmann_constant": R_gas,
             },
         ),
     ),
@@ -153,14 +132,8 @@ def run_isothermal(T):
     simulation.validate().require_valid()
     result = simulation.run(start_time=0.0, end_time=5.0 * tau, time_step=0.05 * tau)
 
-    def series(field):
-        history = result.field(field).history
-        times = np.asarray(history["times"], dtype=float)
-        values = np.asarray([value[0] for value in history["values"]], dtype=float)
-        return times, values
-
-    times, num_A = series(C_A)
-    _, num_B = series(C_B)
+    times, num_A = result.field(C_A).time_series()
+    _, num_B = result.field(C_B).time_series()
     return times, num_A, num_B
 
 
@@ -207,32 +180,16 @@ print(f"Arrhenius plot: fitted E_a = {E_a_fit / 1e3:.3f} kJ/mol (set {E_a / 1e3:
 
 # ## Figure
 
-cream = "#fbf5eb"
-fig, axes = plt.subplots(1, 2, figsize=(11, 4.6), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-colors = ("#1f6f78", "#4f8a3a", "#c8873f", "#b5301d")
-ax = axes[0]
-ax.set_facecolor("#fffaf2")
-for color, T in zip(colors, temperatures):
-    times, num_A, _ = runs[T]
-    t_fine = np.linspace(0.0, times[-1], 300)
-    ax.plot(t_fine / 60.0, C_A0 * np.exp(-k_arrhenius(T) * t_fine), color=color, lw=1.5)
-    ax.plot(times[::4] / 60.0, num_A[::4], "o", color=color, ms=4, label=f"T = {T:.0f} K")
-ax.set(xlabel="Time / min", ylabel="Concentration C$_A$ / (mol/m$^3$)", xscale="log",
-       title="Decay of A — lines: exponential, markers: OneSimulation")
-ax.grid(alpha=0.25, which="both")
-ax.legend(frameon=False)
-
-ax = axes[1]
-ax.set_facecolor("#fffaf2")
 inv_fine = np.linspace(inv_T.min() * 0.98, inv_T.max() * 1.02, 100)
-ax.plot(1000 * inv_fine, np.log(k_arrhenius(1.0 / inv_fine)), color="#8c5a2b", lw=1.6,
-        label=r"Arrhenius law $\ln k = \ln A - E_a/(RT)$")
-ax.plot(1000 * inv_T, ln_k, "o", color="#c8873f", ms=6, label="OneSimulation (fitted k)")
-ax.set(xlabel="1000 / T  (1/K)", ylabel="ln k", title=f"Arrhenius plot — slope gives E$_a$ = {E_a_fit / 1e3:.1f} kJ/mol")
-ax.grid(alpha=0.25)
-ax.legend(frameon=False)
-plt.show()
+fig = plots.figure(1, 2, size=(11, 4.6))
+plots.line(points={f"T = {T:.0f} K": (runs[T][0][1::4] / 60.0, runs[T][1][1::4]) for T in temperatures},
+           reference={f"T = {T:.0f} K": (runs[T][0][1:] / 60.0, C_A0 * np.exp(-k_arrhenius(T) * runs[T][0][1:])) for T in temperatures},
+           scale="logx", xlabel="time [min]", ylabel="concentration C_A [mol/m^3]",
+           title="Decay of A: OneSimulation (markers) and exponential (dashed)", ax=fig[0])
+plots.line(points={"OneSimulation (fitted k)": (1000 * inv_T, ln_k)},
+           reference={"Arrhenius law ln k = ln A - E_a / (R T)": (1000 * inv_fine, np.log(k_arrhenius(1.0 / inv_fine)))},
+           xlabel="1000 / T [1/K]", ylabel="ln k", title=f"Arrhenius plot: slope gives E_a = {E_a_fit / 1e3:.1f} kJ/mol", ax=fig[1])
+plots.show()
 
 
 # ## Going further

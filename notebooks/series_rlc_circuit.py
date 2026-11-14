@@ -29,28 +29,7 @@ The OneSimulation solution is checked against the underdamped closed-form soluti
 # charge takes the values $q_0 e^{-\alpha t_n}(-1)^n$. We use these facts to check
 # not only the time series but also the damped angular frequency and the decay rate.
 
-from importlib.metadata import version
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 
 from onesim.cad.geometry import LumpedDomain
 from onesim.meshing import LumpedMesh
@@ -61,8 +40,9 @@ from onesim.physics.electromagnetics import SeriesRLC
 from onesim.results.storage import MemoryOutputSink, Output
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters and model
@@ -72,18 +52,18 @@ print("OneSimulation:", version("onesimulation"))
 # small laboratory circuit: a 100 µF capacitor charged to 10 V discharging
 # through 2 Ω and 10 mH.
 
-resistance = 2.0          # Ohm, R
-inductance = 10.0e-3      # H, L
-capacitance = 100.0e-6    # F, C
-initial_voltage = 10.0    # V, capacitor voltage at t = 0
-initial_current = 0.0     # A, loop current at t = 0
+resistance = 2.0
+inductance = 10.0e-3
+capacitance = 100.0e-6
+initial_voltage = 10.0
+initial_current = 0.0
 
 omega_0 = 1.0 / np.sqrt(inductance * capacitance)
 alpha = resistance / (2 * inductance)
 omega_d = np.sqrt(omega_0**2 - alpha**2)
 initial_charge = capacitance * initial_voltage
 damped_period = 2 * np.pi / omega_d
-end_time = 5.0 / alpha                 # five decay times, about eight oscillations
+end_time = 5.0 / alpha
 time_step = damped_period / 200.0
 print(f"omega_0 = {omega_0:.1f} rad/s,  alpha = {alpha:.1f} 1/s,  omega_d = {omega_d:.1f} rad/s")
 print(f"damped period = {damped_period * 1e3:.3f} ms,  decay time 1/alpha = {1e3 / alpha:.1f} ms")
@@ -125,19 +105,12 @@ result = simulation.run(
         sink=sink,
     ),
 )
-times = np.asarray([float(s.time) for s in sink.snapshots])
+times = sink.times
 
 
-def series(field):
-    return np.asarray([
-        float(np.asarray(s.fields[field.field_id].values).reshape(-1)[0])
-        for s in sink.snapshots
-    ])
-
-
-charges = series(model.charge)
-currents = series(model.current)
-capacitor_voltages = series(model.capacitor_voltage)
+charges = sink.time_series(model.charge)[1]
+currents = sink.time_series(model.current)[1]
+capacitor_voltages = sink.time_series(model.capacitor_voltage)[1]
 
 
 # ## Comparison with the closed-form solution
@@ -157,41 +130,31 @@ max_current_error = float(np.max(np.abs(currents - reference_current)))
 print(f"Maximum charge error:  {max_charge_error:.3e} C  (q0 = {initial_charge:.1e} C)")
 print(f"Maximum current error: {max_current_error:.3e} A  (peak current ~ {initial_charge * omega_0:.2f} A)")
 
-# Zero crossings of the current (linear interpolation between stored samples).
 sign_change = np.where(np.sign(currents[:-1]) * np.sign(currents[1:]) < 0)[0]
 crossing_times = times[sign_change] - currents[sign_change] * (
     (times[sign_change + 1] - times[sign_change]) / (currents[sign_change + 1] - currents[sign_change])
 )
 measured_omega_d = np.pi / np.mean(np.diff(crossing_times))
-# Charge at the crossings: |q(t_n)| = q0 exp(-alpha t_n), so the log-slope is -alpha.
 charge_at_crossings = np.interp(crossing_times, times, charges)
 measured_alpha = -np.polyfit(crossing_times, np.log(np.abs(charge_at_crossings)), 1)[0]
 print(f"Damped angular frequency: measured {measured_omega_d:.2f} rad/s, exact {omega_d:.2f} rad/s")
 print(f"Decay rate:               measured {measured_alpha:.3f} 1/s,  exact {alpha:.3f} 1/s")
-# Physical sanity: the stored energy can only be dissipated in the resistor.
 
 
 # ## Figure
 
-fig, axes = plt.subplots(2, 1, figsize=(8, 7), sharex=True, constrained_layout=True)
-fig.patch.set_facecolor("#fbf5eb")
-for ax in axes:
-    ax.set_facecolor("#fffaf2")
-    ax.grid(alpha=0.25)
 dense_t = np.linspace(0.0, end_time, 2000)
 dense_env = initial_voltage * np.exp(-alpha * dense_t)
 dense_voltage = dense_env * (np.cos(omega_d * dense_t) + (alpha / omega_d) * np.sin(omega_d * dense_t))
-axes[0].plot(dense_t * 1e3, dense_voltage, color="#6b442f", lw=1.6, label="Closed-form solution")
-axes[0].plot(times[::10] * 1e3, capacitor_voltages[::10], "o", color="#c56838", ms=3.5, label="OneSimulation RK4")
-axes[0].plot(dense_t * 1e3, dense_env, "--", color="#9a8f7d", lw=1.0, label=r"Envelope $U_0 e^{-\alpha t}$")
-axes[0].plot(dense_t * 1e3, -dense_env, "--", color="#9a8f7d", lw=1.0)
-axes[0].set(ylabel="Capacitor voltage / V", title="Series RLC capacitor discharge")
-axes[0].legend(loc="upper right")
-axes[1].plot(times * 1e3, currents, color="#c56838", lw=1.4, label="Loop current")
-axes[1].plot(crossing_times * 1e3, np.zeros_like(crossing_times), "k|", ms=10, label="Zero crossings")
-axes[1].set(xlabel="Time / ms", ylabel="Current / A")
-axes[1].legend(loc="upper right")
-plt.show()
+fig = plots.figure(2, 1, size=(8, 7))
+plots.line(points={"OneSimulation RK4": (times[::10] * 1e3, capacitor_voltages[::10])},
+           reference={"closed-form solution": (dense_t * 1e3, dense_voltage)},
+           band={"decay envelope": (-np.interp(times[::10], dense_t, dense_env), np.interp(times[::10], dense_t, dense_env))},
+           x=times[::10] * 1e3, ylabel="capacitor voltage [V]", title="Series RLC capacitor discharge", ax=fig[0])
+plots.line(times * 1e3, {"loop current": currents},
+           points={"zero crossings": (crossing_times * 1e3, np.zeros_like(crossing_times))},
+           xlabel="time [ms]", ylabel="current [A]", ax=fig[1])
+plots.show()
 
 
 # ## Going further

@@ -46,28 +46,7 @@ The OneSimulation solution is checked against the closed-form counterflow effect
 #
 # The film part is resolved by the 3D mesh; only the wall enters as $h_w$.
 
-from importlib.metadata import version
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 
 from onesim.cad.d3 import Box
 from onesim.materials import IsotropicSolid
@@ -79,8 +58,9 @@ from onesim.physics.heat_transfer import (
     ConvectiveHeatFlux, ConvectiveHeatTransfer, FixedTemperature, HeatFlux,
 )
 from onesim.simulation import Problem, Simulation
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -89,17 +69,17 @@ print("OneSimulation:", version("onesimulation"))
 # 45 mm long, separated by a 1.2 mm polypropylene wall. The hot stream carries
 # the smaller capacity rate ($C_r=0.6$) and the design point is NTU = 1.5.
 
-L, t, w = 0.045, 1.0e-3, 2.0e-3      # m, channel length, gap and width
-t_w, k_w = 1.2e-3, 0.12               # m, W/(m K), polypropylene wall
-rho, cp, k_f = 1000.0, 4180.0, 0.6    # water
-T_h_in, T_c_in = 350.0, 290.0         # K, inlet temperatures
-NTU, C_r = 1.5, 0.6                   # design point
+L, t, w = 0.045, 1.0e-3, 2.0e-3
+t_w, k_w = 1.2e-3, 0.12
+rho, cp, k_f = 1000.0, 4180.0, 0.6
+T_h_in, T_c_in = 350.0, 290.0
+NTU, C_r = 1.5, 0.6
 
-h_wall = k_w / t_w                                   # W/(m^2 K), wall conductance
-U = 1.0 / (1.0 / h_wall + 2.0 * t / (3.0 * k_f))     # W/(m^2 K), overall coefficient
+h_wall = k_w / t_w
+U = 1.0 / (1.0 / h_wall + 2.0 * t / (3.0 * k_f))
 area = L * w
-C_min = U * area / NTU                               # W/K, hot stream (smaller capacity rate)
-C_max = C_min / C_r                                  # W/K, cold stream
+C_min = U * area / NTU
+C_max = C_min / C_r
 u_h, u_c = C_min / (rho * cp * t * w), C_max / (rho * cp * t * w)
 peclet = rho * cp * u_h * L / k_f
 print(f"U = {U:.2f} W/(m^2 K) (wall {h_wall:.1f}, films {3*k_f/t:.0f} each),  "
@@ -141,7 +121,7 @@ numerics = Numerics(
     spatial=FiniteElement(element=Lagrange(order=2), convection=GalerkinAdvection()),
     linear_solver=SparseDirect(),
 )
-hot_wall_y, cold_wall_y = t, 0.0          # wall face of each channel (y_max of the hot, y_min of the cold box)
+hot_wall_y, cold_wall_y = t, 0.0
 
 
 def solve_channel(box, mesh, velocity, inlet, outlet, wall, insulated, inlet_temperature, ambient):
@@ -161,7 +141,6 @@ def solve_channel(box, mesh, velocity, inlet, outlet, wall, insulated, inlet_tem
 
 
 def face_temperature(field, y_face):
-    # The other stream's wall-face temperature as a function of the axial position.
     def ambient(x):
         x = np.asarray(x, dtype=float)
         points = np.column_stack((x.ravel(), np.full(x.size, y_face), np.full(x.size, w / 2)))
@@ -170,7 +149,6 @@ def face_temperature(field, y_face):
 
 
 def bulk_temperature(field, x_positions):
-    # Plug flow: the bulk temperature is the plain mean over the gap.
     y_nodes = np.linspace(0.0, t, 41)
     values = []
     for x in np.atleast_1d(x_positions):
@@ -185,7 +163,7 @@ hot_arguments = dict(box=hot_box, mesh=hot_mesh, velocity=u_h, inlet=hb.x_min, o
 cold_arguments = dict(box=cold_box, mesh=cold_mesh, velocity=-u_c, inlet=cb.x_max, outlet=cb.x_min,
                       wall=cb.y_min, insulated=cb.y_max | cb.z_min | cb.z_max, inlet_temperature=T_c_in)
 
-cold_ambient = lambda x: T_c_in + 0.0 * np.asarray(x)     # first guess: cold stream at its inlet temperature
+cold_ambient = lambda x: T_c_in + 0.0 * np.asarray(x)
 outlets, sweeps = (np.inf, np.inf), 0
 for sweep in range(1, 41):
     hot_field = solve_channel(**hot_arguments, ambient=cold_ambient)
@@ -213,7 +191,6 @@ print(f"Cold outlet: FEM {T_c_out:.3f} K,  eps-NTU {T_c_out_ref:.3f} K  ({100*er
 print(f"Transferred power: hot side {q_hot:.4f} W,  cold side {q_cold:.4f} W,  eps-NTU {q_ref:.4f} W")
 print(f"Effectiveness: FEM {q_hot/(C_min*dT_in):.4f},  closed form {eps:.4f}")
 
-# Bulk temperature profiles along the exchanger.
 m_decay = U * w * (1.0 / C_min - 1.0 / C_max)
 delta_0 = T_h_in - T_c_out_ref
 
@@ -234,19 +211,15 @@ print(f"Largest deviation of the bulk profiles from the closed form: {profile_er
 
 # ## Figure
 
-cream = "#fbf5eb"
-fig, ax = plt.subplots(figsize=(8, 4.8), constrained_layout=True)
-fig.patch.set_facecolor(cream); ax.set_facecolor("#fffaf2"); ax.grid(alpha=0.25)
 dense_x = np.linspace(0.0, L, 300)
 dense_hot, dense_cold = reference_profiles(dense_x)
-ax.plot(dense_x * 1000, dense_hot, color="#A85539", lw=1.7, label="closed form, hot stream (flows to the right)")
-ax.plot(dense_x * 1000, dense_cold, color="#39715E", lw=1.7, label="closed form, cold stream (flows to the left)")
-ax.plot(sample_x * 1000, hot_profile, "o", color="#c56838", ms=4, label="OneSimulation, hot bulk temperature")
-ax.plot(sample_x * 1000, cold_profile, "s", color="#83B9AE", ms=4, label="OneSimulation, cold bulk temperature")
-ax.set(xlabel="Position along the exchanger x / mm", ylabel="Bulk temperature / K",
-       title=f"Counterflow heat exchanger: NTU = {NTU:.1f}, C_r = {C_r:.1f}, effectiveness {eps:.3f}")
-ax.legend(loc="center right", fontsize=9)
-plt.show()
+plots.line(points={"hot stream (flows to the right)": (sample_x * 1000, hot_profile),
+                   "cold stream (flows to the left)": (sample_x * 1000, cold_profile)},
+           reference={"hot stream (flows to the right)": (dense_x * 1000, dense_hot),
+                      "cold stream (flows to the left)": (dense_x * 1000, dense_cold)},
+           xlabel="position along the exchanger x [mm]", ylabel="bulk temperature [K]", legend="center right",
+           title=f"Counterflow heat exchanger: NTU = {NTU:.1f}, C_r = {C_r:.1f}, effectiveness {eps:.3f}")
+plots.show()
 
 
 # ## Going further

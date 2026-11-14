@@ -43,28 +43,7 @@ closed-form long-solenoid inductance with Nagaoka's end correction.
 # used here). The example tolerance of 12 % against the free-space closed form, and 10 %
 # once the confinement estimate is taken out, covers both.
 
-from importlib.metadata import version
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 from scipy.special import ellipe, ellipk
 
 from onesim.cad.d3 import Cylinder
@@ -78,33 +57,32 @@ from onesim.physics.magnetostatics import (
     Magnetostatics, SolenoidCurrent,
 )
 from onesim.simulation import Problem, Simulation
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters and closed-form reference
 
-domain_length, domain_radius = 0.32, 0.08       # m, finite computational cylinder
-coil_length = 0.12                              # m, solenoid length
-inner_radius, outer_radius = 0.010, 0.020       # m, homogenised winding annulus
-turns, current = 240, 1.0                       # -, A
-center_z = domain_length / 2.0                  # coil centred in the domain
+domain_length, domain_radius = 0.32, 0.08
+coil_length = 0.12
+inner_radius, outer_radius = 0.010, 0.020
+turns, current = 240, 1.0
+center_z = domain_length / 2.0
 
 mu0 = float(VacuumPermeability().evaluate())
-turns_per_metre = turns / coil_length                                     # n
-winding_thickness = outer_radius - inner_radius                           # w
-mean_radius = 0.5 * (inner_radius + outer_radius)                         # R_m
-B_ideal = mu0 * turns_per_metre * current                                 # mu0 n I
+turns_per_metre = turns / coil_length
+winding_thickness = outer_radius - inner_radius
+mean_radius = 0.5 * (inner_radius + outer_radius)
+B_ideal = mu0 * turns_per_metre * current
 area_eff = np.pi * (inner_radius**2 + winding_thickness * (outer_radius + 3 * inner_radius) / 6.0)
 
-# Nagaoka's end-correction factor for a current sheet (complete elliptic integrals).
 k2 = (2 * mean_radius) ** 2 / ((2 * mean_radius) ** 2 + coil_length**2)
 nagaoka = 4.0 / (3.0 * np.pi * np.sqrt(1.0 - k2)) * (
     ((1.0 - k2) / k2) * (ellipk(k2) - ellipe(k2)) + ellipe(k2) - np.sqrt(k2))
-L_long = mu0 * turns_per_metre**2 * coil_length * area_eff   # infinitely long, thick winding
-L_ref = nagaoka * L_long                                       # finite length (Nagaoka)
+L_long = mu0 * turns_per_metre**2 * coil_length * area_eff
+L_ref = nagaoka * L_long
 
-# Coaxial-return estimate of the flux confinement by the magnetic insulation at r = R_d.
 area_return = np.pi * domain_radius**2 - area_eff
 confinement = 1.0 / (1.0 + area_eff / area_return)
 
@@ -157,7 +135,7 @@ B_field = result.field(model.magnetic_flux_density)
 H_field = result.field(model.magnetic_field_strength)
 A_field = result.field(model.vector_potential)
 
-vertices = np.asarray(mesh.coordinates)[np.asarray(mesh.cells)]           # (cells, 4, 3)
+vertices = np.asarray(mesh.coordinates)[np.asarray(mesh.cells)]
 edges = vertices[:, 1:] - vertices[:, :1]
 cell_volumes = np.abs(np.einsum("ij,ij->i", edges[:, 0], np.cross(edges[:, 1], edges[:, 2]))) / 6.0
 centroids = vertices.mean(axis=1)
@@ -170,7 +148,6 @@ energy_cells = 0.5 * np.einsum("ij,ij->i", B_cells, H_cells) * cell_volumes
 W_energy = float(energy_cells.sum())
 L_energy = 2.0 * W_energy / current**2
 
-# Flux-linkage form: J is the uniform azimuthal winding current density.
 radius = np.hypot(centroids[:, 0], centroids[:, 1])
 inside_length = np.abs(centroids[:, 2] - center_z) < coil_length / 2.0
 in_core = (radius < inner_radius) & inside_length
@@ -183,7 +160,6 @@ A_cells = np.asarray(A_field.evaluate(centroids[in_winding]))
 W_linkage = 0.5 * float(np.sum(np.einsum("ij,ij->i", J_cells[in_winding], A_cells) * cell_volumes[in_winding]))
 L_linkage = 2.0 * W_linkage / current**2
 
-# Centre field: same closed form with the computed centre field in place of mu0 n I.
 B_centre = np.asarray(B_field.evaluate(np.array([[0.0, 0.0, center_z]])))[0]
 centre_axial = float(B_centre[2])
 L_centre = nagaoka * turns * centre_axial * area_eff / current
@@ -211,31 +187,18 @@ print(f"energy route vs flux-linkage route: {100*ratio_routes:.2f} %")
 
 # ## Figure
 
-cream = "#fbf5eb"
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.6), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-for ax in (ax1, ax2):
-    ax.set_facecolor("#fffaf2"); ax.grid(alpha=0.25)
-
 r_line = np.linspace(0.0, 1.5 * outer_radius, 61)
 Bz_line = np.asarray(B_field.evaluate(np.column_stack((r_line, np.zeros_like(r_line), np.full_like(r_line, center_z)))))[:, 2]
 Bz_ideal = np.where(r_line < inner_radius, 1.0, np.clip((outer_radius - r_line) / winding_thickness, 0.0, 1.0)) * B_ideal
-ax1.plot(r_line * 1e3, Bz_ideal * 1e3, color="#214D43", lw=1.8, ls="--", label="infinite solenoid (linear fall-off in the winding)")
-ax1.plot(r_line * 1e3, Bz_line * 1e3, "o-", color="#A85539", ms=3.5, lw=1, label="OneSimulation 3D FEM, mid-plane")
-ax1.axvspan(inner_radius * 1e3, outer_radius * 1e3, color="#c9b89a", alpha=0.3, label="winding")
-ax1.set(xlabel="Radius r / mm", ylabel="Axial flux density $B_z$ / mT", title="Mid-plane radial profile")
-ax1.legend(fontsize=8)
-
-labels = ("field energy\n$2W/I^2$", "flux linkage\n$\\int J\\cdot A\\,dV/I^2$",
-          "closed form\n$K\\,\\mu_0 n^2 \\ell A_\\mathrm{eff}$", "closed form\nwith FEM centre field")
-values = np.array([L_energy, L_linkage, L_ref, L_centre]) * 1e6
-ax2.bar(labels, values, color=("#A85539", "#336B57", "#214D43", "#6b8e23"), width=0.6)
-for i, v in enumerate(values):
-    ax2.text(i, v * 1.01, f"{v:.0f} uH", ha="center", va="bottom", fontsize=9)
-ax2.set_ylim(0, 1.15 * values.max())
-ax2.set(ylabel="Inductance / uH", title="Inductance: field routes versus closed form")
-ax2.tick_params(axis="x", labelsize=8)
-plt.show()
+fig = plots.figure(1, 2, size=(11, 4.6))
+plots.line(r_line * 1e3, {"OneSimulation 3D FEM, mid-plane": Bz_line * 1e3},
+           reference={"infinite solenoid (linear fall-off in the winding)": Bz_ideal * 1e3}, markers=True,
+           vlines={"winding": inner_radius * 1e3, "": outer_radius * 1e3},
+           xlabel="radius r [mm]", ylabel="axial flux density B_z [mT]", title="Mid-plane radial profile", ax=fig[0])
+plots.bars(["field energy\n2W/I²", "flux linkage\n∫J·A dV/I²", "closed form", "closed form with\nFEM centre field"],
+           np.array([L_energy, L_linkage, L_ref, L_centre]) * 1e6, ylabel="inductance [µH]",
+           title="Inductance: field routes versus closed form", ax=fig[1])
+plots.show()
 
 
 # ## Going further

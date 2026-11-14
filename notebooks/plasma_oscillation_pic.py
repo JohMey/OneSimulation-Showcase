@@ -35,34 +35,14 @@ plasma frequency and its Bohm-Gross thermal correction.
 # measured frequency. The kinetic plus electrostatic field energy must stay
 # constant, and Gauss's law must hold on the grid at every step.
 
-from importlib.metadata import version
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 from scipy.constants import e, m_e, epsilon_0
 from scipy.special import erfinv
 
 from onesim.physics.plasma import PICSpecies, PeriodicParticleInCell
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -74,15 +54,15 @@ print("OneSimulation:", version("onesimulation"))
 # amplitude is 1 % of the box, i.e. a density perturbation of about 6 %, which
 # keeps the oscillation linear.
 
-n_0 = 1.0e16                  # m^-3, electron (and ion background) density
-L = 5.0e-3                    # m, periodic box length = one wavelength
-temperatures_eV = (0.0, 1.0, 3.0)   # eV, electron temperatures of the three runs
-cells = 64                    # grid cells in the box
-particles_per_cell = 400      # macro-particles per cell
-amplitude = 0.01 * L          # m, displacement amplitude A
-steps_per_radian = 50         # omega_p dt = 1/50
-sample_every = 5              # time steps between two stored samples
-periods = 6.0                 # simulated duration in oscillation periods
+n_0 = 1.0e16
+L = 5.0e-3
+temperatures_eV = (0.0, 1.0, 3.0)
+cells = 64
+particles_per_cell = 400
+amplitude = 0.01 * L
+steps_per_radian = 50
+sample_every = 5
+periods = 6.0
 
 omega_p = np.sqrt(n_0 * e**2 / (epsilon_0 * m_e))
 k = 2.0 * np.pi / L
@@ -148,7 +128,6 @@ for T in temperatures_eV:
         electrons = res.species[0]
         t += float(res.time[-1])
         times.append(t)
-        # Complex amplitude of the k mode of E_x on the grid nodes.
         mode.append(2.0 / cells * np.sum(res.electric_field[:, 0] * np.exp(-1j * k * x_grid)))
         kinetic.append(res.kinetic_energy[1:])
         field.append(res.field_energy[1:])
@@ -206,40 +185,26 @@ for T in temperatures_eV[1:]:
 # measured frequencies on the Bohm-Gross curve
 # $\omega/\omega_p=\sqrt{1+3k^2\lambda_D^2}$.
 
-cream = "#fbf5eb"
-fig, (ax_t, ax_e, ax_w) = plt.subplots(1, 3, figsize=(15, 4.4), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-colors = {0.0: "#A85539", 1.0: "#214D43", 3.0: "#5F9175"}
-for T, run in runs.items():
-    scale = np.abs(run["mode"][0])
-    ax_t.plot(run["times"] * 1e9, run["mode"].real / scale, "o", ms=2.2, color=colors[T], label=f"OneSimulation, T_e = {T:.0f} eV")
-    t_fine = np.linspace(0.0, run["times"][-1], 800)
-    phi_0 = np.angle(run["mode"][0]) + run["omega_ref"] * run["times"][0]
-    ax_t.plot(t_fine * 1e9, np.cos(phi_0 - run["omega_ref"] * t_fine), "-", lw=1.0, color=colors[T], alpha=0.75)
-ax_t.set_facecolor("#fffaf2"); ax_t.grid(alpha=0.25)
-ax_t.set(xlabel="time / ns", ylabel="Re $E_k$ / $|E_k(0)|$", title="Mode amplitude (lines: dispersion relation)")
-ax_t.set_xlim(0.0, 2.5 * 2.0 * np.pi / omega_p * 1e9)
-ax_t.legend(loc="upper right", fontsize=8)
-
-for T, run in runs.items():
-    total = run["kinetic"] + run["field"]
-    t_energy = np.arange(1, len(total) + 1) * time_step * 1e9
-    ax_e.plot(t_energy, 1e4 * (total / total[0] - 1.0), color=colors[T], lw=1.2,
-              label=f"T_e = {T:.0f} eV  (kinetic {run['kinetic'][0] / 1e-6:.2f}, field {run['field'][0] / 1e-6:.2f} µJ/m²)")
-ax_e.axhline(0.0, color="#7a7a7a", lw=0.8)
-ax_e.set_facecolor("#fffaf2"); ax_e.grid(alpha=0.25)
-ax_e.set(xlabel="time / ns", ylabel="total energy change / 10$^{-4}$", title="Energy conservation (kinetic + field)")
-ax_e.legend(loc="upper left", fontsize=7)
-
+labelled = {f"T_e = {T:.0f} eV": run for T, run in runs.items()}
+t_fine = np.linspace(0.0, 2.5 * 2.0 * np.pi / omega_p, 600)
 k_lambda = np.linspace(0.0, 0.2, 200)
-ax_w.plot(k_lambda, np.sqrt(1.0 + 3.0 * k_lambda**2), "-", color="#214D43", lw=1.8, label="Bohm-Gross")
-ax_w.axhline(1.0, ls="--", color="#7a7a7a", lw=1.2, label="cold plasma $\\omega_p$")
-ax_w.plot([k * debye_length(T) for T in runs], [runs[T]["omega_measured"] / omega_p for T in runs],
-          "o", ms=8, color="#A85539", label="OneSimulation (phase slope)")
-ax_w.set_facecolor("#fffaf2"); ax_w.grid(alpha=0.25)
-ax_w.set(xlabel="$k\\lambda_D$", ylabel="$\\omega / \\omega_p$", title="Dispersion relation")
-ax_w.legend(loc="upper left", fontsize=8)
-plt.show()
+fig = plots.figure(1, 3, size=(15, 4.4))
+plots.line(points={label: (run["times"] * 1e9, run["mode"].real / np.abs(run["mode"][0])) for label, run in labelled.items()},
+           reference={label: (t_fine * 1e9, np.cos(np.angle(run["mode"][0]) + run["omega_ref"] * (run["times"][0] - t_fine)))
+                      for label, run in labelled.items()},
+           xlimits=(0.0, t_fine[-1] * 1e9), xlabel="time [ns]", ylabel="Re E_k / |E_k(0)|",
+           title="Mode amplitude (dashed: dispersion relation)", legend="upper right", ax=fig[0])
+plots.line(y={label: (np.arange(1, len(run["kinetic"]) + 1) * time_step * 1e9,
+                      1e4 * ((run["kinetic"] + run["field"]) / (run["kinetic"][0] + run["field"][0]) - 1.0))
+              for label, run in labelled.items()},
+           hlines=0.0, xlabel="time [ns]", ylabel="total energy change [1e-4]",
+           title="Energy conservation (kinetic + field)", ax=fig[1])
+plots.line(k_lambda, {"Bohm-Gross": np.sqrt(1.0 + 3.0 * k_lambda**2)},
+           points={"OneSimulation (phase slope)": ([k * debye_length(T) for T in runs],
+                                                   [run["omega_measured"] / omega_p for run in runs.values()])},
+           hlines={"cold plasma": 1.0}, xlabel="k lambda_D", ylabel="omega / omega_p", title="Dispersion relation",
+           legend="upper left", ax=fig[2])
+plots.show()
 
 
 # ## Going further

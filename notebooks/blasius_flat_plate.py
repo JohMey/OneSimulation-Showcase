@@ -44,35 +44,14 @@ The OneSimulation solution is checked against the Blasius similarity solution
 # then check that the profiles at three stations collapse onto $f'(\eta)$ and that
 # $\delta_{99}(x)$ and $c_f(x)$ follow the $\sqrt{x}$ and $1/\sqrt{x}$ laws.
 
-from importlib.metadata import version
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 from scipy.integrate import solve_ivp
 from scipy.optimize import brentq
 
 from onesim.cad.d3 import Box
 from onesim.materials import NewtonianFluid
 from onesim.meshing import StructuredTetrahedralMesher
-from onesim.meshing.generation.declarations import PeriodicPair
+from onesim.meshing import PeriodicPair
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, TaylorHood
 from onesim.numerics.linear import SparseDirect
@@ -81,10 +60,11 @@ from onesim.physics.hydrodynamics import (
     FixedVelocity, FlowTraction, IncompressibleNavierStokes, NoSlipWall,
 )
 from onesim.simulation import Problem, Simulation
-from onesim.simulation.initial_conditions.values import InitialValue
-from onesim.simulation.problem_definition.boundaries import PeriodicBoundary
+from onesim.simulation.initial_conditions import InitialValue
+from onesim.simulation import PeriodicBoundary
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -94,13 +74,13 @@ print("OneSimulation:", version("onesimulation"))
 # far-field boundary at height $H$ lies 4.5 boundary-layer thicknesses above the end
 # of the plate, so the plate's displacement effect on the outer stream stays small.
 
-x_start = 0.2          # m, distance x_0 of the inflow plane from the leading edge
-plate_length = 1.0     # m, length L of the simulated plate section (x)
-height = 0.25          # m, far-field height H (y)
-span = 0.05            # m, thin out-of-plane extent (made periodic in z)
-free_stream = 1.0      # m/s, free-stream speed U
-rho = 1.0              # kg/m^3, density
-mu = 1.0e-4            # Pa·s, dynamic viscosity
+x_start = 0.2
+plate_length = 1.0
+height = 0.25
+span = 0.05
+free_stream = 1.0
+rho = 1.0
+mu = 1.0e-4
 nu = mu / rho
 
 x_end = x_start + plate_length
@@ -146,7 +126,6 @@ def blasius_f_and_fprime(eta):
 
 
 def blasius_velocity(x, y):
-    # Blasius (u, v) at distance x from the leading edge and wall distance y.
     eta = y * np.sqrt(free_stream / (nu * x))
     f, fp = blasius_f_and_fprime(eta)
     u = free_stream * fp
@@ -174,14 +153,8 @@ fluid = NewtonianFluid(density=rho, dynamic_viscosity=mu)
 
 
 def inflow(y):
-    # Blasius profile at the inflow station x_0 (the box coordinate x = 0).
     u, v = blasius_velocity(x_start, y)
     return np.column_stack((u, v, np.zeros_like(y)))
-
-
-def traction_free(y):
-    # Zero Cauchy traction: open boundary with zero gauge pressure.
-    return np.zeros((len(y), 3))
 
 
 model = IncompressibleNavierStokes(domain=geometry.volume, material=fluid)
@@ -194,7 +167,7 @@ problem = Problem(
     boundary_conditions=(
         NoSlipWall(boundary=geometry.boundaries.y_min, physics=model),
         FixedVelocity(boundary=geometry.boundaries.x_min, physics=model, value=inflow),
-        FlowTraction(boundary=open_faces, physics=model, value=traction_free),
+        FlowTraction(boundary=open_faces, physics=model, value=(0.0, 0.0, 0.0)),
         PeriodicBoundary(pair=spanwise, physics=model),
     ),
     initial_conditions=(InitialValue(model.velocity, (free_stream, 0.0, 0.0)),),
@@ -216,7 +189,6 @@ velocity_field = result.field(model.velocity)
 
 
 def sample_velocity(x, y):
-    # x is the distance from the leading edge; the box starts at x_0.
     points = np.column_stack((np.full_like(y, x - x_start), y, np.full_like(y, span / 2.0)))
     return np.asarray(velocity_field.evaluate(points))
 
@@ -248,14 +220,12 @@ for x in stations:
     print(f"x = {x:.2f} m (Re_x = {free_stream*x/nu:.0f}): max |u/U - f'(eta)| = {profile_errors[x]:.4f},  "
           f"max |v - v_Blasius| / v_far = {v_errors[x]:.3f}")
 
-# Boundary-layer thickness and skin friction along the plate.
 x_line = x_start + np.linspace(0.1, 0.9, 17) * plate_length
 delta_numeric, cf_numeric = [], []
 for x in x_line:
     y = np.linspace(0.0, 10.0 * x / np.sqrt(free_stream * x / nu), 201)
     u = sample_velocity(x, y)[:, 0]
     delta_numeric.append(float(np.interp(0.99 * free_stream, u, y)))
-    # Wall shear from the quadratic velocity inside the wall cell: fit u = a y + b y^2.
     y_wall = np.linspace(0.0, wall_cell, 9)
     u_wall = sample_velocity(x, y_wall)[:, 0]
     slope = np.linalg.lstsq(np.column_stack((y_wall, y_wall**2)), u_wall, rcond=None)[0][0]
@@ -280,32 +250,17 @@ print(f"Largest spanwise velocity component: {spanwise_max:.2e} m/s (two-dimensi
 
 # ## Figure
 
-cream = "#fbf5eb"
-fig, axes = plt.subplots(1, 3, figsize=(14, 4.8), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-for ax in axes:
-    ax.set_facecolor("#fffaf2")
-    ax.grid(alpha=0.25)
 eta_dense = np.linspace(0.0, 8.0, 400)
-axes[0].plot(blasius_f_and_fprime(eta_dense)[1], eta_dense, color="#214D43", lw=1.8, label="Blasius f'(η)")
-markers = ("o", "s", "^")
-for (x, uvw), marker in zip(profiles.items(), markers):
-    axes[0].plot(uvw[::4, 0] / free_stream, eta_samples[::4], marker, ms=4.5, mfc="none",
-                 color="#A85539", label=f"OneSimulation, x = {x:.2f} m")
-axes[0].set(xlabel="u / U", ylabel="η = y √(U / ν x)", ylim=(0, 8),
-            title="Velocity profiles in similarity variables")
-axes[0].legend(loc="lower right", fontsize=9)
-axes[1].plot(x_line, 1000 * delta_reference, color="#214D43", lw=1.8, label="5.0 x / √Re_x")
-axes[1].plot(x_line, 1000 * delta_numeric, "o", color="#A85539", ms=4, label="OneSimulation 3D FEM")
-axes[1].set(xlabel="Distance from the leading edge x / m", ylabel="δ₉₉ / mm",
-            title="Boundary-layer thickness")
-axes[1].legend(fontsize=9)
-axes[2].plot(x_line, 1000 * cf_reference, color="#214D43", lw=1.8, label="0.664 / √Re_x")
-axes[2].plot(x_line, 1000 * cf_numeric, "o", color="#A85539", ms=4, label="OneSimulation 3D FEM")
-axes[2].set(xlabel="Distance from the leading edge x / m", ylabel="c_f × 10³",
-            title="Local skin friction")
-axes[2].legend(fontsize=9)
-plt.show()
+fig = plots.figure(1, 3, size=(14, 4.8))
+plots.line(points={f"OneSimulation, x = {x:.2f} m": (uvw[::4, 0] / free_stream, eta_samples[::4]) for x, uvw in profiles.items()},
+           reference={"Blasius f'(η)": (blasius_f_and_fprime(eta_dense)[1], eta_dense)}, ylimits=(0, 8),
+           xlabel="u / U", ylabel="η = y √(U / ν x)", title="Velocity profiles in similarity variables",
+           legend="lower right", ax=fig[0])
+plots.line(x_line, points={"OneSimulation 3D FEM": 1000 * delta_numeric}, reference={"5.0 x / √Re_x": 1000 * delta_reference},
+           xlabel="distance from the leading edge x [m]", ylabel="δ99 [mm]", title="Boundary-layer thickness", ax=fig[1])
+plots.line(x_line, points={"OneSimulation 3D FEM": 1000 * cf_numeric}, reference={"0.664 / √Re_x": 1000 * cf_reference},
+           xlabel="distance from the leading edge x [m]", ylabel="c_f × 10³", title="Local skin friction", ax=fig[2])
+plots.show()
 
 
 # ## Going further

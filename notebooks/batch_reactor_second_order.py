@@ -33,29 +33,7 @@ a second-order batch reaction.
 # Mass is conserved as $C_A(t)+2\,C_P(t)=C_{A0}$ (two $A$ per $P$). We compare the
 # computed transient with this closed form.
 
-from importlib.metadata import version
-
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 
 from onesim.cad.geometry import LumpedDomain
 from onesim.meshing import LumpedMesh
@@ -70,8 +48,9 @@ from onesim.physics.chemistry import (
 )
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -80,10 +59,10 @@ print("OneSimulation:", version("onesimulation"))
 # characteristic time $1/(2kC_{A0})$; the window spans several of those times, so
 # $A$ falls well below its initial value.
 
-k = 0.5               # m^3/(mol s), second-order rate coefficient
-C_A0 = 2.0            # mol/m^3, initial concentration of A
-C_P0 = 0.0            # mol/m^3, initial concentration of product P
-half_time = 1.0 / (2.0 * k * C_A0)   # s, time for A to halve
+k = 0.5
+C_A0 = 2.0
+C_P0 = 0.0
+half_time = 1.0 / (2.0 * k * C_A0)
 end_time = 10.0 * half_time
 time_step = 0.02 * half_time
 print(f"k = {k:.3f} m^3/(mol s),  half-time 1/(2 k C_A0) = {half_time:.2f} s,  end time = {end_time:.2f} s")
@@ -140,14 +119,8 @@ result = simulation.run(start_time=0.0, end_time=end_time, time_step=time_step)
 # The stored history of each concentration is read back and compared, time by
 # time, with the closed-form second-order solution.
 
-def series(field):
-    history = result.field(field).history
-    times = np.asarray(history["times"], dtype=float)
-    values = np.asarray([value[0] for value in history["values"]], dtype=float)
-    return times, values
-
-times, num_A = series(C_A)
-_, num_P = series(C_P)
+times, num_A = result.field(C_A).time_series()
+_, num_P = result.field(C_P).time_series()
 
 exact_A = C_A0 / (1.0 + 2.0 * k * C_A0 * times)
 exact_P = 0.5 * (C_A0 - exact_A)
@@ -166,21 +139,14 @@ print(f"Maximum mass-balance error C_A+2 C_P-C_A0: {mass_error:.3e} mol/m^3")
 
 # ## Figure
 
-cream = "#fbf5eb"
-fig, ax = plt.subplots(figsize=(8, 4.8), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-ax.set_facecolor("#fffaf2")
 t_fine = np.linspace(0.0, end_time, 400)
+shown = slice(None, None, max(1, len(times) // 40))
 a_fine = C_A0 / (1.0 + 2.0 * k * C_A0 * t_fine)
-ax.plot(t_fine, a_fine, color="#b5651d", lw=1.6, label="C_A exact")
-ax.plot(t_fine, 0.5 * (C_A0 - a_fine), color="#1f6f78", lw=1.6, label="C_P exact")
-ax.plot(times, num_A, "o", color="#b5651d", ms=4, label="C_A OneSimulation")
-ax.plot(times, num_P, "s", color="#1f6f78", ms=4, label="C_P OneSimulation")
-ax.set(xlabel="Time / s", ylabel="Concentration / (mol/m$^3$)",
-       title="Second-order batch 2A -> P — lines: hyperbola, markers: OneSimulation 0D kinetics")
-ax.grid(alpha=0.25)
-ax.legend(frameon=False)
-plt.show()
+plots.line(points={"C_A": (times[shown], num_A[shown]), "C_P": (times[shown], num_P[shown])},
+           reference={"C_A": (t_fine, a_fine), "C_P": (t_fine, 0.5 * (C_A0 - a_fine))},
+           xlabel="time [s]", ylabel="concentration [mol/m^3]",
+           title="Second-order batch 2A -> P: OneSimulation (markers) and exact solution (dashed)")
+plots.show()
 
 
 # ## Going further

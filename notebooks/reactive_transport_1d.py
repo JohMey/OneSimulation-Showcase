@@ -31,28 +31,7 @@ solution of the advection-diffusion-reaction equation.
 # number** $\mathrm{Pe}=uL/D$ advection against diffusion. We compare the
 # computed steady profile with this closed form.
 
-from importlib.metadata import version
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 
 from onesim.cad.d1 import Line
 from onesim.meshing import StructuredLineMesher
@@ -64,9 +43,10 @@ from onesim.numerics.time import BDF, BackwardEuler
 from onesim.physics.chemistry import SpeciesTransport, TransportSpecies
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
-from onesim.simulation.problem_definition.boundaries import PrescribedValueBoundary
+from onesim.simulation import PrescribedValueBoundary
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -74,19 +54,18 @@ print("OneSimulation:", version("onesimulation"))
 # The values are freely adjustable and in SI units. They give a moderately
 # reaction- and advection-dominated reactor.
 
-L = 1.0               # m, reactor length
-cells = 200           # mesh cells
-u = 0.2               # m/s, flow speed
-D = 0.01              # m^2/s, diffusivity
-k = 1.0               # 1/s, first-order reaction rate
-C0 = 1.0              # mol/m^3, inlet concentration
-CL = 0.0              # mol/m^3, outlet concentration
+L = 1.0
+cells = 200
+u = 0.2
+D = 0.01
+k = 1.0
+C0 = 1.0
+CL = 0.0
 
-Da = k * L / u        # Damkoehler number
-Pe = u * L / D        # Peclet number
+Da = k * L / u
+Pe = u * L / D
 print(f"Damkoehler Da = {Da:.2f},  Peclet Pe = {Pe:.2f}")
 
-# Roots of D m^2 - u m - k = 0 and the two-exponential closed form.
 disc = np.sqrt(u * u + 4.0 * D * k)
 m_plus = (u + disc) / (2.0 * D)
 m_minus = (u - disc) / (2.0 * D)
@@ -168,7 +147,6 @@ max_abs_error = float(np.max(np.abs(c_num - c_ref)))
 rel_error = max_abs_error / C0
 print(f"maximum deviation from the closed form: {max_abs_error:.3e} mol/m^3  ({100*rel_error:.3f} % of C0)")
 
-# Confirm steady state has been reached: compare with the profile one step back.
 previous = np.asarray(field.evaluate(points, time=float(result.times[-2]))).reshape(-1)[order]
 drift = float(np.max(np.abs(c_num - previous)))
 print(f"change over the last stored interval: {drift:.3e} mol/m^3")
@@ -176,19 +154,11 @@ print(f"change over the last stored interval: {drift:.3e} mol/m^3")
 
 # ## Figure
 
-cream = "#fbf5eb"
-fig, ax = plt.subplots(figsize=(8, 4.8), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-ax.set_facecolor("#fffaf2")
 xs = np.linspace(0.0, L, 400)
-ax.plot(xs, reference(xs), color="#214D43", lw=1.8, label="closed form")
-ax.plot(x[::5], c_num[::5], "o", color="#336B57", ms=3, label="OneSimulation")
-ax.set(xlabel="Position x / m", ylabel="Concentration / (mol/m^3)",
-       title=f"Steady reactive transport (Da = {Da:.1f}, Pe = {Pe:.0f})"
-             "\nline: closed form, dots: OneSimulation")
-ax.legend(frameon=False)
-ax.grid(alpha=0.25)
-plt.show()
+plots.line(points={"OneSimulation": (x[::5], c_num[::5])}, reference={"closed form": (xs, reference(xs))},
+           xlabel="position x [m]", ylabel="concentration [mol/m^3]",
+           title=f"Steady reactive transport (Da = {Da:.1f}, Pe = {Pe:.0f})")
+plots.show()
 
 
 # ## Going further

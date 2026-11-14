@@ -32,33 +32,12 @@ closed-form TE10 cutoff frequency, mode shape and standing-wave pattern.
 # We check the cutoff frequency, the port mode shape, the standing-wave pattern
 # and the absorbed power against these closed forms.
 
-from importlib.metadata import version
 from math import pi, sqrt
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 
 from onesim.cad.d3 import Box
 from onesim.materials.electromagnetic import IsotropicElectromagneticMaterial
-from onesim.materials.properties.units.constants import VACUUM_PERMEABILITY, VACUUM_PERMITTIVITY
+from onesim.materials import VACUUM_PERMEABILITY, VACUUM_PERMITTIVITY
 from onesim.meshing import TetrahedralMesher
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Nedelec
@@ -67,8 +46,9 @@ from onesim.physics.electromagnetics import (
     FrequencyDomainMaxwell, NumericalWaveguideMode, PerfectElectricConductor, WaveguidePort,
 )
 from onesim.simulation import Problem, Simulation
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -76,10 +56,10 @@ print("OneSimulation:", version("onesimulation"))
 # The guide is 100 mm wide and 50 mm high, so TE10 cuts off at about 1.5 GHz
 # and the next modes (TE20, TE01) at 3.0 GHz. At 2.5 GHz only TE10 propagates.
 
-a = 0.100             # m, broad wall (x direction)
-b = 0.050             # m, narrow wall (y direction)
-length = 0.080        # m, guide length to the short (z direction)
-frequency = 2.5e9     # Hz, drive frequency
+a = 0.100
+b = 0.050
+length = 0.080
+frequency = 2.5e9
 c0 = 1.0 / sqrt(VACUUM_PERMEABILITY * VACUUM_PERMITTIVITY)
 f_c10 = c0 / (2 * a)
 f_c20 = c0 / a
@@ -95,7 +75,7 @@ print("Mesh:", mesh.cell_count, "tetrahedra")
 
 model = FrequencyDomainMaxwell(
     domain=guide.volume, frequency=frequency,
-    material=IsotropicElectromagneticMaterial(),      # air: eps_r = mu_r = 1, lossless
+    material=IsotropicElectromagneticMaterial(),
     phasor_convention="exp(-i*omega*t)", amplitude_convention="peak",
 )
 problem = Problem(
@@ -103,10 +83,8 @@ problem = Problem(
     geometry=guide,
     physics=(model,),
     boundary_conditions=(
-        # Port at z = 0 excited with the first numerically computed TE eigenmode.
         WaveguidePort(boundary=guide.boundaries.z_min, physics=model,
                       mode=NumericalWaveguideMode("TE"), incident_power=1.0),
-        # Every other face (four side walls and the short at z = length) is a PEC.
         PerfectElectricConductor(boundary=guide.boundaries.all - guide.boundaries.z_min, physics=model),
     ),
 )
@@ -129,18 +107,16 @@ f_c_num = float(port_mode.cutoff_frequency)
 cutoff_error = abs(f_c_num / f_c10 - 1.0)
 print(f"TE10 cutoff: computed {f_c_num / 1e9:.4f} GHz, reference {f_c10 / 1e9:.4f} GHz, deviation {100 * cutoff_error:.2f} %")
 
-# Mode shape across the broad wall at mid-height of the port plane.
 xs = np.linspace(0.05 * a, 0.95 * a, 19)
 port_points = np.column_stack((xs, np.full_like(xs, b / 2), np.zeros_like(xs)))
 E_port = np.asarray(port_mode.electric_field(port_points))
 Ey_port = E_port[:, 1]
-Ey_port = Ey_port / Ey_port[np.argmax(np.abs(Ey_port))]      # normalised, positive peak
+Ey_port = Ey_port / Ey_port[np.argmax(np.abs(Ey_port))]
 shape_ref = np.sin(pi * xs / a)
 shape_error = float(np.max(np.abs(Ey_port - shape_ref)))
 cross_component = float(np.max(np.abs(E_port[:, 0])) / np.max(np.abs(E_port[:, 1])))
 print(f"Port mode shape vs sin(pi x / a): max deviation {shape_error:.3f} (of peak 1), |E_x|/|E_y| = {cross_component:.3f}")
 
-# Standing wave along the axis of the shorted guide.
 zs = np.linspace(0.02 * length, 0.98 * length, 25)
 axis_points = np.column_stack((np.full_like(zs, a / 2), np.full_like(zs, b / 2), zs))
 E_axis = np.asarray(result.field(model.electric_field).evaluate(axis_points))
@@ -155,30 +131,17 @@ print(f"Absorbed power in the lossless guide: {absorbed.value:.3e} {absorbed.uni
 
 # ## Figure
 
-cream = "#fbf5eb"
-fig, axes = plt.subplots(1, 2, figsize=(12, 4.8), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-
-ax = axes[0]
-ax.set_facecolor("#fffaf2")
-fine = np.linspace(0, a, 200)
-ax.plot(fine * 1e3, np.sin(pi * fine / a), color="#39715e", lw=1.8, label="sin(pi x / a)")
-ax.plot(xs * 1e3, Ey_port, "o", color="#b4572b", ms=4, label="OneSimulation port eigenmode")
-ax.set(xlabel="Position x across the broad wall / mm", ylabel="E_y / E_y,max",
-       title=f"TE10 mode shape — cutoff {f_c_num / 1e9:.3f} GHz (reference {f_c10 / 1e9:.3f} GHz)")
-ax.legend(frameon=False, fontsize=9)
-ax.grid(alpha=0.25)
-
-ax = axes[1]
-ax.set_facecolor("#fffaf2")
-fine_z = np.linspace(0, length, 300)
-ax.plot(fine_z * 1e3, np.abs(np.sin(beta * (length - fine_z))), color="#39715e", lw=1.8, label="|sin(beta (l - z))|")
-ax.plot(zs * 1e3, amplitude / amplitude.max(), "o", color="#b4572b", ms=4, label="OneSimulation |E_y| on the axis")
-ax.set(xlabel="Position z along the guide / mm", ylabel="|E_y| / max",
-       title=f"Standing wave in the shorted guide at {frequency / 1e9:.1f} GHz")
-ax.legend(frameon=False, fontsize=9)
-ax.grid(alpha=0.25)
-plt.show()
+fine, fine_z = np.linspace(0, a, 200), np.linspace(0, length, 300)
+fig = plots.figure(1, 2, size=(12, 4.8))
+plots.line(points={"OneSimulation port eigenmode": (xs * 1e3, Ey_port)},
+           reference={"sin(pi x / a)": (fine * 1e3, np.sin(pi * fine / a))},
+           xlabel="position x across the broad wall [mm]", ylabel="E_y / E_y,max",
+           title=f"TE10 mode shape, cutoff {f_c_num / 1e9:.3f} GHz (reference {f_c10 / 1e9:.3f} GHz)", ax=fig[0])
+plots.line(points={"OneSimulation |E_y| on the axis": (zs * 1e3, amplitude / amplitude.max())},
+           reference={"|sin(beta (l - z))|": (fine_z * 1e3, np.abs(np.sin(beta * (length - fine_z))))},
+           xlabel="position z along the guide [mm]", ylabel="|E_y| / max",
+           title=f"Standing wave in the shorted guide at {frequency / 1e9:.1f} GHz", ax=fig[1])
+plots.show()
 
 
 # ## Going further

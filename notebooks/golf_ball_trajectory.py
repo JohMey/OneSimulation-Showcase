@@ -48,38 +48,12 @@ reference integration and the published carry distances of this 7-iron shot.
 # shot is a carry of about 150 m for the dimpled ball and a smooth ball that flies
 # about 25 % shorter.
 
-from importlib.metadata import version
-
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
 
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
+from onesim.numerics.time import AdaptiveBDF, AdaptiveRungeKutta45, EventDefinition, FixedStepRungeKutta
+from onesim.visualization import theme, plots
 
-from onesim.numerics.discretization.execution.backends.dynamic_analysis import (
-    AdaptiveBDF,
-    AdaptiveRungeKutta45,
-    EventDefinition,
-)
-from onesim.numerics.time.integration.time_integration import DEFAULT_TIME_INTEGRATOR_REGISTRY
-
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -89,15 +63,15 @@ print("OneSimulation:", version("onesimulation"))
 # diameter of 42.67 mm and the maximum regulation mass of 45.93 g; the air is at
 # 20 degrees Celsius at sea level.
 
-diameter = 42.67e-3                       # m, d
-mass = 45.93e-3                           # kg, m
-air_density = 1.204                       # kg/m^3, rho
-air_viscosity = 1.825e-5                  # Pa s, mu
-gravity = 9.80665                         # m/s^2, g
-launch_speed = 187.0 / 3.6                # m/s, U_0
-launch_angle = np.radians(17.4)           # rad, theta_0
-spin_rate = 6113.0 * 2.0 * np.pi / 60.0   # rad/s, omega_0
-spin_decay = 1.0e-4                       # c in omega = omega_0 exp(-c U t / d)
+diameter = 42.67e-3
+mass = 45.93e-3
+air_density = 1.204
+air_viscosity = 1.825e-5
+gravity = 9.80665
+launch_speed = 187.0 / 3.6
+launch_angle = np.radians(17.4)
+spin_rate = 6113.0 * 2.0 * np.pi / 60.0
+spin_decay = 1.0e-4
 area = np.pi * diameter**2 / 4.0
 
 print(f"launch Reynolds number = {air_density * launch_speed * diameter / air_viscosity:.3e}, "
@@ -166,27 +140,11 @@ def fly_adaptive(solver, coefficients, counter=None):
 
 
 def fly_rk4(coefficients, step, counter=None):
-    """Fixed-step classical RK4; landing from the cubic Hermite interpolant of the last step."""
-    rhs = make_rhs(coefficients, counter)
-    rk4 = DEFAULT_TIME_INTEGRATOR_REGISTRY.resolve_id("classical_rk4")
-    time, state = 0.0, launch_state.copy()
-    while True:
-        new = rk4.advance(state, lambda y, t: rhs(t, y), time, step)
-        if new[1] < 0.0:
-            break
-        time, state = time + step, new
-    left_rate, right_rate = rhs(time, state), rhs(time + step, new)
-
-    def hermite(fraction):
-        h00, h10 = 2 * fraction**3 - 3 * fraction**2 + 1, fraction**3 - 2 * fraction**2 + fraction
-        h01, h11 = -2 * fraction**3 + 3 * fraction**2, fraction**3 - fraction**2
-        return h00 * state + h10 * step * left_rate + h01 * new + h11 * step * right_rate
-
-    low, high = 0.0, 1.0
-    for _ in range(60):
-        middle = 0.5 * (low + high)
-        low, high = (middle, high) if hermite(middle)[1] > 0.0 else (low, middle)
-    return time + 0.5 * (low + high) * step, hermite(0.5 * (low + high))[0]
+    """Fixed-step classical RK4; the landing event is located on the dense output."""
+    run = FixedStepRungeKutta("rk4").integrate(
+        make_rhs(coefficients, counter), launch_state, 0.0, 30.0, step=step, events=(landing,))
+    touchdown = run.events[-1]
+    return touchdown.time, touchdown.state[0]
 
 
 # ## Solve
@@ -291,49 +249,34 @@ print("  observed order of classical RK4 on step halving:",
 
 # ## Figure
 
-fig, axes = plt.subplots(2, 2, figsize=(12, 9.5), constrained_layout=True)
-ax = axes[0, 0]
-for (name, (run, flight_time, carry, _)), colour in zip(flights.items(), (GREEN, COPPER)):
-    grid = np.linspace(0.0, flight_time, 800)
-    path = np.array([run.dense_state(t) for t in grid])
-    ax.plot(path[:, 0], path[:, 1], color=colour, lw=2.0, label=f"{name.capitalize()} ball: carry {carry:.1f} m")
-    ax.plot(carry, 0.0, "o", color=colour, ms=7)
-x_vacuum = np.linspace(0.0, exact_carry, 400)
-ax.plot(x_vacuum, x_vacuum * np.tan(launch_angle) - gravity * x_vacuum**2 / (2 * (launch_speed * np.cos(launch_angle)) ** 2),
-        "--", color="#8B9A8D", lw=1.3, label=f"Drag-free parabola (exact): {exact_carry:.1f} m")
-ax.axvspan(150 * 0.98, 150 * 1.02, color="#E4D6A0", alpha=0.6, label="Published dimpled carry, about 150 m")
-ax.set(xlabel="Downrange distance x / m", ylabel="Height y / m", title="7-iron shot: 187 km/h, 17.4 deg, 6113 rpm",
-       xlim=(0, 185), ylim=(0, 48))
-ax.legend(loc="upper left", fontsize=9)
-ax.grid(alpha=0.3)
-
-ax = axes[0, 1]
-for (name, (run, flight_time, carry, _)), colour, coefficients in zip(
-        flights.items(), (GREEN, COPPER), (dimpled_coefficients, smooth_coefficients)):
+paths, coefficient_curves = {}, {}
+for (name, (run, flight_time, carry, _)), coefficients in zip(flights.items(), (dimpled_coefficients, smooth_coefficients)):
     grid = np.linspace(0.0, flight_time, 400)
-    values = np.array([coefficients(*flow_state(t, run.dense_state(t))[1:]) for t in grid])
-    ax.plot(grid, values[:, 0], color=colour, lw=1.8, label=f"$C_D$ {name}")
-    ax.plot(grid, values[:, 1], ":", color=colour, lw=1.8, label=f"$C_L$ {name}")
-ax.set(xlabel="Time / s", ylabel="Coefficient", title="Drag and lift coefficients along the flight", ylim=(0.26, 0.5))
-ax.legend(loc="upper right", fontsize=9, ncol=2)
-ax.grid(alpha=0.3)
-
-ax = axes[1, 0]
-for (name, (grid, mechanical, drag_work)), colour in zip(energy_tracks.items(), (GREEN, COPPER)):
-    ax.plot(grid, mechanical, color=colour, lw=1.8, label=f"Kinetic + potential, {name}")
-    ax.plot(grid, mechanical + drag_work, "--", color=colour, lw=1.4, label=f"... + drag work, {name}")
-ax.set(xlabel="Time / s", ylabel="Energy / J", title="Energy balance: lift does no work")
-ax.legend(loc="center right", fontsize=9)
-ax.grid(alpha=0.3)
-
-ax = axes[1, 1]
-for (method, rows), marker, colour in zip(comparison.items(), ("o", "s", "^"), (GREEN, COPPER, "#8B9A8D")):
-    rows = np.array([(r[2], r[3]) for r in rows])
-    ax.loglog(rows[:, 0], rows[:, 1], marker + "-", color=colour, lw=1.5, ms=6, label=method)
-ax.set(xlabel="Right-hand-side evaluations", ylabel="Carry error / m", title="Work-precision of three time integrators")
-ax.legend(loc="lower left", fontsize=9)
-ax.grid(alpha=0.3, which="both")
-plt.show()
+    states = np.array([run.dense_state(t) for t in grid])
+    values = np.array([coefficients(*flow_state(t, state)[1:]) for t, state in zip(grid, states)])
+    paths[f"{name} ball: carry {carry:.1f} m"] = (states[:, 0], states[:, 1])
+    coefficient_curves[f"C_D {name}"] = (grid, values[:, 0])
+    coefficient_curves[f"C_L {name}"] = (grid, values[:, 1])
+x_vacuum = np.linspace(0.0, exact_carry, 400)
+parabola = x_vacuum * np.tan(launch_angle) - gravity * x_vacuum**2 / (2 * (launch_speed * np.cos(launch_angle)) ** 2)
+ball = {name: index for index, name in enumerate(flights)}
+fig = plots.figure(2, 2, size=(12, 9.5))
+plots.line(y=paths, reference={f"drag-free parabola (exact): {exact_carry:.1f} m": (x_vacuum, parabola)},
+           vlines={"published dimpled carry, about 150 m": 150.0}, xlimits=(0, 185), ylimits=(0, 48),
+           xlabel="downrange distance x [m]", ylabel="height y [m]", title="7-iron shot: 187 km/h, 17.4 deg, 6113 rpm",
+           legend="upper left", ax=fig[0])
+plots.line(y=coefficient_curves, colors={f"C_{kind} {name}": ball[name] for kind in "DL" for name in ball},
+           styles={f"C_L {name}": "dotted" for name in ball}, ylimits=(0.26, 0.5), xlabel="time [s]", ylabel="coefficient",
+           title="Drag and lift coefficients along the flight", legend="upper right", ax=fig[1])
+plots.line(y={**{f"kinetic + potential, {name}": (grid, mechanical) for name, (grid, mechanical, _) in energy_tracks.items()},
+              **{f"... + drag work, {name}": (grid, mechanical + work) for name, (grid, mechanical, work) in energy_tracks.items()}},
+           colors={f"{prefix}, {name}": ball[name] for prefix in ("kinetic + potential", "... + drag work") for name in ball},
+           styles={f"... + drag work, {name}": "dashed" for name in ball}, xlabel="time [s]", ylabel="energy [J]",
+           title="Energy balance: lift does no work", legend="center right", ax=fig[2])
+plots.line(y={method: (np.array(rows)[:, 2].astype(float), np.array(rows)[:, 3].astype(float)) for method, rows in comparison.items()},
+           markers=True, scale="loglog", xlabel="right-hand-side evaluations", ylabel="carry error [m]",
+           title="Work-precision of three time integrators", legend="lower left", ax=fig[3])
+plots.show()
 
 
 # ## Going further

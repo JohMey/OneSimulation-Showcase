@@ -31,34 +31,14 @@ and peak pressure for the transmitted force.
 # multipliers on the contact trace enforce non-penetration weakly against the
 # rigid cylinder profile, with a complementarity solve for the active set.
 
-from importlib.metadata import version
-
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 import numpy as np
-from onesim.cad.geometry.primitives import Rectangle
-from onesim.meshing.meshes.api import cartesian
-from onesim.physics.solid_mechanics import MortarBody, MortarContact, SmallStrainSolid
 
-print("OneSimulation:", version("onesimulation"))
+from onesim.cad.d2 import Circle, Rectangle
+from onesim.meshing import cartesian
+from onesim.physics.solid_mechanics import MortarBody, MortarContact, SmallStrainSolid, rigid_gap
+from onesim.visualization import theme, plots
+
+theme.set()
 
 
 # ## Parameters
@@ -70,15 +50,13 @@ print("OneSimulation:", version("onesimulation"))
 
 E, nu = 2600.0, 0.27
 E_star = E / (1.0 - nu**2)
-R = 8.0                                 # cylinder radius
-indentation = 0.032                     # rigid approach of the cylinder
-width, depth = 6.4, 3.6                 # block size
+R = 8.0
+indentation = 0.032
+width, depth = 6.4, 3.6
 print(f"E* = {E_star:.1f}")
 
 
-def cylinder_gap(x):
-    """Initial gap between the circular cylinder and the flat top surface."""
-    return R - np.sqrt(R**2 - (x - width / 2) ** 2)
+cylinder_gap = rigid_gap(Circle(radius=R, origin=(width / 2, depth + R, 0.0)), (0.0, 1.0))
 
 
 # ## Model and the actual computation
@@ -97,13 +75,13 @@ def solve_contact(cells_x):
     block = MortarBody(
         solid=SmallStrainSolid(youngs_modulus=E, poisson_ratio=nu, kinematics="plane_strain"),
         mesh=mesh,
-        boundary=geometry.boundaries.y_max,                           # contact trace
+        boundary=geometry.boundaries.y_max,
         displacements=(
-            (geometry.boundaries.y_min, "x", 0.0),                    # clamped bottom
+            (geometry.boundaries.y_min, "x", 0.0),
             (geometry.boundaries.y_min, "y", 0.0),
         ),
         tractions=(
-            (geometry.boundaries.x_min, (0.0, 0.0)),                  # traction-free side walls
+            (geometry.boundaries.x_min, (0.0, 0.0)),
             (geometry.boundaries.x_max, (0.0, 0.0)),
         ),
     )
@@ -113,13 +91,12 @@ def solve_contact(cells_x):
 
 def hertz_comparison(result):
     p = result.normal_pressure[-1]
-    measure = result.multiplier_measures                     # mortar weights = trace lengths
+    measure = result.multiplier_measures
     xc = result.multiplier_coordinates[:, 0] - width / 2
-    force = float(measure @ p)                               # force per unit length
+    force = float(measure @ p)
     b = np.sqrt(4.0 * force * R / (np.pi * E_star))
     p0 = 2.0 * force / (np.pi * b)
     hertz = p0 * np.sqrt(np.maximum(0.0, 1.0 - (xc / b) ** 2))
-    # Half-width from the second moment of the pressure (b^2/4 for the ellipse).
     b_sph = 2.0 * np.sqrt(measure @ (p * xc**2) / force)
     order = np.argsort(xc)
     cumulative = np.cumsum((measure * p)[order]) / force
@@ -149,8 +126,6 @@ for cells_x in (96, 192):
     print(f"  RMS pressure error       {100*c['rms_error']:.1f} %")
     print(f"  cumulative force error   {100*c['cumulative_error']:.2f} %")
     print(f"  max penetration {c['penetration']:.1e}, max |gap x p| {c['complementarity']:.1e}")
-    # Contact mechanics sanity: no penetration anywhere, complementarity holds,
-    # and the force reported on the trace is the integral of the pressure.
 
 
 # ## Verification against Hertz
@@ -169,32 +144,19 @@ coarse, fine = runs[96], runs[192]
 
 # ## Figure
 
-cream = "#fbf5eb"
-fig, axes = plt.subplots(1, 2, figsize=(12, 4.4), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-
-ax = axes[0]
-ax.set_facecolor("#fffaf2"); ax.grid(alpha=0.25)
 x_fine = np.linspace(-1.3 * fine["b"], 1.3 * fine["b"], 400)
-ax.plot(x_fine, fine["p0"] * np.sqrt(np.maximum(0.0, 1.0 - (x_fine / fine["b"]) ** 2)),
-        color="#A85539", lw=1.8, label="Hertz ellipse for the transmitted force")
-for cells_x, colour, marker in ((96, "#b4aa98", "s"), (192, "#39715e", "o")):
-    c = runs[cells_x]
-    zone = np.abs(c["xc"]) < 1.3 * fine["b"]
-    ax.plot(c["xc"][zone], c["p"][zone], marker, color=colour, ms=4, ls="-", lw=0.8,
-            label=f"OneSimulation mortar pressure, {cells_x} x {cells_x // 3} cells")
-ax.set(xlabel="Position along the surface x", ylabel="Contact pressure p",
-       title="Contact pressure under the cylinder")
-ax.legend(frameon=False, fontsize=9)
-
-ax = axes[1]
-ax.set_facecolor("#fffaf2"); ax.grid(alpha=0.25)
-ax.plot(fine["x_sorted"], fine["cumulative"], color="#39715e", lw=1.8, label="OneSimulation (fine mesh)")
-ax.plot(fine["x_sorted"], fine["cumulative_hertz"], color="#A85539", lw=1.4, ls="--", label="Hertz")
-ax.set(xlabel="Position along the surface x", ylabel="Cumulative force fraction",
-       xlim=(-1.5 * fine["b"], 1.5 * fine["b"]), title="Cumulative transmitted force")
-ax.legend(frameon=False, fontsize=9)
-plt.show()
+zone = {cells_x: np.abs(runs[cells_x]["xc"]) < 1.3 * fine["b"] for cells_x in (96, 192)}
+fig = plots.figure(1, 2, size=(12, 4.4))
+plots.line(y={f"OneSimulation, {cells_x} x {cells_x // 3} cells": (runs[cells_x]["xc"][zone[cells_x]], runs[cells_x]["p"][zone[cells_x]])
+              for cells_x in (96, 192)},
+           reference={"Hertz ellipse for the transmitted force":
+                      (x_fine, fine["p0"] * np.sqrt(np.maximum(0.0, 1.0 - (x_fine / fine["b"]) ** 2)))},
+           markers=True, xlabel="position along the surface x", ylabel="contact pressure p",
+           title="Contact pressure under the cylinder", ax=fig[0])
+plots.line(fine["x_sorted"], {"OneSimulation (fine mesh)": fine["cumulative"]}, reference={"Hertz": fine["cumulative_hertz"]},
+           xlimits=(-1.5 * fine["b"], 1.5 * fine["b"]), xlabel="position along the surface x",
+           ylabel="cumulative force fraction", title="Cumulative transmitted force", ax=fig[1])
+plots.show()
 
 
 # ## Going further

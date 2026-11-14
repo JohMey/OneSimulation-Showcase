@@ -19,6 +19,9 @@ relation, once with spectral and once with finite-difference derivatives.
 
 import numpy as np
 
+from onesim.meshing import TensorCollocationMesh
+from onesim.numerics.discretization import CenteredDifferences, FourierCollocation
+from onesim.numerics.time import ClassicalRungeKutta4TimeIntegrator
 from onesim.physics.magnetohydrodynamics import LinearMHDWaves, ResistiveMHD3DSolver
 from onesim.results import oscillation_fit
 from onesim.visualization import theme, plots
@@ -63,28 +66,32 @@ def literature_frequencies(k, angle):
 
 # ## Simulation
 #
-# The solver starts from the uniform plasma plus the six waves, each with a magnetic amplitude of
-# $10^{-7}$, and advances it for two Alfvén crossing times of the box with the classical Runge-Kutta method. While
-# it runs, `observe` records the complex amplitude of every wave; `oscillation_fit` turns each
-# recorded signal into a frequency. `scheme` selects how spatial derivatives are computed.
+# The mesh is a periodic box with `points` samples per direction. The solver receives the mesh, the
+# spatial discretisation and the time integrator from outside. It starts from the uniform plasma
+# plus the six waves, each with a magnetic amplitude of $10^{-7}$, and advances it for two Alfvén
+# crossing times of the box. While it runs, `observe` records the complex amplitude of every
+# wave; `oscillation_fit` turns each recorded signal into a frequency.
 
-def measure_frequencies(scheme, points):
-    """Simulate the six waves on points^3 grid points and return their measured frequencies."""
-    solver = ResistiveMHD3DSolver(mesh_size=points, gamma=gamma, hall_coefficient=hall_coefficient,
-                                  resistivity=0.0, final_time=4 * np.pi, time_step=0.008,
-                                  time_method="classical_rk4", derivative_scheme=scheme)
-    grid = np.meshgrid(*solver.axes, indexing="ij")
+def measure_frequencies(spatial, points):
+    """Simulate the six waves on points^3 mesh samples and return their measured frequencies."""
+    axis = np.arange(points) * (2 * np.pi / points)
+    mesh = TensorCollocationMesh(axes=(axis, axis, axis), coordinate_system="cartesian", periodic=(True, True, True))
+    solver = ResistiveMHD3DSolver(mesh=mesh, spatial=spatial, time_integrator=ClassicalRungeKutta4TimeIntegrator(),
+                                  gamma=gamma, hall_coefficient=hall_coefficient, resistivity=0.0,
+                                  final_time=4 * np.pi, time_step=0.008)
+    grid = np.meshgrid(*mesh.axes, indexing="ij")
     start = sum(waves.perturbation(k, branch, grid, amplitude=1e-7) for k, branch in modes)
     result = solver.run(
         solver.conservative_state(*waves.primitive_state(start)), observe_interval=0.08,
-        observe=lambda state: [waves.amplitude(k, branch, state.magnetic_field, axes=state.axes)
+        observe=lambda state: [waves.amplitude(k, branch, state.magnetic_field, axes=mesh.axes)
                                for k, branch in modes])
     signals = result.history.values.T
     return np.array([oscillation_fit(result.history.times, signal).frequency for signal in signals]), result
 
 
+methods = {"spectral": FourierCollocation(), "central differences": CenteredDifferences()}
 grid_points = [16, 24, 32]
-runs = {(scheme, n): measure_frequencies(scheme, n) for scheme in ("spectral", "centered_fdm") for n in grid_points}
+runs = {(name, n): measure_frequencies(spatial, n) for name, spatial in methods.items() for n in grid_points}
 measured, result = runs["spectral", 32]
 
 
@@ -102,8 +109,8 @@ for (k, branch), angle, simulation, theory in zip(modes, angles, measured, exact
 # The spectral derivative is exact for every resolved wave, so its error does not depend on the
 # grid. Central differences approach the exact frequencies with second order.
 
-errors = {name: [np.max(np.abs(runs[scheme, n][0] / exact - 1)) for n in grid_points]
-          for name, scheme in (("central differences", "centered_fdm"), ("spectral", "spectral"))}
+errors = {name: [np.max(np.abs(runs[name, n][0] / exact - 1)) for n in grid_points]
+          for name in ("central differences", "spectral")}
 for name, values in errors.items():
     print(f"{name:20s} largest frequency error on {grid_points} points: " + ", ".join(f"{e:.1e}" for e in values))
 

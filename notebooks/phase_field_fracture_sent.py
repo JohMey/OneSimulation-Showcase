@@ -61,61 +61,34 @@ the regularisation length and the element size.
 # functional, which vanishes as $h/\ell\to0$. (3) Sensitivity of the peak force to
 # $\ell$ and to $h$.
 
-from importlib.metadata import version
 import time
-from dataclasses import dataclass
-
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
 
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
-from matplotlib.tri import Triangulation
-
-from onesim.cad.geometry.primitives import Geometry
-from onesim.meshing import UnstructuredSimplexMesh
+from onesim.meshing import ExplicitGeometry, explicit_mesh, merge_blocks, rectangle_block
 from onesim.physics.solid_mechanics import PhaseFieldFracture
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
 
 mm = 1e-3
-side = 1.0 * mm                 # plate edge
-notch_tip = 0.5 * mm            # notch from x = 0 to the centre, at y = 0.5 mm
-thickness = 1.0 * mm            # forces per mm thickness
-E, nu, G_c = 210e9, 0.3, 2700.0   # Pa, -, J/m^2 (= 2.7 N/mm)
+side = 1.0 * mm
+notch_tip = 0.5 * mm
+thickness = 1.0 * mm
+E, nu, G_c = 210e9, 0.3, 2700.0
 
-# Published curve of Miehe et al. (2010), digitised: (u in mm, F in kN).
 miehe_curve = np.array([
     (0.0, 0.0), (0.00055, 0.0768), (0.00128, 0.1774), (0.00197, 0.2716), (0.00290, 0.3955),
     (0.00369, 0.4961), (0.00421, 0.5619), (0.00471, 0.6200), (0.00501, 0.6535), (0.00524, 0.6780),
     (0.00543, 0.6960), (0.00555, 0.7012), (0.00557, 0.6584), (0.00562, 0.5613), (0.00568, 0.4629),
     (0.00575, 0.3192), (0.00580, 0.1833), (0.00583, 0.0214), (0.00583, 0.0007)])
-F_peak_ref, u_peak_ref = 0.70, 0.0055e-3     # kN, m
+F_peak_ref, u_peak_ref = 0.70, 0.0055e-3
 
-# Load steps: coarse in the nearly linear range, fine around the peak and the drop.
 load_steps = np.r_[0.0, np.arange(0.5e-3, 4.01e-3, 0.5e-3), np.arange(4.25e-3, 5.0e-3, 0.25e-3),
                    np.arange(5.0e-3, 6.31e-3, 0.05e-3)] * mm
 
-# Runs: (regularisation length, element size in the crack band)
 runs_spec = {
     "l = 0.0075 mm, h = l/2": (0.0075 * mm, 0.00375 * mm),
     "l = 0.015 mm, h = l/2": (0.015 * mm, 0.0075 * mm),
@@ -126,13 +99,14 @@ main_run = "l = 0.015 mm, h = l/4"
 
 # ## Geometry and mesh
 #
-# The mesh is a tensor-product grid split into triangles with alternating diagonals.
-# In $x$ the element size is $h$ from 6$\ell$ left of the notch tip to the right edge and
-# grows geometrically (ratio 1.15, at most 0.05 mm) towards the left edge; in $y$ it is
-# $h$ in a band of $\pm5\ell$ around the crack plane and grows in the same way towards
-# the top and bottom. The nodes of the notch faces are duplicated, so the notch is a
-# genuine slit whose faces separate. The boundary groups are `bottom`, `top`, `left`,
-# `right` and `notch` (both faces).
+# The mesh is made of rectangular blocks split into triangles with alternating diagonals
+# (`merge_blocks` and `triangulated("alternating")`). In $x$ the element size is $h$ from
+# 6$\ell$ left of the notch tip to the right edge and grows geometrically (ratio 1.15, at
+# most 0.05 mm) towards the left edge; in $y$ it is $h$ in a band of $\pm5\ell$ around the
+# crack plane and grows in the same way towards the top and bottom. The notch is declared
+# as a slit (`slits=("notch",)`, closed at the notch tip): its two faces get their own
+# nodes, so it is a genuine slit whose faces separate. The boundary groups are `bottom`,
+# `top`, `left`, `right` and `notch` (both faces).
 
 def graded(start, end, h_fine, h_coarse=0.05 * mm, growth=1.15):
     """Nodes from start (size h_fine) to end, growing geometrically up to h_coarse."""
@@ -146,66 +120,32 @@ def graded(start, end, h_fine, h_coarse=0.05 * mm, growth=1.15):
     return np.array(nodes)
 
 
-@dataclass(frozen=True, eq=False, kw_only=True)
-class NotchedPlate(Geometry):
-    """Square plate with an edge slit; five boundary groups."""
-
-    dimension = 2
-
-    def boundary_groups(self):
-        names = ("bottom", "top", "left", "right", "notch")
-        return {**{name: (name,) for name in names}, "all": names}
+plate = ExplicitGeometry(dimension=2, boundary_names=("bottom", "top", "left", "right", "notch"))
 
 
 def build_mesh(ell, h):
+    """Twelve rectangular blocks; the notch is a slit between the two blocks rows at y = 0.5 mm."""
     n_band = int(np.ceil(5 * ell / h))
-    band = 0.5 * side + h * np.arange(-n_band, n_band + 1)
-    y_nodes = np.r_[graded(band[0], 0.0, h)[::-1], band[1:-1], graded(band[-1], side, h)]
+    y0, y1 = 0.5 * side - n_band * h, 0.5 * side + n_band * h
     n_fine = int(np.ceil((side - (notch_tip - 6 * ell)) / h))
-    fine = side - h * np.arange(n_fine, -1, -1)
-    x_nodes = np.r_[graded(fine[0], 0.0, h)[::-1], fine[1:]]
-    x_nodes[np.argmin(abs(x_nodes - notch_tip))] = notch_tip
-    j_crack = int(np.argmin(abs(y_nodes - 0.5 * side)))
-    y_nodes[j_crack] = 0.5 * side
-    nx, ny = len(x_nodes), len(y_nodes)
-    X, Y = np.meshgrid(x_nodes, y_nodes, indexing="ij")
-    coordinates = [np.c_[X.ravel(), Y.ravel()]]
-    node = np.arange(nx * ny).reshape(nx, ny)
-    upper_face = {}                          # duplicated nodes of the upper notch face
-    for i in np.flatnonzero(x_nodes < notch_tip - 1e-12):
-        upper_face[i] = nx * ny + len(upper_face)
-        coordinates.append([[x_nodes[i], 0.5 * side]])
-    coordinates = np.vstack(coordinates)
-    cells = []
-    for i in range(nx - 1):
-        for j in range(ny - 1):
-            q = [node[i, j], node[i + 1, j], node[i + 1, j + 1], node[i, j + 1]]
-            if j == j_crack:                 # cells just above the notch use the upper face
-                q[0], q[1] = upper_face.get(i, q[0]), upper_face.get(i + 1, q[1])
-            if (i + j) % 2 == 0:
-                cells += [(q[0], q[1], q[2]), (q[0], q[2], q[3])]
-            else:
-                cells += [(q[0], q[1], q[3]), (q[1], q[2], q[3])]
-    cells = np.array(cells)
-    edges = np.sort(np.vstack([cells[:, [0, 1]], cells[:, [1, 2]], cells[:, [2, 0]]]), axis=1)
-    unique, counts = np.unique(edges, axis=0, return_counts=True)
-    geometry = NotchedPlate()
-    groups = {name: [] for name in geometry.boundary_groups()["all"]}
-    for edge in unique[counts == 1]:
-        p = coordinates[edge]
-        if np.all(np.abs(p[:, 1]) < 1e-12):
-            groups["bottom"].append(tuple(edge))
-        elif np.all(np.abs(p[:, 1] - side) < 1e-12):
-            groups["top"].append(tuple(edge))
-        elif np.all(np.abs(p[:, 0]) < 1e-12):
-            groups["left"].append(tuple(edge))
-        elif np.all(np.abs(p[:, 0] - side) < 1e-12):
-            groups["right"].append(tuple(edge))
-        else:
-            groups["notch"].append(tuple(edge))
-    mesh = UnstructuredSimplexMesh(geometry=geometry, coordinates=coordinates, cells=cells,
-                                   boundary_facets=groups)
-    return geometry, mesh, cells
+    x0 = side - n_fine * h
+    x_segments = (graded(x0, 0.0, h)[::-1], np.linspace(x0, notch_tip, int(round((notch_tip - x0) / h)) + 1),
+                  np.linspace(notch_tip, side, int(round((side - notch_tip) / h)) + 1))
+    y_segments = (graded(y0, 0.0, h)[::-1], np.linspace(y0, 0.5 * side, n_band + 1),
+                  np.linspace(0.5 * side, y1, n_band + 1), graded(y1, side, h))
+    blocks = []
+    for i, xs in enumerate(x_segments):
+        for j, ys in enumerate(y_segments):
+            slit = i < 2
+            names = ("bottom" if j == 0 else "notch" if (j == 2 and slit) else None,
+                     "right" if i == 2 else None,
+                     "top" if j == 3 else "notch" if (j == 1 and slit) else None,
+                     "left" if i == 0 else None)
+            blocks.append(rectangle_block((xs[0], ys[0]), xs[-1] - xs[0], ys[-1] - ys[0], (len(xs) - 1, len(ys) - 1),
+                                          grading=(xs, ys), names=names))
+    section = merge_blocks(blocks, slits=("notch",), slit_tips=((notch_tip, 0.5 * side),)).triangulated("alternating")
+    mesh = explicit_mesh(plate, section.coordinates, section.cells, boundary=section.edges)
+    return plate, mesh, np.asarray(section.cells)
 
 
 # ## Model
@@ -304,7 +244,7 @@ columns = np.unique(x[x > notch_tip + 1e-9])
 path = []
 for xc in columns:
     in_column = np.flatnonzero(np.abs(x - xc) < 1e-12)
-    broken = in_column[d_end[in_column] > 0.95]          # fully broken nodes of this column
+    broken = in_column[d_end[in_column] > 0.95]
     path.append(y[broken].mean())
 path = np.array(path)
 print(f"Crack path: centre of the broken band in each of {len(columns)} node columns of the ligament; "
@@ -350,80 +290,33 @@ print(f"Irreversibility: smallest damage change between steps {np.min(np.diff(re
 
 # ## Figure
 
-def plot_damage(ax, run, step, title):
-    r = run["result"]
-    tri = Triangulation(r.coordinates[:, 0] / mm, r.coordinates[:, 1] / mm, run["cells"])
-    image = ax.tripcolor(tri, r.damage[step], shading="gouraud", cmap=FIELD_CMAP, vmin=0, vmax=1, rasterized=True)
-    ax.plot([0, notch_tip / mm], [0.5, 0.5], color=CREAM, lw=1.0)
-    ax.set_aspect("equal")
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-    ax.set_title(title, fontsize=10)
-    return image
-
-
-fig = plt.figure(figsize=(15, 9.5), constrained_layout=True)
-grid = fig.add_gridspec(2, 4)
 i_peak = int(np.argmax(main["force"]))
 drop = i_peak + int(np.argmax(main["force"][i_peak:] < 0.5 * main["force"][i_peak]))
-shown = (int(np.argmin(np.abs(load_steps - 4e-6))), i_peak, drop)
-for k, step in enumerate(shown):
-    ax = fig.add_subplot(grid[0, k])
-    plot_damage(ax, main, step, f"{main_run}\nu = {load_steps[step] / mm * 1e3:.2f} um, "
-                                f"F = {main['force'][step] / 1e3:.3f} kN")
-    ax.set_xlabel("x (mm)")
-    if k == 0:
-        ax.set_ylabel("y (mm)")
-ax = fig.add_subplot(grid[0, 3])
+shown = [int(np.argmin(np.abs(load_steps - 4e-6))), i_peak, drop]
 other = runs["l = 0.0075 mm, h = l/2"]
-image = plot_damage(ax, other, len(load_steps) - 1, f"l = 0.0075 mm, h = l/2\nu = {load_steps[-1] / mm * 1e3:.2f} um "
-                                                     f"(separated)")
-ax.set_xlabel("x (mm)")
-fig.colorbar(image, ax=ax, label="phase field d", shrink=0.8)
-
-ax_f = fig.add_subplot(grid[1, :2])
-ax_f.plot(miehe_curve[:, 0] * 1e3, miehe_curve[:, 1], "o", mfc="none", color=INK, ms=6,
-          label="Miehe et al. (2010), digitised")
-styles = {"l = 0.0075 mm, h = l/2": (COPPER, "-"), "l = 0.015 mm, h = l/2": ("#8B9A8D", "--"),
-          "l = 0.015 mm, h = l/4": (GREEN, "-")}
-for label, run in runs.items():
-    color, ls = styles[label]
-    ax_f.plot(load_steps / mm * 1e3, run["force"] / 1e3, ls, color=color, lw=2.4 if label == main_run else 1.5,
-              label=f"OneSimulation, {label}")
-for step in shown:
-    ax_f.plot(load_steps[step] / mm * 1e3, main["force"][step] / 1e3, "s", color=INK, ms=6)
-ax_f.set_xlabel("top displacement u (um)")
-ax_f.set_ylabel("force F (kN per mm thickness)")
-ax_f.set_title("force-displacement curve")
-ax_f.legend(fontsize=8, loc="upper left")
-ax_f.grid(alpha=0.3)
-
-ax_e = fig.add_subplot(grid[1, 2])
-ax_e.plot(load_steps / mm * 1e3, res.external_work * 1e3, color=INK, label="external work")
-ax_e.plot(load_steps / mm * 1e3, res.elastic_energy * 1e3, color=GREEN, label="elastic energy")
-ax_e.plot(load_steps / mm * 1e3, res.fracture_energy * 1e3, color=COPPER, label="crack energy")
-i_max = int(np.argmax(main["force"]))
-ax_e.axhline((res.fracture_energy[i_max] + griffith * (1 + main["h"] / (2 * main["ell"]))) * 1e3, color=COPPER,
-             ls="--", lw=1, label="pre-peak + G_c a t (1 + h/2l)")
-ax_e.axhline((res.fracture_energy[i_max] + griffith) * 1e3, color=COPPER, ls=":", lw=1, label="pre-peak + G_c a t")
-ax_e.set_xlabel("top displacement u (um)")
-ax_e.set_ylabel("energy (mJ)")
-ax_e.set_title(f"energies ({main_run})")
-ax_e.legend(fontsize=8)
-ax_e.grid(alpha=0.3)
-
-ax_p = fig.add_subplot(grid[1, 3])
-tri = Triangulation(x / mm, y / mm, main["cells"])
-ax_p.tricontourf(tri, d_end, levels=np.linspace(0, 1, 21), cmap=FIELD_CMAP)
-ax_p.plot(columns / mm, path / mm, ".", color=CREAM, ms=2.5, label="centre of broken band")
-ax_p.axhline(0.5, color=INK, lw=0.6, ls="--")
-ax_p.set_xlim(0.4, 1.0)
-ax_p.set_ylim(0.44, 0.56)
-ax_p.set_xlabel("x (mm)")
-ax_p.set_ylabel("y (mm)")
-ax_p.set_title("crack band at separation (zoom)")
-ax_p.legend(fontsize=8, loc="upper left")
-plt.show()
+u_um = load_steps / mm * 1e3
+nodes = lambda run: (run["result"].coordinates[:, 0] / mm, run["result"].coordinates[:, 1] / mm)
+fig = plots.figure(layout=[["d0", "d1", "d2", "d3"], ["force", "force", "energy", "band"]], size=(15, 9.5))
+for panel, step in zip(("d0", "d1", "d2"), shown):
+    plots.heatmap(*nodes(main), main["result"].damage[step], triangles=main["cells"], limits=(0, 1), label=False,
+                  xlabel="x [mm]", ylabel="y [mm]", ax=fig[panel],
+                  title=f"{main_run}\nu = {u_um[step]:.2f} µm, F = {main['force'][step] / 1e3:.3f} kN")
+plots.heatmap(*nodes(other), other["result"].damage[-1], triangles=other["cells"], limits=(0, 1), label="phase field d",
+              xlabel="x [mm]", ylabel="y [mm]", title=f"l = 0.0075 mm, h = l/2\nu = {u_um[-1]:.2f} µm (separated)", ax=fig["d3"])
+plots.line(u_um, {f"OneSimulation, {label}": run["force"] / 1e3 for label, run in runs.items()},
+           points={"Miehe et al. (2010), digitised": (miehe_curve[:, 0] * 1e3, miehe_curve[:, 1]),
+                   "load steps shown above": (u_um[shown], main["force"][shown] / 1e3)},
+           xlabel="top displacement u [µm]", ylabel="force F [kN per mm thickness]", title="Force-displacement curve",
+           legend="upper left", ax=fig["force"])
+plots.line(u_um, {"external work": res.external_work * 1e3, "elastic energy": res.elastic_energy * 1e3,
+                  "crack energy": res.fracture_energy * 1e3},
+           hlines={"pre-peak + G_c a t (1 + h/2l)": (res.fracture_energy[i_peak] + griffith * (1 + main["h"] / (2 * main["ell"]))) * 1e3,
+                   "pre-peak + G_c a t": (res.fracture_energy[i_peak] + griffith) * 1e3},
+           xlabel="top displacement u [µm]", ylabel="energy [mJ]", title=f"Energies ({main_run})", ax=fig["energy"])
+plots.heatmap(x / mm, y / mm, d_end, triangles=main["cells"], limits=(0, 1), label=False, aspect="auto",
+              xlimits=(0.4, 1.0), ylimits=(0.44, 0.56), xlabel="x [mm]", ylabel="y [mm]",
+              title="Crack band at separation (zoom)", ax=fig["band"])
+plots.show()
 
 
 # ## Going further

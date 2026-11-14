@@ -29,29 +29,7 @@ The OneSimulation solution is checked against the known closed-form exponential 
 # and total mass is conserved, $C_A(t)+C_B(t)=C_{A0}$. We compare the computed
 # transient with this exponential.
 
-from importlib.metadata import version
-
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 
 from onesim.cad.geometry import LumpedDomain
 from onesim.meshing import LumpedMesh
@@ -66,8 +44,9 @@ from onesim.physics.chemistry import (
 )
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -76,10 +55,10 @@ print("OneSimulation:", version("onesimulation"))
 # characteristic time $1/k$; the window spans five of those times, so $A$ decays
 # to about $e^{-5}\approx0.7\,\%$ of its initial value.
 
-k = 0.8               # 1/s, first-order rate coefficient
-C_A0 = 1.0            # mol/m^3, initial concentration of A
-C_B0 = 0.0            # mol/m^3, initial concentration of B
-tau = 1.0 / k         # s, characteristic time
+k = 0.8
+C_A0 = 1.0
+C_B0 = 0.0
+tau = 1.0 / k
 end_time = 5.0 * tau
 time_step = 0.05 * tau
 print(f"k = {k:.3f} 1/s,  characteristic time 1/k = {tau:.2f} s,  end time = {end_time:.2f} s")
@@ -134,14 +113,8 @@ result = simulation.run(start_time=0.0, end_time=end_time, time_step=time_step)
 # The stored history of each concentration is read back and compared, time by
 # time, with the closed-form exponential.
 
-def series(field):
-    history = result.field(field).history
-    times = np.asarray(history["times"], dtype=float)
-    values = np.asarray([value[0] for value in history["values"]], dtype=float)
-    return times, values
-
-times, num_A = series(C_A)
-_, num_B = series(C_B)
+times, num_A = result.field(C_A).time_series()
+_, num_B = result.field(C_B).time_series()
 
 exact_A = C_A0 * np.exp(-k * times)
 exact_B = C_A0 * (1.0 - np.exp(-k * times))
@@ -152,27 +125,19 @@ rel_error = max(err_A, err_B) / C_A0
 print(f"Maximum absolute error against the exponential: {max(err_A, err_B):.3e} mol/m^3"
       f"  ({100 * rel_error:.4f} % of C_A0)")
 
-# Physical sanity: total mass conserved, A monotonically decreasing, B increasing.
 mass_error = float(np.max(np.abs(num_A + num_B - C_A0)))
 print(f"Maximum mass-balance error C_A+C_B-C_A0: {mass_error:.3e} mol/m^3")
 
 
 # ## Figure
 
-cream = "#fbf5eb"
-fig, ax = plt.subplots(figsize=(8, 4.8), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-ax.set_facecolor("#fffaf2")
 t_fine = np.linspace(0.0, end_time, 400)
-ax.plot(t_fine, C_A0 * np.exp(-k * t_fine), color="#b5651d", lw=1.6, label="C_A exact")
-ax.plot(t_fine, C_A0 * (1.0 - np.exp(-k * t_fine)), color="#1f6f78", lw=1.6, label="C_B exact")
-ax.plot(times, num_A, "o", color="#b5651d", ms=4, label="C_A OneSimulation")
-ax.plot(times, num_B, "s", color="#1f6f78", ms=4, label="C_B OneSimulation")
-ax.set(xlabel="Time / s", ylabel="Concentration / (mol/m$^3$)",
-       title="First-order decay — lines: exponential, markers: OneSimulation 0D kinetics")
-ax.grid(alpha=0.25)
-ax.legend(frameon=False)
-plt.show()
+shown = slice(None, None, max(1, len(times) // 40))
+plots.line(points={"C_A": (times[shown], num_A[shown]), "C_B": (times[shown], num_B[shown])},
+           reference={"C_A": (t_fine, C_A0 * np.exp(-k * t_fine)), "C_B": (t_fine, C_A0 * (1.0 - np.exp(-k * t_fine)))},
+           xlabel="time [s]", ylabel="concentration [mol/m^3]",
+           title="First-order decay: OneSimulation (markers) and exact solution (dashed)")
+plots.show()
 
 
 # ## Going further

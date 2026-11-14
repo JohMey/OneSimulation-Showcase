@@ -30,28 +30,7 @@ The computed axial flux density is checked against the finite-solenoid formula.
 # $L\gg R$. The winding is thin, so the formula is accurate to well under a
 # percent; we check the computed centre value and the on-axis profile against it.
 
-from importlib.metadata import version
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 
 from onesim.cad.d3 import Cylinder
 from onesim.materials import VacuumPermeability
@@ -64,8 +43,9 @@ from onesim.physics.magnetostatics import (
     Magnetostatics, SolenoidCurrent,
 )
 from onesim.simulation import Problem, Simulation
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Geometry and parameters
@@ -76,16 +56,16 @@ print("OneSimulation:", version("onesimulation"))
 # inside the domain; the air cylinder is therefore made several coil-radii wide
 # and long so that this boundary barely affects the central field.
 
-mu0 = 4.0e-7 * np.pi          # H/m, vacuum permeability
-R_inner = 0.0235              # m, coil inner radius
-R_outer = 0.0265             # m, coil outer radius
-L = 0.03                      # m, coil length
-N = 200                       # number of turns
-I = 1.0                       # A, winding current
-R = 0.5 * (R_inner + R_outer)  # mean coil radius for the reference formula
+mu0 = 4.0e-7 * np.pi
+R_inner = 0.0235
+R_outer = 0.0265
+L = 0.03
+N = 200
+I = 1.0
+R = 0.5 * (R_inner + R_outer)
 
-domain_radius = 0.12          # m, air cylinder radius
-domain_length = 0.30          # m, air cylinder length (coil sits at the centre)
+domain_radius = 0.12
+domain_length = 0.30
 z_center = domain_length / 2.0
 z_a, z_b = z_center - L / 2.0, z_center + L / 2.0
 
@@ -94,7 +74,6 @@ coil = SolenoidCurrent(
     inner_radius=R_inner, outer_radius=R_outer, length=L,
     center=(0.0, 0.0, z_center), turns=N, current=I,
 )
-# A single coil region, meshed explicitly and refined across the thin winding.
 mesh = TetrahedralMesher(
     target_size=0.032,
     embedded_regions=(coil.support,),
@@ -154,7 +133,6 @@ def axial_field(z_values):
         out[i] = np.asarray(B_field.evaluate(np.array(pts)))[:, 2].mean()
     return out
 
-# Centre value.
 B_center = float(axial_field([z_center])[0])
 B_center_formula = float(axial_formula(z_center))
 center_rel_error = abs(B_center - B_center_formula) / abs(B_center_formula)
@@ -162,7 +140,6 @@ print(f"centre B_z: computed = {B_center*1e6:.2f} uT, "
       f"formula = {B_center_formula*1e6:.2f} uT, "
       f"relative error = {100*center_rel_error:.2f} %")
 
-# On-axis profile across the coil interior (within +/- L/2 of the centre).
 z_probe = z_center + np.linspace(-L / 2.0, L / 2.0, 11)
 Bz_num = axial_field(z_probe)
 Bz_formula = axial_formula(z_probe)
@@ -170,7 +147,6 @@ profile_rel_error = float(np.max(np.abs(Bz_num - Bz_formula) / np.abs(Bz_formula
 print(f"max relative error across the coil-interior profile = "
       f"{100*profile_rel_error:.2f} %")
 
-# A fuller on-axis sweep for the figure (reaching past the ends).
 z_plot = z_center + np.linspace(-0.05, 0.05, 41)
 Bz_plot = axial_field(z_plot)
 
@@ -181,23 +157,13 @@ Bz_plot = axial_field(z_plot)
 
 # ## Figure
 
-cream = "#fbf5eb"
 z_axis_mm = (z_plot - z_center) * 1000.0
-fig, ax = plt.subplots(figsize=(8, 4.8), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-ax.set_facecolor("#fffaf2")
-ax.plot(z_axis_mm, axial_formula(z_plot) * 1e6, color="#4a7a4a", lw=1.8,
-        label="finite-solenoid formula")
-ax.plot(z_axis_mm, Bz_plot * 1e6, "o", color="#b4642e", ms=3.5,
-        label="OneSimulation 3-D FEM")
-ax.axvspan(-L / 2 * 1000, L / 2 * 1000, color="#c9b48a", alpha=0.25,
-           label="coil extent")
-ax.set(xlabel="Axial position z / mm (from coil centre)",
-       ylabel=r"Axial flux density $B_z$ / $\mu$T",
-       title=f"Finite solenoid on-axis field — centre error {100*center_rel_error:.1f} %")
-ax.legend(loc="upper right", fontsize=8)
-ax.grid(alpha=0.25)
-plt.show()
+plots.line(z_axis_mm, points={"OneSimulation 3D FEM": Bz_plot * 1e6},
+           reference={"finite-solenoid formula": axial_formula(z_plot) * 1e6},
+           vlines={"coil ends": -L / 2 * 1000, "": L / 2 * 1000},
+           xlabel="axial position z from the coil centre [mm]", ylabel="axial flux density B_z [µT]",
+           title=f"Finite solenoid on-axis field, centre error {100 * center_rel_error:.1f} %")
+plots.show()
 
 
 # ## Going further

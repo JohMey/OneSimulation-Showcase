@@ -31,36 +31,16 @@ checked against the closed-form resonance frequencies f_mnp.
 # spectrum against these closed forms and confirm that the discrete scheme
 # conserves the electromagnetic energy during the ring-down.
 
-from importlib.metadata import version
 from math import pi, sqrt
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 from scipy.signal import find_peaks
 
-from onesim.materials.properties.units.constants import VACUUM_PERMEABILITY, VACUUM_PERMITTIVITY
-from onesim.numerics.discretization.equations.contracts.geometry.staggered_layout import StaggeredLocation
-from onesim.physics.electromagnetics.waves.binding.registry import DEFAULT_ELECTROMAGNETICS_PROVIDER_REGISTRY
+from onesim.materials import VACUUM_PERMEABILITY, VACUUM_PERMITTIVITY
+from onesim.numerics.discretization import StaggeredLocation
+from onesim.physics.electromagnetics import DEFAULT_ELECTROMAGNETICS_PROVIDER_REGISTRY
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -69,10 +49,10 @@ print("OneSimulation:", version("onesimulation"))
 # TE102 at 5.83 GHz and TE201 at 6.50 GHz. The grid spacing of 2.5 mm resolves
 # the shortest wavelength of interest (46 mm at 6.5 GHz) with 18 cells.
 
-a = 0.050             # m, cavity width (x direction)
-b = 0.020             # m, cavity height (y direction)
-d = 0.060             # m, cavity depth (z direction)
-cells = (20, 8, 24)   # Yee cells along x, y, z (2.5 mm spacing)
+a = 0.050
+b = 0.020
+d = 0.060
+cells = (20, 8, 24)
 c0 = 1.0 / sqrt(VACUUM_PERMEABILITY * VACUUM_PERMITTIVITY)
 
 
@@ -90,18 +70,17 @@ for f_ref, label in reference:
     print(f"f_{label} = {f_ref / 1e9:.4f} GHz")
 
 node_axes = tuple(np.linspace(0.0, extent, count + 1) for extent, count in zip((a, b, d), cells))
-time_step = 4e-12           # s, below the CFL limit of the 2.5 mm grid
-pulse_duration = 0.5e-9     # s, the current source is switched off afterwards
-sample_interval = 20e-12    # s, probe sampling interval (Nyquist 25 GHz)
-samples = 2000              # 40 ns of ring-down, 25 MHz spectral bin width
+time_step = 4e-12
+pulse_duration = 0.5e-9
+sample_interval = 20e-12
+samples = 2000
 
 
 def yee_solver(final_time):
-    # periodic=(False, False, False): all six faces are perfect electric conductors.
     return DEFAULT_ELECTROMAGNETICS_PROVIDER_REGISTRY.create(
         "electromagnetics.maxwell_time_domain",
         node_axes=node_axes, periodic=(False, False, False),
-        permittivity=VACUUM_PERMITTIVITY, permeability=VACUUM_PERMEABILITY,     # air
+        permittivity=VACUUM_PERMITTIVITY, permeability=VACUUM_PERMEABILITY,
         final_time=final_time, time_step=time_step,
     )
 
@@ -129,7 +108,7 @@ state = pulse.run(current_density=(0.0, current_density_y, 0.0))
 print(f"Pulse: {state.step_count} steps, injected energy {state.source_work:.3e} J")
 
 segment = yee_solver(sample_interval)
-ey_axes = segment.grid.axes(StaggeredLocation("edge", 1))        # positions of the E_y unknowns
+ey_axes = segment.grid.axes(StaggeredLocation("edge", 1))
 probe = tuple(int(np.argmin(np.abs(axis - target))) for axis, target in zip(ey_axes, (0.65 * a, 0.5 * b, 0.7 * d)))
 print("Probe at x = {:.1f} mm, y = {:.2f} mm, z = {:.1f} mm".format(*(1e3 * axis[index] for axis, index in zip(ey_axes, probe))))
 
@@ -168,29 +147,15 @@ for (f_ref, label), f_num in zip(reference, f_peaks):
 
 # ## Figure
 
-cream = "#fbf5eb"
-fig, axes = plt.subplots(1, 2, figsize=(12, 4.8), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-
-ax = axes[0]
-ax.set_facecolor("#fffaf2")
-ax.plot(times * 1e9, signal / np.max(np.abs(signal)), color="#39715e", lw=0.8)
-ax.set(xlabel="Time / ns", ylabel="E_y at the probe / max", xlim=(0, 8),
-       title="Ring-down of the cavity after the current pulse (first 8 ns)")
-ax.grid(alpha=0.25)
-
-ax = axes[1]
-ax.set_facecolor("#fffaf2")
 show = frequencies < 9e9
-ax.plot(frequencies[show] / 1e9, spectrum[show], color="#b4572b", lw=1.5, label="OneSimulation probe spectrum")
-for i, (f_ref, label) in enumerate(modes[:6]):
-    ax.axvline(f_ref / 1e9, color="#39715e", lw=1.0, ls="--", label="closed-form f_mnp" if i == 0 else None)
-    ax.text(f_ref / 1e9, 1.02, label, ha="center", fontsize=8, color="#39715e")
-ax.set(xlabel="Frequency / GHz", ylabel="|FFT| / max", xlim=(2, 9), ylim=(0, 1.1),
-       title="Resonance spectrum vs. f_mnp = (c/2) sqrt((m/a)^2 + (n/b)^2 + (p/d)^2)")
-ax.legend(frameon=False, fontsize=9, loc="upper left")
-ax.grid(alpha=0.25)
-plt.show()
+fig = plots.figure(1, 2, size=(12, 4.8))
+plots.line(times * 1e9, signal / np.max(np.abs(signal)), xlimits=(0, 8), xlabel="time [ns]",
+           ylabel="E_y at the probe / max", title="Ring-down of the cavity after the current pulse", ax=fig[0])
+plots.line(frequencies[show] / 1e9, {"OneSimulation probe spectrum": spectrum[show]},
+           vlines={f"closed form {label}": f_ref / 1e9 for f_ref, label in modes[:6]}, xlimits=(2, 9), ylimits=(0, 1.1),
+           xlabel="frequency [GHz]", ylabel="|FFT| / max", title="Resonance spectrum and closed-form mode frequencies",
+           ax=fig[1])
+plots.show()
 
 
 # ## Going further

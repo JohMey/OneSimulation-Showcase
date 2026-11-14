@@ -35,28 +35,7 @@ ohmic-drop and Joule-heating solution of the equivalent-circuit cell.
 # temperature settles exponentially with the thermal time constant
 # $\tau=C_\mathrm{th}/h$ at the excess $\Delta T_\infty=I^2R/h$.
 
-from importlib.metadata import version
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 
 from onesim.cad.geometry import LumpedDomain
 from onesim.meshing import LumpedMesh
@@ -67,8 +46,9 @@ from onesim.physics.chemistry import BatteryChemistry, LumpedBattery
 from onesim.results.storage import MemoryOutputSink, Output
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters and model
@@ -78,20 +58,20 @@ print("OneSimulation:", version("onesimulation"))
 # and the cell starts at the ambient temperature. The values describe a small
 # 2 Ah lithium-ion cell discharged at 1C (2 A) from 90 % to 10 % state of charge.
 
-capacity_ampere_hours = 2.0      # Ah, nominal charge capacity
-discharge_current = 2.0          # A, constant load current I (positive = discharge)
-ocv_offset = 3.2                 # V, U_0: open-circuit voltage at zero state of charge
-ocv_slope = 0.8                  # V, k: open-circuit voltage rise over the full range
-internal_resistance = 0.05       # Ohm, R
-thermal_capacity = 60.0          # J/K, C_th of the cell
-heat_transfer = 0.24             # W/K, thermal conductance h to the surroundings
-ambient_temperature = 298.15     # K, T_inf
-initial_soc = 0.9                # state of charge at t = 0
-final_soc = 0.1                  # state of charge at which the discharge is stopped
+capacity_ampere_hours = 2.0
+discharge_current = 2.0
+ocv_offset = 3.2
+ocv_slope = 0.8
+internal_resistance = 0.05
+thermal_capacity = 60.0
+heat_transfer = 0.24
+ambient_temperature = 298.15
+initial_soc = 0.9
+final_soc = 0.1
 
-charge_capacity = capacity_ampere_hours * 3600.0        # C, Q
+charge_capacity = capacity_ampere_hours * 3600.0
 end_time = (initial_soc - final_soc) * charge_capacity / discharge_current
-time_step = end_time / 288                              # 10 s for the default values
+time_step = end_time / 288
 thermal_time_constant = thermal_capacity / heat_transfer
 steady_excess = discharge_current**2 * internal_resistance / heat_transfer
 print(f"capacity Q = {charge_capacity:.0f} C,  discharge time = {end_time:.0f} s")
@@ -141,20 +121,13 @@ result = simulation.run(
         sink=sink,
     ),
 )
-times = np.asarray([float(s.time) for s in sink.snapshots])
+times = sink.times
 
 
-def series(field):
-    return np.asarray([
-        float(np.asarray(s.fields[field.field_id].values).reshape(-1)[0])
-        for s in sink.snapshots
-    ])
-
-
-soc = series(model.state_of_charge)
-temperatures = series(model.temperature)
-terminal_voltages = series(model.terminal_voltage)
-ohmic_heats = series(model.ohmic_heat)
+soc = sink.time_series(model.state_of_charge)[1]
+temperatures = sink.time_series(model.temperature)[1]
+terminal_voltages = sink.time_series(model.terminal_voltage)[1]
+ohmic_heats = sink.time_series(model.ohmic_heat)[1]
 
 
 # ## Comparison with the closed-form solution
@@ -176,12 +149,10 @@ print(f"Maximum state-of-charge error: {max_soc_error:.3e}")
 print(f"Maximum terminal-voltage error: {max_voltage_error:.3e} V")
 print(f"Maximum temperature error:     {max_temperature_error:.3e} K  (rise {steady_excess:.3f} K)")
 
-# The ohmic drop is constant and equals I R; the ohmic heat equals I^2 R.
 open_circuit = ocv_offset + ocv_slope * soc
 ohmic_drop = open_circuit - terminal_voltages
 print(f"Ohmic drop I R = {np.mean(ohmic_drop) * 1e3:.2f} mV,  ohmic heat I^2 R = {np.mean(ohmic_heats):.3f} W")
 
-# Discharge slope read off the trace: ds/dt = -I/Q.
 
 # Thermal time constant from the approach to the steady excess, log(1 - dT/dT_inf) = -t/tau,
 # using the first part of the trace where the remaining gap is well resolved.
@@ -193,28 +164,19 @@ print(f"Thermal time constant: measured {measured_tau:.2f} s, exact {thermal_tim
 
 # ## Figure
 
-fig, axes = plt.subplots(2, 1, figsize=(8, 7), sharex=True, constrained_layout=True)
-fig.patch.set_facecolor("#fbf5eb")
-for ax in axes:
-    ax.set_facecolor("#fffaf2")
-    ax.grid(alpha=0.25)
 dense_t = np.linspace(0.0, end_time, 400)
 dense_soc = initial_soc - discharge_current * dense_t / charge_capacity
-axes[0].plot(dense_t / 60, ocv_offset + ocv_slope * dense_soc, "--", color="#9a8f7d", lw=1.0,
-             label=r"Open-circuit voltage $U_\mathrm{oc}(s)$")
-axes[0].plot(dense_t / 60, ocv_offset + ocv_slope * dense_soc - discharge_current * internal_resistance,
-             color="#6b442f", lw=1.8, label="Closed-form terminal voltage")
-axes[0].plot(times[::8] / 60, terminal_voltages[::8], "o", color="#c56838", ms=4, label="OneSimulation RK4")
-axes[0].set(ylabel="Voltage / V", title="Constant-current discharge of a lumped battery cell")
-axes[0].legend(loc="upper right")
-axes[1].plot(dense_t / 60, ambient_temperature + steady_excess * (1 - np.exp(-dense_t / thermal_time_constant)),
-             color="#6b442f", lw=1.8, label="Joule-heating exponential")
-axes[1].plot(times[::8] / 60, temperatures[::8], "o", color="#c56838", ms=4, label="OneSimulation RK4")
-axes[1].axhline(ambient_temperature + steady_excess, color="#9a8f7d", ls="--", lw=1.0,
-                label=r"$T_\infty+I^2R/h$")
-axes[1].set(xlabel="Time / min", ylabel="Cell temperature / K")
-axes[1].legend(loc="lower right")
-plt.show()
+fig = plots.figure(2, 1, size=(8, 7))
+plots.line(dense_t / 60, {"open-circuit voltage": ocv_offset + ocv_slope * dense_soc},
+           points={"OneSimulation RK4": (times[::8] / 60, terminal_voltages[::8])},
+           reference={"closed-form terminal voltage": ocv_offset + ocv_slope * dense_soc - discharge_current * internal_resistance},
+           ylabel="voltage [V]", title="Constant-current discharge of a lumped battery cell", ax=fig[0])
+plots.line(points={"OneSimulation RK4": (times[::8] / 60, temperatures[::8])},
+           reference={"Joule-heating exponential": (dense_t / 60, ambient_temperature + steady_excess
+                                                    * (1 - np.exp(-dense_t / thermal_time_constant)))},
+           hlines={"steady temperature": ambient_temperature + steady_excess},
+           xlabel="time [min]", ylabel="cell temperature [K]", legend="lower right", ax=fig[1])
+plots.show()
 
 
 # ## Going further

@@ -32,28 +32,7 @@ wave (the thermal analogue of the electromagnetic skin effect).
 # the phase lags by one radian per depth $d$. After the start-up transient has
 # died out we fit amplitude and phase at every depth and check both laws.
 
-from importlib.metadata import version
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 
 from onesim.cad.d3 import Box
 from onesim.materials import IsotropicSolid
@@ -64,9 +43,10 @@ from onesim.numerics.linear import SparseDirect
 from onesim.numerics.time import BDF, BackwardEuler
 from onesim.physics.heat_transfer import FixedTemperature, HeatConduction, HeatFlux
 from onesim.simulation import Problem, Simulation
-from onesim.simulation.initial_conditions.values import InitialValue
+from onesim.simulation.initial_conditions import InitialValue
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -77,26 +57,25 @@ print("OneSimulation:", version("onesimulation"))
 # amplitude there is below 0.1 % of $A$, so holding the deep end at the mean
 # temperature reproduces the semi-infinite reference.
 
-k = 1.0               # W/(m·K), thermal conductivity (moist soil)
-rho = 2000.0          # kg/m^3
-cp = 1000.0           # J/(kg·K)
-T_m = 288.0           # K, mean surface temperature
-A = 10.0              # K, surface temperature amplitude
-period = 86400.0      # s, one day
+k = 1.0
+rho = 2000.0
+cp = 1000.0
+T_m = 288.0
+A = 10.0
+period = 86400.0
 omega = 2.0 * np.pi / period
 alpha = k / (rho * cp)
-d = np.sqrt(2.0 * alpha / omega)          # m, penetration depth
-L = 7.0 * d                               # m, depth of the modelled body
-cross = 0.02                              # m, lateral size (insulated)
+d = np.sqrt(2.0 * alpha / omega)
+L = 7.0 * d
+cross = 0.02
 print(f"alpha = {alpha:.3e} m^2/s,  penetration depth d = {100*d:.2f} cm,  modelled depth L = {100*L:.1f} cm")
 
-periods = 6                               # run length: start-up transient decays, response becomes periodic
+periods = 6
 steps_per_period = 40
 time_step = period / steps_per_period
 end_time = periods * period
 
 geometry = Box(length=L, width=cross, height=cross)
-# Structured hexahedral mesh: many cells along x (the 1D direction), few across.
 cells = 64
 mesh = StructuredHexahedralMesher(cells=(cells, 1, 1)).generate(geometry)
 print("Mesh:", mesh.cell_count, "hexahedra  (", round(d / (L / cells), 1), "cells per penetration depth )")
@@ -126,9 +105,7 @@ problem = Problem(
     physics=(model,),
     boundary_conditions=(
         FixedTemperature(boundary=geometry.boundaries.x_min, physics=model, value=surface_temperature),
-        # deep end at the mean temperature: it lies seven penetration depths down
         FixedTemperature(boundary=geometry.boundaries.x_max, physics=model, value=T_m),
-        # laterally insulated (zero flux) -> 1D behaviour
         HeatFlux(
             boundary=(geometry.boundaries.y_min | geometry.boundaries.y_max
                       | geometry.boundaries.z_min | geometry.boundaries.z_max),
@@ -170,10 +147,10 @@ signals = np.array([np.asarray(field.evaluate(points, time=float(t))).reshape(-1
 
 basis = np.column_stack((np.sin(omega * last), np.cos(omega * last),
                          np.ones_like(last), (last - last[0]) / period))
-coefficients, *_ = np.linalg.lstsq(basis, signals, rcond=None)      # (4, depths)
+coefficients, *_ = np.linalg.lstsq(basis, signals, rcond=None)
 amplitude = np.hypot(coefficients[0], coefficients[1])
 phase_lag = np.unwrap(np.arctan2(-coefficients[1], coefficients[0]))
-phase_lag -= phase_lag[0]                                           # zero lag at the surface
+phase_lag -= phase_lag[0]
 
 # Compare in a clean window: from the surface down to four penetration depths,
 # where the signal is still well above the numerical floor.
@@ -195,7 +172,6 @@ d_from_phase = 1.0 / slope_phase
 print(f"Penetration depth: theory {100*d:.3f} cm,  from amplitude {100*d_from_amplitude:.3f} cm,  "
       f"from phase lag {100*d_from_phase:.3f} cm")
 
-# Time of the daily maximum at one penetration depth: lags the surface by d/d = 1 rad.
 lag_hours = (phase_lag[np.argmin(np.abs(sample_x - d))] / omega) / 3600.0
 print(f"The temperature maximum at depth d arrives {lag_hours:.2f} h after the surface maximum "
       f"(reference {period/(2*np.pi)/3600:.2f} h)")
@@ -203,40 +179,21 @@ print(f"The temperature maximum at depth d arrives {lag_hours:.2f} h after the s
 
 # ## Figure
 
-cream = "#fbf5eb"
-fig, axes = plt.subplots(1, 2, figsize=(12, 4.8), constrained_layout=True)
-fig.patch.set_facecolor(cream)
 x_cm = sample_x * 100
-
-ax = axes[0]
-ax.set_facecolor("#fffaf2"); ax.grid(alpha=0.25)
-ax.plot(x_cm, A * np.exp(-sample_x / d), color="#214D43", lw=1.8, label=r"theory $A\,e^{-x/d}$")
-ax.plot(x_cm, amplitude, "o", color="#A85539", ms=3, label="OneSimulation amplitude")
-ax2 = ax.twinx()
-ax2.plot(x_cm, sample_x / d, color="#5F9175", lw=1.4, ls="--", label=r"theory lag $x/d$")
-ax2.plot(x_cm, phase_lag, "s", color="#5F9175", ms=3, mfc="none", label="OneSimulation phase lag")
-ax2.set_ylabel("Phase lag / rad", color="#5F9175")
-ax.axvline(100 * d, color="#9a8f7d", ls=":", lw=1.2)
-ax.text(100 * d + 0.5, 0.75 * A, r"$x=d$", color="#9a8f7d")
-ax.set(xlabel="Depth x / cm", ylabel="Temperature amplitude / K",
-       title="Damped thermal wave: amplitude and phase lag")
-lines = ax.get_legend_handles_labels()
-lines2 = ax2.get_legend_handles_labels()
-ax.legend(lines[0] + lines2[0], lines[1] + lines2[1], loc="center right", fontsize=9)
-
-ax = axes[1]
-ax.set_facecolor("#fffaf2"); ax.grid(alpha=0.25)
 hours = (last - last[0]) / 3600.0
-colors = FIELD_CMAP(np.linspace(0.2, 0.85, 4))
-for depth_factor, c in zip((0.0, 0.5, 1.0, 2.0), colors):
-    i = int(np.argmin(np.abs(sample_x - depth_factor * d)))
-    ax.plot(hours, T_m + A * np.exp(-sample_x[i] / d) * np.sin(omega * last - sample_x[i] / d),
-            color=c, lw=1.5)
-    ax.plot(hours, T_m + signals[:, i], "o", color=c, ms=3, label=f"x = {depth_factor:g} d")
-ax.set(xlabel="Time within the last period / h", ylabel="Temperature / K",
-       title="Last period — lines: theory, dots: OneSimulation FEM")
-ax.legend(fontsize=9)
-plt.show()
+depths = {f"x = {factor:g} d": int(np.argmin(np.abs(sample_x - factor * d))) for factor in (0.0, 0.5, 1.0, 2.0)}
+fig = plots.figure(1, 3, size=(15, 4.6))
+plots.line(x_cm, points={"OneSimulation": amplitude}, reference={"theory A exp(-x/d)": A * np.exp(-sample_x / d)},
+           vlines={"penetration depth d": 100 * d}, xlabel="depth x [cm]", ylabel="temperature amplitude [K]",
+           title="Damped thermal wave: amplitude", ax=fig[0])
+plots.line(x_cm, points={"OneSimulation": phase_lag}, reference={"theory x/d": sample_x / d},
+           xlabel="depth x [cm]", ylabel="phase lag [rad]", title="Damped thermal wave: phase lag", ax=fig[1])
+plots.line(hours, points={label: T_m + signals[:, i] for label, i in depths.items()},
+           reference={label: T_m + A * np.exp(-sample_x[i] / d) * np.sin(omega * last - sample_x[i] / d)
+                      for label, i in depths.items()},
+           xlabel="time within the last period [h]", ylabel="temperature [K]",
+           title="Last period: OneSimulation (markers) and theory (dashed)", ax=fig[2])
+plots.show()
 
 
 # ## Going further

@@ -29,28 +29,7 @@ The OneSimulation solution is checked against the known closed-form series solut
 # $\theta\approx\operatorname{erf}\!\big(x/\sqrt{4Dt}\big)$. We check the computed
 # concentration against the series.
 
-from importlib.metadata import version
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 
 from onesim.cad.d1 import Line
 from onesim.meshing import StructuredLineMesher
@@ -62,11 +41,10 @@ from onesim.numerics.time import BDF, BackwardEuler
 from onesim.physics.chemistry import SpeciesTransport, TransportSpecies
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
-from onesim.simulation.problem_definition.boundaries import (
-    OutwardFluxBoundary, PrescribedValueBoundary,
-)
+from onesim.simulation import OutwardFluxBoundary, PrescribedValueBoundary
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -74,10 +52,10 @@ print("OneSimulation:", version("onesimulation"))
 # The values are freely adjustable. $D$ and the characteristic time $L^2/D$ set
 # how fast the slab empties.
 
-L = 0.01              # m, slab thickness (x direction)
-D = 1.0e-9            # m^2/s, diffusivity
-C_i = 0.2             # mol/m^3, uniform initial concentration
-C_s = 1.0             # mol/m^3, reservoir concentration at the open face from t=0 on
+L = 0.01
+D = 1.0e-9
+C_i = 0.2
+C_s = 1.0
 tau = L * L / D
 end_time = 0.4 * tau
 time_step = end_time / 60.0
@@ -97,12 +75,10 @@ problem = Problem(
     geometry=geometry,
     physics=(model,),
     boundary_conditions=(
-        # open face at x=0 held at the surface concentration (weakly, Nitsche)
         PrescribedValueBoundary(
             physics=model, boundary=geometry.boundaries.start,
             value=lambda time, coordinate: {"A": C_s},
         ),
-        # sealed back face at x=L: zero diffusive flux
         OutwardFluxBoundary(
             physics=model, boundary=geometry.boundaries.end,
             flux=lambda **kw: np.zeros(1), jacobian=lambda **kw: np.zeros((1, 1)),
@@ -158,24 +134,15 @@ for t in probe_times:
 
 rel_error = max_abs_error / abs(C_i - C_s)
 print(f"Maximum absolute error against the series: {max_abs_error:.4f} mol/m^3  ({100*rel_error:.2f} % of Cs-Ci)")
-# Physical sanity: the sealed back face fills monotonically and never overshoots.
 
 
 # ## Figure
 
-cream = "#fbf5eb"
-fig, ax = plt.subplots(figsize=(8, 4.8), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-ax.set_facecolor("#fffaf2")
-colors = FIELD_CMAP(np.linspace(0.15, 0.85, len(probe_times)))
-for (t, (num, ana)), c in zip(profiles.items(), colors):
-    ax.plot(sample_x * 1000, ana, color=c, lw=1.6)
-    ax.plot(sample_x * 1000, num, "o", color=c, ms=3)
-    ax.text(sample_x[-1] * 1000, ana[-1], f" t={t/3600:.1f}h", color=c, fontsize=8, va="center")
-ax.set(xlabel="Position x / mm", ylabel="Concentration / (mol/m^3)",
-       title="Diffusing slab — lines: series solution, dots: OneSimulation FEM")
-ax.grid(alpha=0.25)
-plt.show()
+plots.line(points={f"t = {t / 3600:.1f} h": (sample_x * 1000, numeric) for t, (numeric, _) in profiles.items()},
+           reference={f"t = {t / 3600:.1f} h": (sample_x * 1000, exact) for t, (_, exact) in profiles.items()},
+           xlabel="position x [mm]", ylabel="concentration [mol/m^3]",
+           title="Diffusing slab: OneSimulation FEM (markers) and series solution (dashed)")
+plots.show()
 
 
 # ## Going further

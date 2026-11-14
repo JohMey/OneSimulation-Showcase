@@ -51,34 +51,14 @@ square-root-of-time law of the cumulative infiltration.
 # all profiles onto one curve in $\varphi$, the sorptivity and the
 # $\sqrt{t}$ law.
 
-from importlib.metadata import version
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 from scipy.integrate import solve_ivp
 from scipy.optimize import brentq
 
-from onesim.physics.hydrodynamics.porous.numerics.equations.multiphysics.richards import Richards1DProvider
+from onesim.physics.hydrodynamics import Richards1DProvider
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -89,18 +69,18 @@ print("OneSimulation:", version("onesimulation"))
 # solution nor an explicit scheme can represent. The column is long enough that
 # the wetting front never reaches the far end within the simulated hour.
 
-theta_r = 0.08          # residual water content
-theta_s = 0.43          # saturated water content
-alpha = 3.6             # 1/m, van Genuchten alpha
-n_vg = 1.56             # van Genuchten n
-K_s = 1.0e-5            # m/s, saturated hydraulic conductivity
-h_0 = -0.10             # m, pressure head held at the inlet face x = 0
-h_i = -1.00             # m, initial pressure head of the column
-L = 0.5                 # m, column length (far end stays dry)
-cells = 400             # finite-volume cells
-time_step = 0.02        # s, explicit time step
-segment = 60.0          # s, length of one chained run segment (= sampling interval)
-end_time = 3600.0       # s, simulated duration
+theta_r = 0.08
+theta_s = 0.43
+alpha = 3.6
+n_vg = 1.56
+K_s = 1.0e-5
+h_0 = -0.10
+h_i = -1.00
+L = 0.5
+cells = 400
+time_step = 0.02
+segment = 60.0
+end_time = 3600.0
 probe_times = (600.0, 1200.0, 2400.0, 3600.0)
 
 m_vg = 1.0 - 1.0 / n_vg
@@ -151,8 +131,8 @@ def shoot(q_0, dense=False):
     sol = solve_ivp(rhs, (0.0, 0.05), [theta_0, q_0], events=(reached_initial_content, slope_vanished),
                     rtol=1e-10, atol=1e-14, method="LSODA", dense_output=dense)
     if sol.t_events[0].size:
-        return sol.y[1, -1] / abs(q_0), sol            # too steep: negative
-    return (sol.y[0, -1] - theta_i) / (theta_0 - theta_i), sol   # too shallow: positive
+        return sol.y[1, -1] / abs(q_0), sol
+    return (sol.y[0, -1] - theta_i) / (theta_0 - theta_i), sol
 
 
 q_0 = brentq(lambda q: shoot(q)[0], -0.5e-2, -0.5e-5, xtol=1e-16, rtol=1e-12)
@@ -170,7 +150,6 @@ def theta_similarity(phi):
 
 print(f"Sorptivity S = {sorptivity:.4e} m/sqrt(s)  (check: integral of phi dtheta = {sorptivity_integral:.4e}),  "
       f"wetting front at phi = {phi_front:.4f} m/sqrt(s)")
-# The same constitutive law must be used on both sides: compare D with the solver's own closure.
 law = Richards1DProvider(cell_count=cells, length=L, residual_water_content=theta_r, saturated_water_content=theta_s,
                          van_genuchten_alpha=alpha, van_genuchten_n=n_vg, saturated_hydraulic_conductivity=K_s)
 for theta in np.linspace(theta_i, theta_0, 7):
@@ -191,10 +170,10 @@ soil = Richards1DProvider(
     cell_count=cells, length=L,
     residual_water_content=theta_r, saturated_water_content=theta_s,
     van_genuchten_alpha=alpha, van_genuchten_n=n_vg, saturated_hydraulic_conductivity=K_s,
-    gravity=0.0,                      # horizontal column
+    gravity=0.0,
     initial_pressure_head=h_i,
-    bottom_pressure_head=h_0,         # inlet face x = 0: prescribed pressure head
-    top_pressure_head=None,           # far end x = L: no-flow face
+    bottom_pressure_head=h_0,
+    top_pressure_head=None,
     final_time=segment, time_step=time_step,
 )
 x = (np.arange(cells) + 0.5) * L / cells
@@ -235,7 +214,6 @@ for t_probe, theta_num in profiles.items():
     max_profile_error = max(max_profile_error, float(err.max()))
     rms_profile_error = max(rms_profile_error, float(np.sqrt(np.mean(err**2))))
 
-# Self-similarity: the profiles at the probe times must coincide in phi = x / sqrt(t).
 phi_common = np.linspace(0.0, 0.9 * phi_front, 200)
 collapsed = np.array([np.interp(phi_common, x / np.sqrt(t_probe), theta_num) for t_probe, theta_num in profiles.items()])
 collapse_error = float(np.max(np.ptp(collapsed, axis=0)) / (theta_0 - theta_i))
@@ -248,8 +226,6 @@ print(f"Collapse of the profiles in phi: max spread {100 * collapse_error:.2f} %
 print(f"Cumulative infiltration for t >= {probe_times[0]:.0f} s: max |I / (S sqrt t) - 1| = {100 * infiltration_error:.2f} %,  "
       f"fitted exponent {exponent:.4f} (reference 0.5),  I / sqrt(t) = {S_measured:.4e} vs S = {sorptivity:.4e} m/sqrt(s)")
 
-# Physical sanity: the water content stays between the initial and inlet values and decreases along x.
-
 
 # ## Figure
 #
@@ -258,32 +234,20 @@ print(f"Cumulative infiltration for t >= {probe_times[0]:.0f} s: max |I / (S sqr
 # cumulative infiltration against $\sqrt{t}$, which the similarity solution
 # predicts to be a straight line of slope $S$.
 
-cream = "#fbf5eb"
-fig, (ax_x, ax_phi, ax_i) = plt.subplots(1, 3, figsize=(15, 4.6), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-colors = FIELD_CMAP(np.linspace(0.2, 0.85, len(profiles)))
-x_fine = np.linspace(0.0, L, 1500)
-for (t_probe, theta_num), c in zip(profiles.items(), colors):
-    ax_x.plot(x_fine * 1e2, theta_similarity(x_fine / np.sqrt(t_probe)), "-", color=c, lw=1.5)
-    ax_x.plot(x[::6] * 1e2, theta_num[::6], "o", color=c, ms=3, label=f"OneSimulation, t = {t_probe / 60:.0f} min")
-    ax_phi.plot(x / np.sqrt(t_probe) * 1e3, theta_num, "o", color=c, ms=2.5)
-ax_x.set_facecolor("#fffaf2"); ax_x.grid(alpha=0.25)
-ax_x.set(xlabel="position x / cm", ylabel="water content θ", title="Wetting profiles (lines: similarity solution)")
-ax_x.set_xlim(0.0, 1.15 * phi_front * np.sqrt(end_time) * 1e2)
-ax_x.legend(frameon=False, fontsize=8)
-
-phi_fine = np.linspace(0.0, 1.2 * phi_front, 600)
-ax_phi.plot(phi_fine * 1e3, theta_similarity(phi_fine), "-", color="#39715e", lw=1.8, label="Θ(φ) from the Boltzmann equation")
-ax_phi.set_facecolor("#fffaf2"); ax_phi.grid(alpha=0.25)
-ax_phi.set(xlabel="φ = x / √t  / (mm/√s)", ylabel="water content θ", title="Collapse onto the similarity variable")
-ax_phi.legend(frameon=False, fontsize=8)
-
-ax_i.plot(np.sqrt(times), sorptivity * np.sqrt(times) * 1e3, "-", color="#39715e", lw=1.8, label="S √t (similarity solution)")
-ax_i.plot(np.sqrt(times[::2]), cumulative[::2] * 1e3, "o", color="#b4572b", ms=3, label="OneSimulation")
-ax_i.set_facecolor("#fffaf2"); ax_i.grid(alpha=0.25)
-ax_i.set(xlabel="√t / √s", ylabel="cumulative infiltration I / mm", title="Sorptivity law I = S √t")
-ax_i.legend(frameon=False, fontsize=8)
-plt.show()
+x_fine, phi_fine = np.linspace(0.0, L, 1500), np.linspace(0.0, 1.2 * phi_front, 600)
+labelled = {f"t = {t_probe / 60:.0f} min": (t_probe, theta) for t_probe, theta in profiles.items()}
+fig = plots.figure(1, 3, size=(15, 4.6))
+plots.line(points={label: (x[::6] * 1e2, theta[::6]) for label, (_, theta) in labelled.items()},
+           reference={label: (x_fine * 1e2, theta_similarity(x_fine / np.sqrt(t))) for label, (t, _) in labelled.items()},
+           xlimits=(0.0, 1.15 * phi_front * np.sqrt(end_time) * 1e2), xlabel="position x [cm]", ylabel="water content θ",
+           title="Wetting profiles (dashed: similarity solution)", ax=fig[0])
+plots.line(points={label: (x / np.sqrt(t) * 1e3, theta) for label, (t, theta) in labelled.items()},
+           reference={"Θ(φ) from the Boltzmann equation": (phi_fine * 1e3, theta_similarity(phi_fine))},
+           xlabel="φ = x / √t [mm/√s]", ylabel="water content θ", title="Collapse onto the similarity variable", ax=fig[1])
+plots.line(points={"OneSimulation": (np.sqrt(times[::2]), cumulative[::2] * 1e3)},
+           reference={"S √t (similarity solution)": (np.sqrt(times), sorptivity * np.sqrt(times) * 1e3)},
+           xlabel="√t [√s]", ylabel="cumulative infiltration I [mm]", title="Sorptivity law I = S √t", ax=fig[2])
+plots.show()
 
 
 # ## Going further

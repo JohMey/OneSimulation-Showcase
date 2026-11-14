@@ -26,32 +26,12 @@ The OneSimulation solution is checked against the closed-form closed-loop respon
 # A proportional controller speeds the plant up by the factor $1+KK_p$ but leaves
 # the steady-state offset $r-y_\infty=r/(1+KK_p)$. Both facts are checked below.
 
-from importlib.metadata import version
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 
 from onesim.physics.systems import ControlSignalFlowProvider, SignalBlock
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters and model
@@ -60,16 +40,16 @@ print("OneSimulation:", version("onesimulation"))
 # and time constant. The values describe a sluggish process (20 s time constant,
 # gain 2) under a moderate proportional gain, so the offset remains clearly visible.
 
-time_constant = 20.0        # s, plant time constant tau
-plant_gain = 2.0            # static plant gain K
-proportional_gain = 4.0     # controller gain K_p
-setpoint = 1.0              # r, unit step
+time_constant = 20.0
+plant_gain = 2.0
+proportional_gain = 4.0
+setpoint = 1.0
 
 loop_gain = plant_gain * proportional_gain
 steady_output = loop_gain / (1.0 + loop_gain) * setpoint
 closed_loop_time_constant = time_constant / (1.0 + loop_gain)
 end_time = 6.0 * closed_loop_time_constant
-time_step = 0.01            # s
+time_step = 0.01
 print(f"loop gain K*Kp = {loop_gain:.1f},  closed-loop time constant = {closed_loop_time_constant:.3f} s "
       f"(open loop {time_constant:.1f} s),  steady output = {steady_output:.4f}")
 
@@ -105,7 +85,6 @@ max_output_error = float(np.max(np.abs(outputs - reference)))
 print(f"Maximum output error against the closed-loop exponential: {max_output_error:.3e}")
 
 
-# Recover the closed-loop time constant from the log-slope of the remaining approach.
 approach = steady_output - outputs
 fitted_rate = -np.polyfit(times, np.log(approach), 1)[0]
 fitted_time_constant = 1.0 / fitted_rate
@@ -117,27 +96,17 @@ print(f"Steady-state offset: simulated {final_offset:.5f}, exact r/(1+K Kp) = {e
 
 # ## Figure
 
-fig, axes = plt.subplots(2, 1, figsize=(8, 7), sharex=True, constrained_layout=True)
-fig.patch.set_facecolor("#fbf5eb")
-for ax in axes:
-    ax.set_facecolor("#fffaf2")
-    ax.grid(alpha=0.25)
 dense_t = np.linspace(0.0, end_time, 400)
-dense_y = steady_output * (1.0 - np.exp(-dense_t / closed_loop_time_constant))
-stride = max(1, len(times) // 40)
-axes[0].plot(dense_t, dense_y, color="#6b442f", lw=1.6, label=r"$y_\infty\,(1-e^{-t/\tau_{cl}})$")
-axes[0].plot(times[::stride], outputs[::stride], "o", color="#c56838", ms=4, label="OneSimulation RK4")
-axes[0].axhline(setpoint, color="#39715E", ls="--", lw=1.0, label="Setpoint $r$")
-axes[0].axhline(steady_output, color="#9a8f7d", ls="--", lw=1.0, label=r"$y_\infty=KK_p r/(1+KK_p)$")
-axes[0].axvline(closed_loop_time_constant, color="#9a8f7d", ls=":", lw=1.0, label=r"$t=\tau_{cl}$")
-axes[0].set(ylabel="Plant output $y$", title="First-order plant under proportional control")
-axes[0].legend(loc="lower right", fontsize=9)
-axes[1].plot(times, commands, color="#c56838", lw=1.4, label=r"Controller output $u=K_p(r-y)$")
-axes[1].axhline(proportional_gain * expected_offset, color="#9a8f7d", ls="--", lw=1.0,
-                label=r"$u_\infty=K_p r/(1+KK_p)$")
-axes[1].set(xlabel="Time / s", ylabel="Control signal $u$")
-axes[1].legend(loc="upper right")
-plt.show()
+fig = plots.figure(2, 1, size=(8, 7))
+plots.line(times, points={"OneSimulation RK4": (times[::10], outputs[::10])},
+           reference={"exact step response": (dense_t, steady_output * (1.0 - np.exp(-dense_t / closed_loop_time_constant)))},
+           hlines={"setpoint r": setpoint, "steady state K Kp r / (1 + K Kp)": steady_output},
+           vlines={"closed-loop time constant": closed_loop_time_constant},
+           ylabel="plant output y", title="First-order plant under proportional control", legend="lower right", ax=fig[0])
+plots.line(times, {"controller output u = Kp (r - y)": commands},
+           hlines={"steady state Kp r / (1 + K Kp)": proportional_gain * expected_offset},
+           xlabel="time [s]", ylabel="control signal u", ax=fig[1])
+plots.show()
 
 
 # ## Going further

@@ -26,33 +26,12 @@ benchmark for the velocity along the vertical centreline.
 # "High-Re solutions for incompressible flow using the Navier-Stokes equations and a
 # multigrid method", J. Comput. Phys. 48, 387-411, Table I, Re = 100.
 
-from importlib.metadata import version
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 
 from onesim.cad.d3 import Box
 from onesim.materials import NewtonianFluid
 from onesim.meshing import StructuredTetrahedralMesher
-from onesim.meshing.generation.declarations import PeriodicPair
+from onesim.meshing import PeriodicPair
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, TaylorHood
 from onesim.numerics.linear import SparseDirect
@@ -60,10 +39,11 @@ from onesim.numerics.nonlinear import Newton
 from onesim.physics.hydrodynamics import FixedVelocity, IncompressibleNavierStokes, NoSlipWall
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.field_constraints import MeanValue
-from onesim.simulation.initial_conditions.values import InitialValue
-from onesim.simulation.problem_definition.boundaries import PeriodicBoundary
+from onesim.simulation.initial_conditions import InitialValue
+from onesim.simulation import PeriodicBoundary
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -73,11 +53,11 @@ print("OneSimulation:", version("onesimulation"))
 # independent of $z$ and therefore two-dimensional. The density and viscosity are
 # chosen so that $Re = \rho U L/\mu = 100$.
 
-side = 1.0            # m, cavity side length L
-span = 0.0625         # m, thin out-of-plane extent (made periodic in z)
-lid_speed = 1.0       # m/s, speed U of the sliding lid
-rho = 1.0             # kg/m^3, density
-mu = 0.01             # Pa·s, dynamic viscosity
+side = 1.0
+span = 0.0625
+lid_speed = 1.0
+rho = 1.0
+mu = 0.01
 
 reynolds = rho * lid_speed * side / mu
 print(f"U = {lid_speed:.2f} m/s,  L = {side:.2f} m,  Re = {reynolds:.0f}")
@@ -104,7 +84,6 @@ fluid = NewtonianFluid(density=rho, dynamic_viscosity=mu)
 
 
 def lid_velocity(x):
-    # Uniform lid speed U in the x-direction, tapered to zero within the corner cell.
     ramp = np.clip(np.minimum(x, side - x) / taper, 0.0, 1.0)
     return np.column_stack((lid_speed * ramp, np.zeros_like(x), np.zeros_like(x)))
 
@@ -167,18 +146,11 @@ print(f"Maximum absolute deviation from the Ghia benchmark: {max_abs_error:.4f} 
 
 # ## Figure
 
-cream = "#fbf5eb"
-fig, ax = plt.subplots(figsize=(6.4, 5.6), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-ax.set_facecolor("#fffaf2")
-ax.grid(alpha=0.25)
-ax.axvline(0.0, color="#999", lw=1)
-ax.plot(benchmark_u, benchmark_y, "o", color="#214D43", ms=5, label="Ghia et al. (1982), Re=100")
-ax.plot(u_numeric, benchmark_y, "-", color="#A85539", lw=1.8, label="OneSimulation FEM")
-ax.set(xlabel="Horizontal velocity u_x / U", ylabel="Vertical position y / L",
-       title="Lid-driven cavity at Re = 100: velocity on the vertical centreline")
-ax.legend()
-plt.show()
+plots.line(y={"OneSimulation FEM": (u_numeric, benchmark_y)},
+           points={"Ghia et al. (1982), Re = 100": (benchmark_u, benchmark_y)}, vlines=0.0,
+           xlabel="horizontal velocity u_x / U", ylabel="vertical position y / L",
+           title="Lid-driven cavity at Re = 100: velocity on the vertical centreline")
+plots.show()
 
 
 # ## Going further

@@ -35,34 +35,13 @@ profile and the standing-wave pattern of a shorted guide.
 # $\beta=\sqrt{k_0^2-k_c^2}$ the shorted guide carries the standing wave
 # $|\mathbf{E}_t(z)|\propto|\sin\beta(\ell-z)|$ on its axis.
 
-from importlib.metadata import version
 from math import pi, sqrt
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 from scipy.special import jv, jvp
 
 from onesim.cad.d3 import Cylinder
 from onesim.materials.electromagnetic import IsotropicElectromagneticMaterial
-from onesim.materials.properties.units.constants import VACUUM_PERMEABILITY, VACUUM_PERMITTIVITY
+from onesim.materials import VACUUM_PERMEABILITY, VACUUM_PERMITTIVITY
 from onesim.meshing import TetrahedralMesher
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Nedelec
@@ -71,8 +50,9 @@ from onesim.physics.electromagnetics import (
     FrequencyDomainMaxwell, NumericalWaveguideMode, PerfectElectricConductor, WaveguidePort,
 )
 from onesim.simulation import Problem, Simulation
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -82,10 +62,10 @@ print("OneSimulation:", version("onesimulation"))
 # single-mode band, and a second solve at 6.5 GHz (between the TM01 and TE21
 # cutoffs) binds the TM01 port mode to verify the mode ordering numerically.
 
-a = 0.020               # m, guide radius
-length = 0.060          # m, guide length to the short (z direction)
-frequency = 5.4e9       # Hz, drive frequency in the single-mode band
-frequency_tm = 6.5e9    # Hz, drive frequency for the TM01 check
+a = 0.020
+length = 0.060
+frequency = 5.4e9
+frequency_tm = 6.5e9
 p11_te, p01_tm, p21_te = 1.841183781, 2.404825558, 3.054236928
 c0 = 1.0 / sqrt(VACUUM_PERMEABILITY * VACUUM_PERMITTIVITY)
 kc_te11 = p11_te / a
@@ -105,7 +85,7 @@ print("Mesh:", mesh.cell_count, "tetrahedra")
 def shorted_guide(drive_frequency, mode):
     model = FrequencyDomainMaxwell(
         domain=guide.volume, frequency=drive_frequency,
-        material=IsotropicElectromagneticMaterial(),      # air: eps_r = mu_r = 1, lossless
+        material=IsotropicElectromagneticMaterial(),
         phasor_convention="exp(-i*omega*t)", amplitude_convention="peak",
     )
     problem = Problem(
@@ -113,9 +93,7 @@ def shorted_guide(drive_frequency, mode):
         geometry=guide,
         physics=(model,),
         boundary_conditions=(
-            # Port on the bottom disk (z = 0), excited with a numerically computed eigenmode.
             WaveguidePort(boundary=guide.boundaries.bottom, physics=model, mode=mode, incident_power=1.0),
-            # The cylindrical wall and the short at z = length are perfect electric conductors.
             PerfectElectricConductor(boundary=guide.boundaries.all - guide.boundaries.bottom, physics=model),
         ),
     )
@@ -161,7 +139,6 @@ shape_across_ref = 2 * jvp(1, x)
 shape_error = float(max(np.max(np.abs(along - shape_along_ref)), np.max(np.abs(across - shape_across_ref))))
 print(f"TE11 mode profile vs 2 J1(x)/x and 2 J1'(x): max deviation {shape_error:.3f} (of centre value 1)")
 
-# Standing wave along the axis of the shorted guide.
 zs = np.linspace(0.02 * length, 0.98 * length, 25)
 axis_points = np.column_stack((np.zeros_like(zs), np.zeros_like(zs), zs))
 E_axis = np.asarray(result.field(model.electric_field).evaluate(axis_points))
@@ -177,34 +154,19 @@ print(f"Absorbed power in the lossless guide: {absorbed.value:.3e} {absorbed.uni
 
 # ## Figure
 
-cream = "#fbf5eb"
-fig, axes = plt.subplots(1, 2, figsize=(12, 4.8), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-
-ax = axes[0]
-ax.set_facecolor("#fffaf2")
-fine = np.linspace(-a, a, 300)
-xf = kc_te11 * fine
-ax.plot(fine * 1e3, np.where(np.abs(xf) > 1e-12, 2 * jv(1, xf) / np.where(np.abs(xf) > 1e-12, xf, 1.0), 1.0),
-        color="#39715e", lw=1.8, label="2 J1(k_c r) / (k_c r)  (along E)")
-ax.plot(fine * 1e3, 2 * jvp(1, xf), color="#7a9a3a", lw=1.8, ls="--", label="2 J1'(k_c r)  (across E)")
-ax.plot(radii * 1e3, along, "o", color="#b4572b", ms=4, label="OneSimulation port mode, along E")
-ax.plot(radii * 1e3, across, "s", color="#b4572b", ms=4, mfc="none", label="OneSimulation port mode, across E")
-ax.set(xlabel="Position through the centre / mm", ylabel="E / E(centre)",
-       title=f"TE11 profile — cutoff {f_te11_num / 1e9:.3f} GHz (reference {f_c_te11 / 1e9:.3f} GHz)")
-ax.legend(frameon=False, fontsize=8)
-ax.grid(alpha=0.25)
-
-ax = axes[1]
-ax.set_facecolor("#fffaf2")
-fine_z = np.linspace(0, length, 300)
-ax.plot(fine_z * 1e3, np.abs(np.sin(beta * (length - fine_z))), color="#39715e", lw=1.8, label="|sin(beta (l - z))|")
-ax.plot(zs * 1e3, transverse / transverse.max(), "o", color="#b4572b", ms=4, label="OneSimulation |E_t| on the axis")
-ax.set(xlabel="Position z along the guide / mm", ylabel="|E_t| / max",
-       title=f"Standing wave in the shorted guide at {frequency / 1e9:.1f} GHz")
-ax.legend(frameon=False, fontsize=9)
-ax.grid(alpha=0.25)
-plt.show()
+fine, fine_z = np.linspace(-a, a, 300), np.linspace(0, length, 300)
+xf = np.where(np.abs(kc_te11 * fine) > 1e-12, kc_te11 * fine, 1e-12)
+fig = plots.figure(1, 2, size=(12, 4.8))
+plots.line(points={"along E: 2 J1(k_c r) / (k_c r)": (radii * 1e3, along), "across E: 2 J1'(k_c r)": (radii * 1e3, across)},
+           reference={"along E: 2 J1(k_c r) / (k_c r)": (fine * 1e3, 2 * jv(1, xf) / xf),
+                      "across E: 2 J1'(k_c r)": (fine * 1e3, 2 * jvp(1, xf))},
+           xlabel="position through the centre [mm]", ylabel="E / E(centre)",
+           title=f"TE11 profile, cutoff {f_te11_num / 1e9:.3f} GHz (reference {f_c_te11 / 1e9:.3f} GHz)", ax=fig[0])
+plots.line(points={"OneSimulation |E_t| on the axis": (zs * 1e3, transverse / transverse.max())},
+           reference={"|sin(beta (l - z))|": (fine_z * 1e3, np.abs(np.sin(beta * (length - fine_z))))},
+           xlabel="position z along the guide [mm]", ylabel="|E_t| / max",
+           title=f"Standing wave in the shorted guide at {frequency / 1e9:.1f} GHz", ax=fig[1])
+plots.show()
 
 
 # ## Going further

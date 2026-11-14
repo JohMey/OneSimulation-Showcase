@@ -27,29 +27,8 @@ The OneSimulation mode shapes are checked against the closed-form Euler-Bernoull
 # Beam theory neglects shear deformation and rotary inertia, which lower the second
 # frequency of a solid beam of finite slenderness by a few percent.
 
-from importlib.metadata import version
 from math import pi, sqrt
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 
 from onesim.cad.d3 import Box
 from onesim.materials import IsotropicSolid
@@ -59,8 +38,9 @@ from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import SparseDirect
 from onesim.physics.solid_mechanics import FixedDisplacement, LinearElasticity, TractionFree, structural_modes
 from onesim.simulation import Problem, Simulation
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters and model
@@ -70,11 +50,11 @@ print("OneSimulation:", version("onesimulation"))
 # first weak-axis bending mode, the first strong-axis bending mode and the second
 # weak-axis bending mode.
 
-length, width, height = 0.120, 0.012, 0.008          # m  (x, y, z)
-E, nu, density = 210e9, 0.30, 7850.0                 # Pa, -, kg/m^3 (structural steel)
-inertia = width * height**3 / 12.0                   # weak-axis second moment of area
+length, width, height = 0.120, 0.012, 0.008
+E, nu, density = 210e9, 0.30, 7850.0
+inertia = width * height**3 / 12.0
 area = width * height
-beta_L = (1.8751, 4.6941)                            # clamped-free eigenvalues beta_n L
+beta_L = (1.8751, 4.6941)
 frequency_reference = tuple(bl**2 / (2.0 * pi) * sqrt(E * inertia / (density * area * length**4)) for bl in beta_L)
 ratio_reference = (beta_L[1] / beta_L[0]) ** 2
 print(f"Euler-Bernoulli: f1 = {frequency_reference[0]:.1f} Hz, f2 = {frequency_reference[1]:.1f} Hz, f2/f1 = {ratio_reference:.3f}")
@@ -154,25 +134,17 @@ f1_error = abs(f_1 - frequency_reference[0]) / frequency_reference[0]
 print(f"f1: modal {f_1:.1f} Hz vs Euler-Bernoulli {frequency_reference[0]:.1f} Hz  ({100*f1_error:.2f} %)")
 print(f"f2/f1: modal {ratio:.3f} vs Euler-Bernoulli {ratio_reference:.3f}  ({100*ratio_error:.2f} %, "
       "shear and rotary inertia lower the second mode)")
-# The second mode must have exactly one interior node (sign change) along the beam.
 
 
 # ## Figure
 
-cream = "#fbf5eb"
-fig, ax = plt.subplots(figsize=(8, 4.6), constrained_layout=True)
-fig.patch.set_facecolor(cream); ax.set_facecolor("#fffaf2"); ax.grid(alpha=0.25)
-colors = ("#A85539", "#214D43")
 x_fine = np.linspace(0.0, length, 300)
-for n, ((computed, _), bl, c, f) in enumerate(zip(shapes, beta_L, colors, (f_1, f_2)), start=1):
-    ax.plot(x_fine * 1000, phi(x_fine, bl) / phi(length, bl), "-", color=c, lw=1.8,
-            label=f"Euler-Bernoulli $\\phi_{n}$")
-    ax.plot(x_axis * 1000, computed, "o", color=c, ms=3.5, label=f"OneSimulation mode {n} ({f:.0f} Hz)")
-ax.axhline(0.0, color="#7a7a7a", lw=0.8)
-ax.set(xlabel="Position along the beam x / mm", ylabel="Normalised deflection $w / w_{tip}$",
-       title="Clamped-free beam: first two weak-axis bending mode shapes")
-ax.legend(loc="lower left")
-plt.show()
+labels = [f"mode {n} ({f:.0f} Hz)" for n, f in enumerate((f_1, f_2), start=1)]
+plots.line(points={label: (x_axis * 1000, computed) for label, (computed, _) in zip(labels, shapes)},
+           reference={label: (x_fine * 1000, phi(x_fine, bl) / phi(length, bl)) for label, bl in zip(labels, beta_L)},
+           hlines=0.0, xlabel="position along the beam x [mm]", ylabel="normalised deflection w / w_tip",
+           title="Clamped-free beam: OneSimulation (markers) and Euler-Bernoulli (dashed)", legend="lower left")
+plots.show()
 
 
 # ## Going further
