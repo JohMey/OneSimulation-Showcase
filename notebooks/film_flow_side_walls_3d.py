@@ -55,30 +55,8 @@ function of the aspect ratio W/H, and the centre plane against the Nusselt film 
 # velocity, flow rate), the Nusselt profile as the wide-channel limit of the centre plane, the
 # hydrostatic pressure, and a three-level mesh study for each method.
 
-from importlib.metadata import version
 import time
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
-from matplotlib.colors import TwoSlopeNorm
 
 from onesim.cad.d3 import Box
 from onesim.materials import NewtonianFluid
@@ -90,10 +68,11 @@ from onesim.numerics.linear import SparseDirect
 from onesim.numerics.nonlinear import Newton
 from onesim.physics.hydrodynamics import FlowTraction, IncompressibleNavierStokes, NoSlipWall
 from onesim.simulation import Problem, Simulation
-from onesim.simulation.initial_conditions.values import InitialValue
-from onesim.simulation.problem_definition.boundaries import PeriodicBoundary
+from onesim.simulation.initial_conditions import InitialValue
+from onesim.simulation import PeriodicBoundary
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -101,18 +80,18 @@ print("OneSimulation:", version("onesimulation"))
 # A glycerol-water mixture flows in a channel inclined by 10 degrees. The film depth is 2 mm;
 # the channel width is varied from half the depth to eight times the depth.
 
-H = 0.002                    # m, film depth
-mu = 0.10                    # Pa s, dynamic viscosity
-rho = 1200.0                 # kg/m^3, density
-g = 9.81                     # m/s^2
-beta = np.deg2rad(10.0)      # inclination of the channel
-aspects = (0.5, 1.0, 2.0, 4.0, 8.0)   # W/H of the computed channels
-cells_depth = 16             # finite-element cells across the depth (each cube split into 6 tetrahedra)
+H = 0.002
+mu = 0.10
+rho = 1200.0
+g = 9.81
+beta = np.deg2rad(10.0)
+aspects = (0.5, 1.0, 2.0, 4.0, 8.0)
+cells_depth = 16
 
-G = rho * g * np.sin(beta)                  # N/m^3, driving body force along the channel
-u_nusselt = G * H**2 / (2 * mu)             # m/s, surface speed of the Nusselt film
-q_nusselt = G * H**3 / (3 * mu)             # m^2/s, Nusselt flow rate per unit width
-p_bottom = rho * g * np.cos(beta) * H       # Pa, hydrostatic pressure at the bottom
+G = rho * g * np.sin(beta)
+u_nusselt = G * H**2 / (2 * mu)
+q_nusselt = G * H**3 / (3 * mu)
+p_bottom = rho * g * np.cos(beta) * H
 reynolds = rho * q_nusselt / mu
 print(f"Nusselt film: surface speed {1e3*u_nusselt:.3f} mm/s, flow rate per width {1e6*q_nusselt:.4f} mm^2/s, "
       f"Re = rho q_N / mu = {reynolds:.3f} (laminar)")
@@ -125,14 +104,13 @@ def exact_velocity(y, z, W, terms=200):
     s = np.abs(y - W / 2)
     for n in range(terms):
         lam = (2 * n + 1) * np.pi / (2 * H)
-        # cosh(lam s) / cosh(lam W/2), written without overflow
         ratio = np.exp(lam * (s - W / 2)) * (1 + np.exp(-2 * lam * s)) / (1 + np.exp(-lam * W))
         u = u - 2 / (H * lam**3) * np.sin(lam * z) * ratio
     return G / mu * u
 
 
 def exact_flow_rate(W, terms=400):
-    k = (2 * np.arange(terms) + 1) * np.pi / 2          # lambda_n H
+    k = (2 * np.arange(terms) + 1) * np.pi / 2
     return q_nusselt * W * (1 - 12 * H / W * np.sum(np.tanh(k * W / (2 * H)) / k**5))
 
 
@@ -160,10 +138,6 @@ def gravity(x, y, z):
     return np.column_stack((np.full(n, G), np.zeros(n), np.full(n, -rho * g * np.cos(beta))))
 
 
-def no_traction(x, y, z):
-    return np.zeros((len(np.asarray(x)), 3))
-
-
 # ## Model
 
 fluid = NewtonianFluid(density=rho, dynamic_viscosity=mu)
@@ -173,7 +147,7 @@ def solve(method, aspect, cells_deep):
     W = aspect * H
     cells_across = int(round(aspect * cells_deep))
     cells_along = 1 if method == "fem" else 5
-    box = Box(length=cells_along * W / cells_across, width=W, height=H)   # cubic cells along x
+    box = Box(length=cells_along * W / cells_across, width=W, height=H)
     model = IncompressibleNavierStokes(domain=box.volume, material=fluid, body_force=gravity)
     periodic = PeriodicPair(first=box.boundaries.x_min, second=box.boundaries.x_max)
     problem = Problem(
@@ -182,7 +156,7 @@ def solve(method, aspect, cells_deep):
         physics=(model,),
         boundary_conditions=(
             NoSlipWall(boundary=box.boundaries.z_min | box.boundaries.y_min | box.boundaries.y_max, physics=model),
-            FlowTraction(boundary=box.boundaries.z_max, physics=model, value=no_traction),
+            FlowTraction(boundary=box.boundaries.z_max, physics=model, value=(0.0, 0.0, 0.0)),
             PeriodicBoundary(pair=periodic, physics=model),
         ),
         initial_conditions=(InitialValue(model.velocity, (0.0, 0.0, 0.0)),),
@@ -202,7 +176,6 @@ def solve(method, aspect, cells_deep):
     velocity, pressure = result.field(model.velocity), result.field(model.pressure)
     x_mid = box.length / 2
 
-    # flow rate: 4 x 4 Gauss points in every grid square of the cross-section x = Lx/2
     gp, gw = np.polynomial.legendre.leggauss(4)
     gp, gw = (gp + 1) / 2, gw / 2
     yb, zb = np.linspace(0, W, cells_across + 1), np.linspace(0, H, cells_deep + 1)
@@ -212,7 +185,6 @@ def solve(method, aspect, cells_deep):
     Uq = np.asarray(velocity.evaluate(np.column_stack((np.full(Yq.size, x_mid), Yq.ravel(), Zq.ravel()))))
     flow_rate = float(np.einsum("i,j,ij->", wy, wz, Uq[:, 0].reshape(Yq.shape)))
 
-    # cross-section sampling grid for the field comparison and the figure
     yg, zg = np.linspace(0, W, int(40 * aspect) + 1), np.linspace(0, H, 41)
     Yg, Zg = np.meshgrid(yg, zg, indexing="ij")
     Ug = np.asarray(velocity.evaluate(np.column_stack((np.full(Yg.size, x_mid), Yg.ravel(), Zg.ravel()))))
@@ -298,74 +270,43 @@ for name, runs in (("Taylor-Hood FEM", fem_study), ("MAC finite differences", ma
 # velocity across the channel, the flow rate as a function of the aspect ratio, and the error of
 # both methods under mesh refinement.
 
-fig = plt.figure(figsize=(16, 8.4), constrained_layout=True)
-layout = fig.add_gridspec(2, 6, height_ratios=(0.62, 1.0))
 run = fem[4.0]
-Ymm, Zmm = 1e3 * run["Y"], 1e3 * run["Z"]
-
-ax = fig.add_subplot(layout[0, 0:3])
-filled = ax.contourf(Ymm, Zmm, run["U"] / u_nusselt, levels=np.linspace(0, 1, 41), cmap=FIELD_CMAP)
-ax.contour(Ymm, Zmm, run["U"] / u_nusselt, levels=np.linspace(0.1, 0.9, 9), colors=INK, linewidths=0.6)
-ax.set_aspect("equal")
-ax.set(xlabel="y across the channel / mm", ylabel="z above the bottom / mm",
-       title="Taylor-Hood FEM, W/H = 4: streamwise velocity u / u_N(H)")
-fig.colorbar(filled, ax=ax, orientation="horizontal", shrink=0.8, pad=0.02, label="u / u_N(H)")
-
-ax = fig.add_subplot(layout[0, 3:6])
-deviation = (run["U"] - exact_velocity(run["Y"], run["Z"], run["W"])) / u_nusselt
-limit = np.max(np.abs(deviation))
-filled = ax.contourf(Ymm, Zmm, deviation, levels=np.linspace(-limit, limit, 41), cmap=DIVERGING_CMAP,
-                     norm=TwoSlopeNorm(0.0, -limit, limit))
-ax.set_aspect("equal")
-ax.set(xlabel="y across the channel / mm", ylabel="z above the bottom / mm",
-       title="Deviation from the exact series, (u - u_exact) / u_N(H)")
-fig.colorbar(filled, ax=ax, orientation="horizontal", shrink=0.8, pad=0.02, format="%.1e")
-
-shades = [GREEN, "#5F9175", "#A8BC91", COPPER, "#A85539"]
-ax = fig.add_subplot(layout[1, 0:2])
 z_line = np.linspace(0, H, 201)
-for colour, (aspect, r) in zip(shades, fem.items()):
-    j = r["Y"].shape[0] // 2
-    ax.plot(exact_velocity(r["W"] / 2, z_line, r["W"]) / u_nusselt, 1e3 * z_line, color=colour, lw=1.2)
-    ax.plot(r["U"][j][::4] / u_nusselt, 1e3 * r["Z"][j][::4], "o", color=colour, ms=4, label=f"W/H = {aspect:g}")
-ax.plot((H * z_line - z_line**2 / 2) * G / mu / u_nusselt, 1e3 * z_line, "--", color=INK, lw=1.2, label="Nusselt film")
-ax.set(xlabel="u / u_N(H) on the centre plane y = W/2", ylabel="z / mm", title="Centre-plane profiles: FEM (dots), series (lines)")
-ax.legend(fontsize=8, loc="lower right")
-ax.grid(alpha=0.3)
-
-ax = fig.add_subplot(layout[1, 2:4])
-for colour, (aspect, r) in zip(shades, fem.items()):
-    y_line = np.linspace(0, r["W"], 201)
-    ax.plot(y_line / r["W"], exact_velocity(y_line, H, r["W"]) / u_nusselt, color=colour, lw=1.2)
-    step = max(1, r["Y"].shape[0] // 20)
-    ax.plot(r["Y"][::step, -1] / r["W"], r["U"][::step, -1] / u_nusselt, "o", color=colour, ms=4, label=f"W/H = {aspect:g}")
-ax.set(xlabel="y / W", ylabel="surface velocity u(y, H) / u_N(H)", title="Free-surface velocity across the channel")
-ax.legend(fontsize=8, loc="center", bbox_to_anchor=(0.5, 0.4))
-ax.grid(alpha=0.3)
-
-ax = fig.add_subplot(layout[1, 4])
-A = np.geomspace(0.25, 20, 200)
-ax.plot(A, [exact_flow_rate(a * H) / (a * H * q_nusselt) for a in A], color=GREEN, lw=1.5, label="exact series")
-ax.plot(A[A > 1.5], 1 - 1.2605 / A[A > 1.5], ":", color=INK, lw=1.2, label="1 - 1.2605 H/W")
-ax.plot(list(fem), [r["Q"] / (r["W"] * q_nusselt) for r in fem.values()], "o", color=COPPER, label="Taylor-Hood FEM")
-ax.plot([4.0], [mac_study[-1]["Q"] / (W4 * q_nusselt)], "s", mfc="none", color=INK, ms=8, label="MAC FD")
-ax.set_xscale("log")
-ax.set(xlabel="aspect ratio W/H", ylabel="Q / (W q_N)", title="Flow rate vs width", ylim=(0, 1.02))
-ax.legend(fontsize=7.5, loc="upper left")
-ax.grid(alpha=0.3)
-
-ax = fig.add_subplot(layout[1, 5])
-for name, runs, marker, colour in (("Taylor-Hood FEM", fem_study, "o-", COPPER), ("MAC FD", mac_study, "s-", GREEN)):
-    hs = np.array([r["h"] for r in runs]) / H
-    ax.loglog(hs, [abs(r["Q"] / Q4 - 1) for r in runs], marker, color=colour, label=f"{name}: flow rate")
-    ax.loglog(hs, [abs(r["u_s"] / us4 - 1) for r in runs], marker.replace("-", "--"), color=colour, mfc="none",
-              label=f"{name}: surface speed")
-ax.set_xticks([1 / 32, 1 / 16, 1 / 8, 1 / 4], ["1/32", "1/16", "1/8", "1/4"])
-ax.minorticks_off()
-ax.set(xlabel="cell size h / H", ylabel="relative error vs series", title="Mesh study, W/H = 4")
-ax.legend(fontsize=7)
-ax.grid(alpha=0.3, which="both")
-plt.show()
+aspects = np.geomspace(0.25, 20, 200)
+labelled = {f"W/H = {aspect:g}": r for aspect, r in fem.items()}
+studies = {"Taylor-Hood FEM": fem_study, "MAC FD": mac_study}
+fig = plots.figure(layout=[["field"] * 3 + ["deviation"] * 3, ["centre", "centre", "surface", "surface", "rate", "study"]],
+                   size=(16, 8.4))
+plots.heatmap(1e3 * run["Y"], 1e3 * run["Z"], run["U"] / u_nusselt, limits=(0, 1), contours=9, label="u / u_N(H)",
+              xlabel="y across the channel [mm]", ylabel="z above the bottom [mm]",
+              title="Taylor-Hood FEM, W/H = 4: streamwise velocity u / u_N(H)", ax=fig["field"])
+plots.heatmap(1e3 * run["Y"], 1e3 * run["Z"], (run["U"] - exact_velocity(run["Y"], run["Z"], run["W"])) / u_nusselt,
+              colormap="diverging", label="(u - u_exact) / u_N(H)", xlabel="y across the channel [mm]",
+              ylabel="z above the bottom [mm]", title="Deviation from the exact series", ax=fig["deviation"])
+plots.line(points={label: (r["U"][r["Y"].shape[0] // 2][::4] / u_nusselt, 1e3 * r["Z"][r["Y"].shape[0] // 2][::4])
+                   for label, r in labelled.items()},
+           reference={**{label: (exact_velocity(r["W"] / 2, z_line, r["W"]) / u_nusselt, 1e3 * z_line) for label, r in labelled.items()},
+                      "Nusselt film": ((H * z_line - z_line**2 / 2) * G / mu / u_nusselt, 1e3 * z_line)},
+           xlabel="u / u_N(H) on the centre plane y = W/2", ylabel="z [mm]",
+           title="Centre-plane profiles: FEM (markers), series (dashed)", legend="lower right", ax=fig["centre"])
+plots.line(points={label: (r["Y"][::max(1, r["Y"].shape[0] // 20), -1] / r["W"], r["U"][::max(1, r["Y"].shape[0] // 20), -1] / u_nusselt)
+                   for label, r in labelled.items()},
+           reference={label: (np.linspace(0, 1, 201), exact_velocity(np.linspace(0, r["W"], 201), H, r["W"]) / u_nusselt)
+                      for label, r in labelled.items()},
+           xlabel="y / W", ylabel="surface velocity u(y, H) / u_N(H)", title="Free-surface velocity across the channel",
+           legend="center", ax=fig["surface"])
+plots.line(aspects, {"exact series": [exact_flow_rate(a * H) / (a * H * q_nusselt) for a in aspects]},
+           reference={"1 - 1.2605 H/W": (aspects[aspects > 1.5], 1 - 1.2605 / aspects[aspects > 1.5])},
+           points={"Taylor-Hood FEM": (list(fem), [r["Q"] / (r["W"] * q_nusselt) for r in fem.values()]),
+                   "MAC FD": ([4.0], [mac_study[-1]["Q"] / (W4 * q_nusselt)])},
+           scale="logx", ylimits=(0, 1.02), xlabel="aspect ratio W/H", ylabel="Q / (W q_N)", title="Flow rate vs width",
+           legend="upper left", ax=fig["rate"])
+plots.line(y={**{f"{name}: flow rate": ([r["h"] / H for r in runs], [abs(r["Q"] / Q4 - 1) for r in runs]) for name, runs in studies.items()},
+              **{f"{name}: surface speed": ([r["h"] / H for r in runs], [abs(r["u_s"] / us4 - 1) for r in runs]) for name, runs in studies.items()}},
+           colors={f"{name}: {kind}": n for n, name in enumerate(studies) for kind in ("flow rate", "surface speed")},
+           styles={f"{name}: surface speed": "dashed" for name in studies}, markers=True, scale="loglog",
+           xlabel="cell size h / H", ylabel="relative error vs series", title="Mesh study, W/H = 4", ax=fig["study"])
+plots.show()
 
 
 # ## Going further

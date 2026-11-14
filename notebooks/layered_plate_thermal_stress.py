@@ -71,30 +71,9 @@ with the section equilibrium and a mesh study at the free edge.
 # rigid-body modes eliminated exactly, and four plane-strain traction updates
 # (a fixed-point iteration) are made per mesh.
 
-from importlib.metadata import version
-
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 import numpy as np
 
+from onesim.cad.d2 import Plane
 from onesim.cad.d3 import TrilinearHexahedron
 from onesim.materials import IsotropicSolid
 from onesim.meshing import TrilinearHexahedralMesher
@@ -107,20 +86,21 @@ from onesim.physics.solid_mechanics import IsotropicThermalExpansion, LinearElas
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.field_connections import FieldCoupling
 from onesim.simulation.field_constraints import RigidMotionGauge
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
 
-length = 0.020                              # m, plate length (x)
-h_sub, h_coat = 0.010, 0.002                # m, substrate and coating thickness (y)
+length = 0.020
+h_sub, h_coat = 0.010, 0.002
 height = h_sub + h_coat
-slab = 0.0005                               # m, extrusion depth (z); any value gives the same plane-strain field
+slab = 0.0005
 E_sub, nu_sub, alpha_sub = 130e9, 0.28, 3.0e-6
 E_coat, nu_coat, alpha_coat = 70e9, 0.17, 5.0e-7
-T_stress_free = 1073.15                     # K (800 degC)
-T_final = 423.15                            # K (150 degC)
+T_stress_free = 1073.15
+T_final = 423.15
 delta_T = T_final - T_stress_free
 
 
@@ -148,7 +128,6 @@ material = IsotropicSolid(
     thermal_expansion_coefficient=LayerProperty(alpha_sub, alpha_coat, "1/K"),
 )
 
-# Closed-form bilayer solution (plane strain): solve for eps0 and kappa.
 layers = ((0.0, h_sub, E_sub, nu_sub, alpha_sub), (h_sub, height, E_coat, nu_coat, alpha_coat))
 matrix, rhs = np.zeros((2, 2)), np.zeros(2)
 for y0, y1, E, nu, alpha in layers:
@@ -196,10 +175,10 @@ def geometric(n, ratio):
 
 
 def mesh_axes(nx, n_sub, n_coat):
-    half = 0.5 * geometric(nx // 2, 50.0)                         # geometric toward each free end
+    half = 0.5 * geometric(nx // 2, 50.0)
     x = np.r_[half, 1.0 - half[::-1][1:]]
-    y_sub = h_sub * (1 - geometric(n_sub, 40.0)[::-1])            # geometric toward the interface
-    y_coat = h_sub + h_coat * geometric(n_coat, 8.0)              # geometric away from the interface
+    y_sub = h_sub * (1 - geometric(n_sub, 40.0)[::-1])
+    y_coat = h_sub + h_coat * geometric(n_coat, 8.0)
     y = np.r_[y_sub, y_coat[1:]] / height
     x[-1] = y[-1] = 1.0
     return x, y
@@ -259,14 +238,12 @@ def solve_plane_strain(plate, cells, iterations=4):
     geometry, faces, solid, L = plate["geometry"], plate["faces"], plate["solid"], plate["length"]
     x_axis, y_axis = mesh_axes(*cells)
     mesh = TrilinearHexahedralMesher(reference_axes=(tuple(x_axis), tuple(y_axis), (0.0, 1.0))).generate(geometry)
-    # The z faces of this tensor grid are integrated with 3 x 3 Gauss points per
-    # cell; the traction is tabulated exactly at these points.
     g = (np.polynomial.legendre.leggauss(3)[0] + 1) / 2
     xg = np.sort(((x_axis[:-1, None] + np.diff(x_axis)[:, None] * g) * L).ravel())
     yg = np.sort(((y_axis[:-1, None] + np.diff(y_axis)[:, None] * g) * height).ravel())
     XG, YG = np.meshgrid(xg, yg, indexing="ij")
     E, nu, alpha = layer_constants(YG)
-    table = {"szz": -E * alpha * delta_T}            # start: plane-strain value of a free layer
+    table = {"szz": -E * alpha * delta_T}
 
     def szz(x, y):
         i = np.abs(xg[:, None] - np.ravel(x)[None, :]).argmin(axis=0)
@@ -417,63 +394,24 @@ for name, (f1, f2, f3) in quantities.items():
 # the 20 mm plate and for the 60 mm plate.
 
 result = runs[mesh_family[-1]]
-operator = result.operators[plate["solid"].model_id]
-space = operator.space
-values = np.asarray(result.field(plate["solid"].displacement).values)
-m = 6
-grid_1d = np.linspace(0.0, 1.0, m)
-local = np.array([(a, b, 0.5) for a in grid_1d for b in grid_1d])
-sub = np.array([(i * m + j, (i + 1) * m + j, (i + 1) * m + j + 1, i * m + j + 1)
-                for i in range(m - 1) for j in range(m - 1)])
-local_triangles = np.r_[sub[:, [0, 1, 2]], sub[:, [0, 2, 3]]]
-points, sxx, syy, triangles = [], [], [], []
-for cell in range(len(space.cell_dofs)):
-    pts = space.geometry.map(cell, local)
-    gradient = np.einsum("qnd,nc->qcd", space.gradients(cell, local), values[space.cell_dofs[cell]])
-    s = in_plane_stress(gradient, np.full(len(pts), pts[:, 1].mean()))   # each cell lies in one layer
-    points.append(pts); sxx.append(s["xx"]); syy.append(s["yy"])
-    triangles.append(local_triangles + cell * m * m)
-points, sxx, syy, triangles = (np.concatenate(v) for v in (points, sxx, syy, triangles))
-
-cream = "#fbf5eb"
-fig, panels = plt.subplots(1, 3, figsize=(16, 4.8), constrained_layout=True,
-                           gridspec_kw={"width_ratios": (1.55, 0.85, 0.9)})
-fig.patch.set_facecolor(cream)
-
-ax = panels[0]
-levels = np.linspace(-120, 120, 49)
-im = ax.tricontourf(points[:, 0] * 1e3, points[:, 1] * 1e3, triangles, sxx / 1e6,
-                    levels=levels, cmap=DIVERGING_CMAP, extend="both")
-ax.axhline(h_sub * 1e3, color="k", lw=0.6)
-fig.colorbar(im, ax=ax, label="sigma_xx / MPa", ticks=np.arange(-120, 121, 40))
-ax.set(xlabel="x / mm", ylabel="y / mm", title="Axial stress sigma_xx in the section", aspect="equal")
-
-ax = panels[1]
-levels = np.linspace(-100, 100, 41)
-im = ax.tricontourf(points[:, 0] * 1e3, points[:, 1] * 1e3, triangles, syy / 1e6,
-                    levels=levels, cmap=DIVERGING_CMAP, extend="both")
-ax.axhline(h_sub * 1e3, color="k", lw=0.6)
-fig.colorbar(im, ax=ax, label="sigma_yy / MPa", ticks=np.arange(-100, 101, 25))
-ax.set(xlabel="x / mm", ylabel="y / mm", xlim=(0, 3), ylim=(7, 12),
-       title="Peel stress near the free end", aspect="equal")
-
-ax = panels[2]
-ax.set_facecolor("#fffaf2"); ax.grid(alpha=0.25)
-for coat, (y0, y1) in ((False, (0.0, h_sub)), (True, (h_sub, height))):
-    yy = np.linspace(y0, y1, 50)
-    ax.plot(sigma_xx_bilayer(yy, coat) / 1e6, yy * 1e3, color="#A85539", lw=1.8,
-            label="bilayer (Timoshenko)" if not coat else None)
-    yq = np.linspace(y0 + tiny, y1 - tiny, 21)
-    short = evaluate_stress(plate, result, [[length / 2, y, slab / 2] for y in yq])[:, 0]
-    long_ = evaluate_stress(long_plate, long_result, [[1.5 * length, y, slab / 2] for y in yq])[:, 0]
-    ax.plot(short / 1e6, yq * 1e3, "o", color="#39715e", ms=3.5,
-            label="OneSimulation, 20 mm plate" if not coat else None)
-    ax.plot(long_ / 1e6, yq * 1e3, "s", mfc="none", color="#214D43", ms=4.5,
-            label="OneSimulation, 60 mm plate" if not coat else None)
-ax.axhline(h_sub * 1e3, color="k", lw=0.6)
-ax.set(xlabel="sigma_xx / MPa", ylabel="y / mm", title="Mid-span stress profile")
-ax.legend(frameon=False, fontsize=9)
-plt.show()
+stress = result.field(plate["solid"].stress)
+mid_plane = Plane(origin=(0.0, 0.0, slab / 2), normal=(0.0, 0.0, 1.0))
+heights = np.r_[np.linspace(tiny, h_sub - tiny, 21), np.linspace(h_sub + tiny, height - tiny, 21)]
+theory_y = np.r_[np.linspace(0.0, h_sub, 50), np.linspace(h_sub, height, 50)]
+theory = np.r_[sigma_xx_bilayer(theory_y[:50], False), sigma_xx_bilayer(theory_y[50:], True)]
+fig = plots.figure(1, 3, size=(16, 4.8))
+plots.section(stress, plane=mid_plane, component=lambda s, p: s[:, 0] / 1e6, colormap="diverging", limits=(-120, 120),
+              subdivisions=3, label="sigma_xx [MPa]", title="Axial stress sigma_xx in the section", ax=fig[0])
+plots.section(stress, plane=mid_plane, component=lambda s, p: s[:, 1] / 1e6, colormap="diverging", limits=(-100, 100),
+              subdivisions=3, label="sigma_yy [MPa]", title="Peel stress near the free end",
+              xlimits=(0.0, 3e-3), ylimits=(7e-3, 12e-3), ax=fig[1])
+plots.line(points={"OneSimulation, 20 mm plate":
+                   (evaluate_stress(plate, result, [[length / 2, y, slab / 2] for y in heights])[:, 0] / 1e6, heights * 1e3),
+                   "OneSimulation, 60 mm plate":
+                   (evaluate_stress(long_plate, long_result, [[1.5 * length, y, slab / 2] for y in heights])[:, 0] / 1e6, heights * 1e3)},
+           reference={"bilayer (Timoshenko)": (theory / 1e6, theory_y * 1e3)}, hlines={"interface": h_sub * 1e3},
+           xlabel="sigma_xx [MPa]", ylabel="y [mm]", title="Mid-span stress profile", ax=fig[2])
+plots.show()
 
 
 # ## Going further

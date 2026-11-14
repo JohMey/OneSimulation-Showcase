@@ -51,38 +51,13 @@ and the published steady state and temperature overshoot of this startup problem
 # solution of this startup reports a steady state of about 472 mol/m$^3$ and
 # 337 K and a temperature overshoot to about 362 K, above the 355 K safety limit.
 
-from importlib.metadata import version
-
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
 
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
+from onesim.numerics.time import AdaptiveBDF, AdaptiveRungeKutta45, EventDefinition
+from onesim.numerics.time import DEFAULT_TIME_INTEGRATOR_REGISTRY
+from onesim.visualization import theme, plots
 
-from onesim.numerics.discretization.execution.backends.dynamic_analysis import (
-    AdaptiveBDF,
-    AdaptiveRungeKutta45,
-    EventDefinition,
-)
-from onesim.numerics.time.integration.time_integration import DEFAULT_TIME_INTEGRATOR_REGISTRY
-
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -92,36 +67,36 @@ print("OneSimulation:", version("onesimulation"))
 # built from standard atomic weights, so the reaction conserves mass exactly. The
 # base startup begins with 1400 mol/m$^3$ of propylene oxide in water at 340 K.
 
-R_GAS = 8.314462618                     # J/(mol K)
-pre_exponential = 4.71e9                # 1/s, A
-activation_energy = 75.358e3            # J/mol, E
-volume = 1.89                           # m^3, V
-feed_flow = 3.47e-3                     # m^3/s, v_f
+R_GAS = 8.314462618
+pre_exponential = 4.71e9
+activation_energy = 75.358e3
+volume = 1.89
+feed_flow = 3.47e-3
 species = ("propylene oxide", "water", "propylene glycol", "methanol")
-feed_concentration = np.array([2903.0, 36291.0, 0.0, 3629.0])        # mol/m^3, c_f
+feed_concentration = np.array([2903.0, 36291.0, 0.0, 3629.0])
 atomic = {"C": 12.011, "H": 1.008, "O": 15.999}
 formula = ({"C": 3, "H": 6, "O": 1}, {"H": 2, "O": 1}, {"C": 3, "H": 8, "O": 2}, {"C": 1, "H": 4, "O": 1})
-molar_mass = np.array([sum(atomic[e] * n for e, n in f.items()) for f in formula]) * 1e-3   # kg/mol
-density = np.array([830.0, 1000.0, 1036.0, 792.0])                   # kg/m^3
-heat_capacity = np.array([146.5, 75.4, 192.6, 81.6])                 # J/(mol K)
-formation_enthalpy = np.array([-153.5e3, -286.1e3, -525.6e3, -238.6])   # J/mol at T_ref
+molar_mass = np.array([sum(atomic[e] * n for e, n in f.items()) for f in formula]) * 1e-3
+density = np.array([830.0, 1000.0, 1036.0, 792.0])
+heat_capacity = np.array([146.5, 75.4, 192.6, 81.6])
+formation_enthalpy = np.array([-153.5e3, -286.1e3, -525.6e3, -238.6])
 stoichiometry = np.array([-1.0, -1.0, 1.0, 0.0])
-feed_temperature = 297.0                # K, T_f
-reference_temperature = 293.0           # K, T_ref
-coolant_temperature = 289.0             # K, T_x
-coolant_flow = 126.0                    # mol/s, F_x
-coolant_heat_capacity = 75.4            # J/(mol K), C_px
-exchanger_ua = 8441.0                   # W/K, UA
-safety_limit = 355.0                    # K
-initial_water = 55273.0                 # mol/m^3
-end_time = 4.0 * 3600.0                 # s
+feed_temperature = 297.0
+reference_temperature = 293.0
+coolant_temperature = 289.0
+coolant_flow = 126.0
+coolant_heat_capacity = 75.4
+exchanger_ua = 8441.0
+safety_limit = 355.0
+initial_water = 55273.0
+end_time = 4.0 * 3600.0
 
-reaction_enthalpy_ref = stoichiometry @ formation_enthalpy          # J/mol
-reaction_heat_capacity = stoichiometry @ heat_capacity              # J/(mol K)
-contraction = stoichiometry @ (molar_mass / density)                # m^3/mol of reaction
+reaction_enthalpy_ref = stoichiometry @ formation_enthalpy
+reaction_heat_capacity = stoichiometry @ heat_capacity
+contraction = stoichiometry @ (molar_mass / density)
 coil_conductance = coolant_flow * coolant_heat_capacity * (
-    1.0 - np.exp(-exchanger_ua / (coolant_flow * coolant_heat_capacity)))   # W/K
-feed_heat_flow = feed_flow * (feed_concentration @ heat_capacity)   # W/K
+    1.0 - np.exp(-exchanger_ua / (coolant_flow * coolant_heat_capacity)))
+feed_heat_flow = feed_flow * (feed_concentration @ heat_capacity)
 residence_time = volume / feed_flow
 print(f"Reaction enthalpy at T_ref = {reaction_enthalpy_ref / 1e3:.1f} kJ/mol, "
       f"Delta C_p = {reaction_heat_capacity:.1f} J/(mol K), contraction = {contraction * 1e6:.2f} cm^3/mol")
@@ -176,7 +151,6 @@ def initial_state(c_po, temperature):
     return np.array([c_po, initial_water, 0.0, 0.0, temperature])
 
 
-# A non-terminal event on dT/dt = 0 (falling) locates every temperature maximum.
 temperature_peak = EventDefinition("temperature maximum", lambda t, y: reactor_rhs(t, y)[4], direction=-1)
 concentration_minimum = EventDefinition("PO minimum", lambda t, y: reactor_rhs(t, y)[0], direction=1)
 
@@ -359,7 +333,6 @@ for size, mismatch in linearisation_mismatch.items():
 print(f"  ratio of the two mismatches: {linearisation_mismatch[0.5] / linearisation_mismatch[0.05]:.2f} "
       f"(10 for a correct linearisation)")
 
-# Integral balances on a 1 s grid of the reference dense output (composite Simpson rule).
 grid = np.linspace(0.0, end_time, 14401)
 dense = np.array([reference_run.dense_state(t) for t in grid])
 rate_grid = rate_coefficient(dense[:, 4]) * dense[:, 0]
@@ -404,61 +377,30 @@ print("  observed order of classical RK4 on step halving (60 s is too coarse for
 
 # ## Figure
 
-fig, axes = plt.subplots(2, 2, figsize=(12, 9.5), constrained_layout=True)
-ax = axes[0, 0]
 dense_times = np.linspace(0.0, end_time, 4001)
 zoom_times = np.linspace(0.0, 5400.0, 2701)
 base_dense = np.array([base.dense_state(t) for t in zoom_times])
-ax.plot(zoom_times / 60, base_dense[:, 4], color=COPPER, lw=1.8, label="Temperature (RK45)")
-ax.axhline(steady[4], color=COPPER, ls=":", lw=1.0, label=f"Steady state {steady[4]:.1f} K")
-ax.axhline(safety_limit, color=INK, ls="--", lw=1.0, label="Safety limit 355 K")
-ax.plot(peak_event.time / 60, peak_event.state[4], "o", color=COPPER, ms=6, label="Located maximum (event)")
-ax.set(xlabel="Time / min", ylabel="Reactor temperature / K", title="Startup from 1400 mol/m$^3$ PO at 340 K")
-ax2 = ax.twinx()
-ax2.plot(zoom_times / 60, base_dense[:, 0], color=GREEN, lw=1.8, label="Propylene oxide (RK45)")
-ax2.axhline(steady[0], color=GREEN, ls=":", lw=1.0)
-ax2.set_ylabel("Propylene oxide / (mol/m$^3$)", color=GREEN)
-lines = ax.get_legend_handles_labels()
-lines2 = ax2.get_legend_handles_labels()
-ax.legend(lines[0] + lines2[0], lines[1] + lines2[1], loc="upper right", fontsize=8.5)
-ax.set_xlim(0, 90)
-ax.grid(alpha=0.3)
-
-ax = axes[0, 1]
-for (label, run), colour in zip(runs.items(), (COPPER, GREEN, "#8B9A8D")):
-    trajectory = np.array([run.dense_state(t) for t in dense_times])
-    ax.plot(trajectory[:, 4], trajectory[:, 0], color=colour, lw=1.6, label=label)
-    ax.plot(trajectory[0, 4], trajectory[0, 0], "o", color=colour, ms=5)
-ax.plot(steady[4], steady[0], "*", color=INK, ms=13, label="Steady state (algebraic balance)")
-ax.axvline(safety_limit, color=INK, ls="--", lw=1.0)
-ax.text(safety_limit + 0.4, 900, "safety\nlimit", fontsize=9)
-ax.set(xlabel="Temperature / K", ylabel="Propylene oxide / (mol/m$^3$)",
-       title="Phase plane: three startups, one stable focus")
-ax.legend(loc="upper right", fontsize=8.5)
-ax.grid(alpha=0.3)
-
-ax = axes[1, 0]
+trajectories = {label: np.array([run.dense_state(t) for t in dense_times]) for label, run in runs.items()}
 temperature_axis = np.linspace(290.0, 420.0, 600)
-ax.plot(temperature_axis, [heat_generation(T) / 1e3 for T in temperature_axis], color=COPPER, lw=1.8,
-        label="Heat generation $-V\\Delta H_r r_{ss}(T)$")
-ax.plot(temperature_axis, [heat_removal(T) / 1e3 for T in temperature_axis], color=GREEN, lw=1.8,
-        label="Heat removal (coil + feed)")
-for state in steady_states:
-    ax.plot(state[4], heat_removal(state[4]) / 1e3, "*", color=INK, ms=13)
-ax.set(xlabel="Temperature / K", ylabel="Heat flow / kW",
-       title=f"Steady-state heat balance: {len(steady_states)} intersection(s)")
-ax.legend(loc="upper left", fontsize=9)
-ax.grid(alpha=0.3)
-
-ax = axes[1, 1]
-for (method, rows), marker, colour in zip(comparison.items(), ("o", "s", "^"), (GREEN, COPPER, "#8B9A8D")):
-    rows = np.array([(r[2], r[3]) for r in rows])
-    ax.loglog(rows[:, 0], rows[:, 1], marker + "-", color=colour, lw=1.5, ms=6, label=method)
-ax.set(xlabel="Right-hand-side evaluations", ylabel="max |T - T$_{ref}$| / K",
-       title="Work-precision of three time integrators")
-ax.legend(loc="upper right", fontsize=9)
-ax.grid(alpha=0.3, which="both")
-plt.show()
+fig = plots.figure(2, 2, size=(12, 9.5))
+plots.line(zoom_times / 60, {"temperature (RK45)": base_dense[:, 4]}, right={"propylene oxide (RK45)": base_dense[:, 0]},
+           points={"located maximum (event)": ([peak_event.time / 60], [peak_event.state[4]])},
+           hlines={f"steady state {steady[4]:.1f} K": steady[4], "safety limit 355 K": safety_limit}, xlimits=(0, 90),
+           xlabel="time [min]", ylabel="reactor temperature [K]", right_label="propylene oxide [mol/m³]",
+           title="Startup from 1400 mol/m³ PO at 340 K", legend="upper right", ax=fig[0])
+plots.line(y={label: (path[:, 4], path[:, 0]) for label, path in trajectories.items()},
+           points={"steady state (algebraic balance)": ([steady[4]], [steady[0]])},
+           vlines={"safety limit": safety_limit}, xlabel="temperature [K]", ylabel="propylene oxide [mol/m³]",
+           title="Phase plane: three startups, one stable focus", legend="upper right", ax=fig[1])
+plots.line(temperature_axis, {"heat generation": [heat_generation(T) / 1e3 for T in temperature_axis],
+                              "heat removal (coil + feed)": [heat_removal(T) / 1e3 for T in temperature_axis]},
+           points={"steady states": ([state[4] for state in steady_states], [heat_removal(state[4]) / 1e3 for state in steady_states])},
+           xlabel="temperature [K]", ylabel="heat flow [kW]",
+           title=f"Steady-state heat balance: {len(steady_states)} intersection(s)", legend="upper left", ax=fig[2])
+plots.line(y={method: (np.array(rows)[:, 2].astype(float), np.array(rows)[:, 3].astype(float)) for method, rows in comparison.items()},
+           markers=True, scale="loglog", xlabel="right-hand-side evaluations", ylabel="max |T - T_ref| [K]",
+           title="Work-precision of three time integrators", legend="upper right", ax=fig[3])
+plots.show()
 
 
 # ## Going further

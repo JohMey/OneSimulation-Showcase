@@ -83,59 +83,29 @@ the wall thickness.
 # - Global equilibrium of the octant: the reaction on $z=0$ equals $p\,\pi a^2/4$, the
 #   reactions on $x=0$ and $y=0$ equal $p\,(aL+\pi a^2/4)$.
 
-from dataclasses import dataclass, replace
-from hashlib import sha256
-from importlib.metadata import version
-from itertools import product
 import time
-
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 import numpy as np
-from matplotlib import cm, colors
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-from scipy.optimize import brentq
 
-from onesim.cad.geometry.primitives import Geometry
 from onesim.materials import IsotropicSolid
-from onesim.meshing.generation.backends.structured.volume.hexahedral import StructuredHexahedralMesh
-from onesim.meshing.generation.contracts.hexahedral_geometry import FACES
-from onesim.meshing.generation.contracts.polynomial.hex import HEX27_REFERENCE, QuadraticHexahedralGeometry
+from onesim.meshing import ExplicitGeometry, Geometric, VolumeBlock, merge_volume_blocks
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import SparseDirect
 from onesim.physics.solid_mechanics import FixedDisplacementComponents, LinearElasticity, Traction, TractionFree
 from onesim.simulation import Problem, Simulation
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
 
-a, t, L = 0.5, 0.025, 1.0              # inner radius, wall thickness, half-length of the cylinder / m
-b, R = a + t, a + t / 2                # outer and mid-surface radius / m
-E, nu, p = 200e9, 0.3, 2.0e6           # Pa, -, Pa
+a, t, L = 0.5, 0.025, 1.0
+b, R = a + t, a + t / 2
+E, nu, p = 200e9, 0.3, 2.0e6
 lam, mu = E * nu / ((1 + nu) * (1 - 2 * nu)), E / (2 * (1 + nu))
 beta = (3 * (1 - nu**2)) ** 0.25 / np.sqrt(R * t)
-S0 = p * R / t                          # membrane hoop stress of the cylinder, the stress unit below
+S0 = p * R / t
 A_cyl, B_cyl = p * a**2 / (b**2 - a**2), p * a**2 * b**2 / (b**2 - a**2)
 C_sph = p * a**3 / (b**3 - a**3)
 print(f"R/t = {R / t:.1f}, sqrt(R t) = {np.sqrt(R * t) * 1e3:.1f} mm, beta = {beta:.3f} 1/m, "
@@ -157,69 +127,7 @@ print(f"free radial growth: cylinder {p * R**2 / (E * t) * (1 - nu / 2) * 1e6:.1
 # radius $a+\rho t$ about the head centre. The equatorial nodes of the head patches fall
 # exactly on the cylinder nodes, so the blocks are joined node to node.
 
-@dataclass(frozen=True, eq=False, kw_only=True)
-class VesselOctant(Geometry):
-    """One octant of the vessel wall: inner and outer surface and three symmetry planes."""
-
-    dimension = 3
-
-    def boundary_groups(self):
-        names = ("inner", "outer", "sym_x", "sym_y", "sym_z")
-        return {**{name: (name,) for name in names}, "all": names}
-
-
-class Hex27Mesh(StructuredHexahedralMesh):
-    """Curved 27-node hexahedral mesh from explicit nodes, cells and named boundary faces."""
-
-    def __init__(self, geometry, coordinates, cells, facets):
-        self.geometry, self.shape = geometry, (len(cells),)
-        data = QuadraticHexahedralGeometry(coordinates, cells)
-        self.coordinates, self.cells, self.cell_volumes = data.coordinates, data.cells, data.volumes
-        self.cell_count = len(self.cells)
-        self.mesh_id = "vessel-hex27:" + sha256(self.coordinates.tobytes() + self.cells.tobytes()).hexdigest()
-        self._facets = {name: list(faces) for name, faces in facets.items()}
-        self._carrier = self._build_carrier()
-
-    def _build_carrier(self):
-        carrier = super()._build_carrier()
-        return replace(carrier, connectivity=replace(carrier.connectivity, entity_kind="hexahedron27"))
-
-
-NODE = np.rint(2 * HEX27_REFERENCE).astype(int)      # position of each of the 27 nodes in a 3x3x3 grid
-CENTRE = np.array([0.0, 0.0, L])                      # centre of the hemispherical head
-
-
-def with_midpoints(nodes):
-    out = np.empty(2 * len(nodes) - 1)
-    out[::2], out[1::2] = nodes, 0.5 * (nodes[:-1] + nodes[1:])
-    return out
-
-
-def geometric(length, n, first):
-    """n cells on [0, length], the first one of width `first`, geometric growth."""
-    if n * first >= length:
-        return np.linspace(0.0, length, n + 1)
-    r = brentq(lambda r: first * (r**n - 1) / (r - 1) - length, 1 + 1e-12, 50.0)
-    s = np.concatenate(([0.0], np.cumsum(first * r ** np.arange(n))))
-    return s * length / s[-1]
-
-
-def assemble_blocks(blocks):
-    """Merge node grids of several blocks into one 27-node mesh (right-handed cells)."""
-    points, cells, offset = [], [], 0
-    for grid in blocks:
-        e0, e1, e2 = grid[2, 0, 0] - grid[0, 0, 0], grid[0, 2, 0] - grid[0, 0, 0], grid[0, 0, 2] - grid[0, 0, 0]
-        if np.dot(np.cross(e0, e1), e2) < 0:
-            grid = grid[:, :, ::-1]
-        shape = np.array(grid.shape[:3])
-        ids = np.arange(np.prod(shape)).reshape(tuple(shape)) + offset
-        for index in product(*(range(k) for k in (shape - 1) // 2)):
-            cells.append([ids[tuple(2 * np.asarray(index) + m)] for m in NODE])
-        points.append(grid.reshape(-1, 3))
-        offset += np.prod(shape)
-    X = np.concatenate(points)
-    _, first, inverse = np.unique(np.round(X / 1e-10).astype(np.int64), axis=0, return_index=True, return_inverse=True)
-    return X[first], inverse.ravel()[np.asarray(cells)]
+CENTRE = np.array([0.0, 0.0, L])
 
 
 def wall_radius(q):
@@ -227,45 +135,48 @@ def wall_radius(q):
     return np.where(q[..., 2] <= L, np.hypot(q[..., 0], q[..., 1]), np.linalg.norm(q - CENTRE, axis=-1))
 
 
-def vessel_mesh(n_t, n=4, m_c=16, m_h=10, first=t / 2):
-    rad = a + with_midpoints(np.linspace(0.0, 1.0, n_t + 1)) * t
-    phi = with_midpoints(np.linspace(0.0, np.pi / 2, 2 * n + 1))
-    z = with_midpoints(L - geometric(L, m_c, first)[::-1])
-    P, Z, Rr = np.meshgrid(phi, z, rad, indexing="ij")
-    blocks = [np.stack((Rr * np.cos(P), Rr * np.sin(P), Z), axis=-1)]
-    alpha = with_midpoints(np.linspace(0.0, np.pi / 4, n + 1))
-    gamma = with_midpoints(geometric(np.pi / 4, m_h, first / R))
-    for kind in ("x", "y", "cap"):
-        U, V, Rr = np.meshgrid(alpha, alpha if kind == "cap" else gamma, rad, indexing="ij")
-        one, tu, tv = np.ones_like(U), np.tan(U), np.tan(V)
+def wall_face(point, normal):
+    planes = [k for k in range(3) if abs(point[k]) < 1e-12]
+    if planes:
+        return "sym_" + "xyz"[planes[0]]
+    return "inner" if wall_radius(np.asarray(point)) < a + t / 2 else "outer"
+
+
+vessel = ExplicitGeometry(dimension=3, boundary_names=("inner", "outer", "sym_x", "sym_y", "sym_z"), classifier=wall_face)
+
+
+def cylinder(phi, z, r):
+    return r * np.cos(phi), r * np.sin(phi), z
+
+
+def head_patch(kind):
+    """Equiangular patch of the head: directions (1, tan u, tan v), (tan u, 1, tan v) or the cap (tan u, tan v, 1)."""
+    def mapping(u, v, r):
+        one, tu, tv = np.ones_like(u), np.tan(u), np.tan(v)
         d = {"x": (one, tu, tv), "y": (tu, one, tv), "cap": (tu, tv, one)}[kind]
-        d = np.stack(d, axis=-1)
-        blocks.append(CENTRE + Rr[..., None] * d / np.linalg.norm(d, axis=-1)[..., None])
-    X, C = assemble_blocks(blocks)
-    owners = {}
-    for cell, vertices in enumerate(C):
-        for side, face in enumerate(FACES):
-            corners = tuple(int(v) for v in vertices[list(face)])
-            owners.setdefault(tuple(sorted(corners)), []).append((corners, cell, side))
-    groups = {name: [] for name in ("inner", "outer", "sym_x", "sym_y", "sym_z")}
-    for found in owners.values():
-        if len(found) == 1:
-            q = X[list(found[0][0])]
-            planes = [k for k in range(3) if np.all(np.abs(q[:, k]) < 1e-12)]
-            name = "sym_" + "xyz"[planes[0]] if planes else (
-                "inner" if np.all(np.abs(wall_radius(q) - a) < 1e-9) else "outer")
-            groups[name].append(found[0])
-    return dict(n_t=n_t, X=X, C=C, groups=groups, surface=(n, m_c, m_h, first))
+        length = np.sqrt(sum(c**2 for c in d))
+        return tuple(CENTRE[k] + r * d[k] / length for k in range(3))
+    return mapping
+
+
+def vessel_mesh(n_t, n=4, m_c=16, m_h=10, first=t / 2):
+    rad = a + np.linspace(0.0, 1.0, n_t + 1) * t
+    phi = np.linspace(0.0, np.pi / 2, 2 * n + 1)
+    z = L * Geometric(m_c, first=first, toward="end").reference(L)
+    alpha = np.linspace(0.0, np.pi / 4, n + 1)
+    gamma = np.pi / 4 * Geometric(m_h, first=first / R).reference(np.pi / 4)
+    blocks = [VolumeBlock(cylinder, phi, z, rad)]
+    blocks += [VolumeBlock(head_patch(kind), alpha, alpha if kind == "cap" else gamma, rad) for kind in ("x", "y", "cap")]
+    return dict(n_t=n_t, mesh=merge_volume_blocks(blocks, vessel, order=2), surface=(n, m_c, m_h, first))
 
 
 MESHES = {"t1": vessel_mesh(1), "t2": vessel_mesh(2), "t4": vessel_mesh(4),
           "t4 fine": vessel_mesh(4, m_c=24, m_h=15, first=t / 3)}
 exact_volume = np.pi / 4 * (b**2 - a**2) * L + np.pi / 6 * (b**3 - a**3)
 for key, data in MESHES.items():
-    data["mesh"] = Hex27Mesh(VesselOctant(), data["X"], data["C"],
-                             {k: [f[0] for f in v] for k, v in data["groups"].items()})
-    print(f"mesh {key:8s}: {data['n_t']} element(s) through the thickness, {len(data['C'])} hexahedra, "
-          f"{len(data['X'])} nodes, wall volume {data['mesh'].cell_volumes.sum():.6f} m^3 (exact {exact_volume:.6f})")
+    mesh = data["mesh"]
+    print(f"mesh {key:8s}: {data['n_t']} element(s) through the thickness, {mesh.cell_count} hexahedra, "
+          f"{len(mesh.coordinates)} nodes, wall volume {mesh.cell_volumes.sum():.6f} m^3 (exact {exact_volume:.6f})")
 
 
 # ## Model
@@ -273,8 +184,8 @@ for key, data in MESHES.items():
 # `LinearElasticity` with structural steel. The internal pressure is a traction
 # $p\,\mathbf e$ on the inner faces, with $\mathbf e$ the unit vector from the axis
 # (cylinder) or from the head centre (head) - the exact inward normal of the vessel
-# cavity. The reactions on the symmetry planes are the residual of the unconstrained
-# system at the supported degrees of freedom.
+# cavity. The reactions on the symmetry planes come from the boundary fluxes of the solved
+# displacement (the residual of the weak form at the supported degrees of freedom).
 
 steel = IsotropicSolid(density=7850.0, specific_heat_capacity=475.0, thermal_conductivity=44.5,
                        youngs_modulus=E, poisson_ratio=nu, thermal_expansion_coefficient=12e-6)
@@ -302,18 +213,15 @@ def solve(key):
     result = Simulation(problem=problem, mesh=mesh, numerics=Numerics(
         spatial=FiniteElement(element=Lagrange(order=2)), linear_solver=SparseDirect())).solve_stationary()
     op = result.operators[solid.model_id]
+    displacement = result.field(solid.displacement)
     index = np.asarray(op.field_binding.indices)
     u = np.zeros(op.problem_size)
-    u[index] = np.asarray(result.field(solid.displacement).values)
+    u[index] = np.asarray(displacement.values)
     reaction = None
-    if key != "t4 fine":       # reactions on the coarser meshes (re-assembly doubles the memory on the finest)
-        _, system, rhs, constraints = op.weak_assembly(0.0)
-        residual = system.matrix.tocsr() @ u - np.asarray(rhs)
-        fixed = np.zeros(op.problem_size, dtype=bool)
-        fixed[[c.dof_index for c in constraints]] = True
-        reaction = np.where(fixed[index], residual[index], 0.0).sum(axis=0)
+    if key != "t4 fine":
+        reaction = -sum(np.asarray(displacement.boundary_flux(plane)) for plane in (bnd.sym_x, bnd.sym_y, bnd.sym_z))
     run = dict(key=key, data=data, op=op, u=u, U=u[index], dofs=op.problem_size, cells=mesh.cell_count,
-               reaction=reaction)
+               reaction=reaction, von_mises=result.field(solid.von_mises_stress), boundaries=bnd)
     evaluate(run)
     run["seconds"] = time.time() - start
     return run
@@ -374,7 +282,6 @@ def evaluate(run):
         M_s += w * f * z * ss
         N_t += w * np.where(S_LINE > 0, f, 1.0) * st
     run.update(N_s=N_s, N_t=N_t, M_s=M_s)
-    # far field: radial lines through the cylinder at z = 0 and through the head at 75 deg latitude
     r = np.linspace(a + INSET, b - INSET, 9)
     for name, s0 in (("cyl", -L + 1e-4), ("sph", np.radians(75) * R)):
         ss, st, sr = local_stress(op, u, np.full_like(r, s0), r)
@@ -429,7 +336,7 @@ runs = {}
 for key in MESHES:
     runs[key] = solve(key)
     if key != "t4 fine":
-        for name in ("op", "u", "U"):     # keep only the finest field in memory
+        for name in ("op", "u", "U", "von_mises"):
             del runs[key][name]
     print(f"mesh {key:8s}: {runs[key]['cells']} curved hexahedra, {runs[key]['dofs']} unknowns, "
           f"{runs[key]['seconds']:.0f} s")
@@ -534,138 +441,55 @@ for label, f in quantities:
 
 # ## Figure
 #
-# Top: von Mises stress on the vessel (the octant mirrored to the whole vessel, one quarter
-# cut away to show the inner surface; finest mesh), the von Mises stress in the wall
+# Top: von Mises stress on the vessel (the octant mirrored about the mid-plane and the plane
+# $x=0$, so that half of the vessel is shown open with its inner surface; finest mesh), the von Mises stress in the wall
 # across the junction (the meridian unrolled, thickness stretched 8 times) and the mesh
 # study. Bottom: meridional and hoop surface stresses along the meridian, the stress
 # resultants against thin-shell theory, and the through-thickness stresses far from the
 # junction against Lame.
 
-op, u, U, data = fine["op"], fine["u"], fine["U"], fine["data"]
-space = op.space
-grid5 = np.linspace(0.0, 1.0, 4)
-GA, GB = (m.ravel() for m in np.meshgrid(grid5, grid5, indexing="ij"))
-
-
-def face_samples(faces):
-    polys, vals = [], []
-    for _, cell, side in faces:
-        ref = np.empty((len(GA), 3))
-        axis, free = side // 2, [d for d in range(3) if d != side // 2]
-        ref[:, axis], ref[:, free[0]], ref[:, free[1]] = side % 2, GA, GB
-        ref = np.clip(ref, 1e-9, 1 - 1e-9)
-        grad = np.einsum("qna,nb->qba", space.gradients(cell, ref), U[space.cell_dofs[cell]])
-        eps = 0.5 * (grad + np.swapaxes(grad, -1, -2))
-        S = lam * np.trace(eps, axis1=-2, axis2=-1)[:, None, None] * np.eye(3) + 2 * mu * eps
-        P = space.geometry.map(cell, ref).reshape(4, 4, 3)
-        V = von_mises(S).reshape(4, 4)
-        for i in range(3):
-            for j in range(3):
-                polys.append(np.stack((P[i, j], P[i + 1, j], P[i + 1, j + 1], P[i, j + 1])))
-                vals.append(V[i:i + 2, j:j + 2].mean())
-    return np.array(polys), np.array(vals)
-
-
-fig = plt.figure(figsize=(18, 11), constrained_layout=True)
-grid = fig.add_gridspec(2, 3, width_ratios=(1.1, 1.2, 1.0))
-ax3 = fig.add_subplot(grid[0, 0], projection="3d")
-norm = colors.Normalize(vmin=0.3 * S0 / 1e6, vmax=1.0 * S0 / 1e6)
-for name in ("outer", "inner"):
-    polys, vals = face_samples(data["groups"][name])
-    for sx, sy, sz in product((1, -1), repeat=3):
-        if sx == 1 and sy == 1:
-            continue                                     # quarter cut away
-        mirrored = polys * np.array([sx, sy, sz])
-        shade = FIELD_CMAP(norm(vals / 1e6))
-        ax3.add_collection3d(Poly3DCollection(mirrored[..., [0, 2, 1]], facecolors=shade, edgecolors=shade,
-                                              linewidths=0.15, antialiased=False))
-ax3.set(xlim=(-0.8, 0.8), ylim=(-1.6, 1.6), zlim=(-0.8, 0.8), xlabel="x / m", ylabel="z (axis) / m", zlabel="y / m",
-        xticks=[-0.5, 0, 0.5], yticks=[-1.5, -0.75, 0, 0.75, 1.5], zticks=[-0.5, 0, 0.5],
-        title="von Mises stress on the vessel, quarter cut away\n(Q2, 4 elements through the wall)")
-ax3.set_box_aspect((1.6, 3.2, 1.6))
-ax3.view_init(elev=22, azim=-58)
-fig.colorbar(cm.ScalarMappable(norm=norm, cmap=FIELD_CMAP), ax=ax3, shrink=0.55, label="von Mises stress / MPa")
-
-ax = fig.add_subplot(grid[0, 1])
-s_map = np.linspace(-0.3, 0.3, 241)
-z_map = np.linspace(-t / 2 + INSET, t / 2 - INSET, 25)
+op, u, bnd = fine["op"], fine["u"], fine["boundaries"]
+s_map, z_map = np.linspace(-0.3, 0.3, 241), np.linspace(-t / 2 + INSET, t / 2 - INSET, 25)
 SS, ZZ = np.meshgrid(s_map, z_map, indexing="ij")
-base, e_r, _, _ = meridian_frame(SS.ravel())
-_, e_r, e_s, _ = meridian_frame(SS.ravel())
-SIG = np.einsum("qi,qij,qj->q", e_s, tensor(op.stress(u, base + (R + ZZ.ravel())[:, None] * e_r)), e_s)
-SIG = SIG.reshape(SS.shape) / S0
-cs = ax.contourf(SS / np.sqrt(R * t), ZZ * 1e3, SIG, levels=np.linspace(0.30, 0.66, 37), cmap=FIELD_CMAP, extend="both")
-ax.contour(SS / np.sqrt(R * t), ZZ * 1e3, SIG, levels=np.arange(0.32, 0.66, 0.04), colors=CREAM, linewidths=0.4)
-ax.axvline(0.0, color=INK, lw=0.8, ls="--")
-ax.text(-2.5, 10.5, "cylinder", color=CREAM, fontsize=10)
-ax.text(1.6, 10.5, "head", color=CREAM, fontsize=10)
-ax.set(xlabel="meridional distance from the junction s / sqrt(R t)", ylabel="position in the wall zeta / mm (outer +)",
-       title="Meridional stress in the wall across the junction\n(thickness stretched 8 times): the bending flips sides")
-ax.set_aspect(8e-3 / np.sqrt(R * t), adjustable="box")
-fig.colorbar(cs, ax=ax, shrink=0.8, label="meridional stress / (pR/t)", orientation="horizontal")
-
-ax = fig.add_subplot(grid[0, 2])
-for (label, f), marker in zip(quantities[:4], "osD^"):
-    ref_value = f(fine)
-    vals = np.array([f(runs[k]) for k in ("t1", "t2", "t4")])
-    ax.plot([1, 2, 4], 100 * (vals / ref_value - 1), marker + "-", label=label)
-    ax.plot([4.25], [0.0], marker, mfc="none", ms=10, color=ax.lines[-1].get_color())
-ax.axhline(0.0, color="#9FA593", lw=0.6)
-ax.set(xticks=[1, 2, 4], xlabel="Q2 elements through the thickness",
-       ylabel="difference from the finest mesh / %",
-       title="Mesh study (open symbols at 4: finest mesh,\nsurface refined 1.5 times, 4 elements)")
-ax.legend(fontsize=7)
-ax.grid(alpha=0.5)
-
-ax = fig.add_subplot(grid[1, 0])
+base, e_r, e_s, _ = meridian_frame(SS.ravel())
+meridional = np.einsum("qi,qij,qj->q", e_s, tensor(op.stress(u, base + (R + ZZ.ravel())[:, None] * e_r)), e_s).reshape(SS.shape) / S0
 x = S_LINE / np.sqrt(R * t)
-for key, colour, label in (("s_out", GREEN, "meridional, outer"), ("s_in", COPPER, "meridional, inner"),
-                           ("t_out", "#5F9175", "hoop, outer"), ("t_in", "#A85539", "hoop, inner")):
-    ax.plot(x, fine[key] / S0, color=colour, lw=2, label="3D: " + label)
-    ax.plot(x, shell[key] / S0, color=colour, lw=1, ls="--")
-ax.plot([], [], color=INK, lw=1, ls="--", label="Lame + thin-shell perturbation")
-ax.axvline(0.0, color=INK, lw=0.6)
-ax.set(xlabel="s / sqrt(R t)  (cylinder < 0 < head)", ylabel="surface stress / (pR/t)",
-       title="Surface stresses along the meridian")
-ax.set_ylim(0.1, 1.1)
-ax.legend(fontsize=7, ncol=2, loc="lower left")
-ax.grid(alpha=0.5)
-
-ax = fig.add_subplot(grid[1, 1])
-ax.plot(x, fine["dM"] / (p * R * t), color=GREEN, lw=2, label="3D: bending moment M / (pRt)")
-ax.plot(x, shell["dM"] / (p * R * t), color=GREEN, lw=1, ls="--", label="shell: M")
-ax2 = ax.twinx()
-ax2.plot(x, fine["dN_t"] / (p * R), color=COPPER, lw=2, label="3D: hoop perturbation dN_theta / (pR)")
-ax2.plot(x, shell["dN_t"] / (p * R), color=COPPER, lw=1, ls="--", label="shell: dN_theta")
-ax.axvline(0.0, color=INK, lw=0.6)
-for xi in (np.pi / 4, np.pi):
-    ax.axvline(-xi / (beta * np.sqrt(R * t)), color="#9FA593", lw=0.6, ls=":")
-ax.set(xlabel="s / sqrt(R t)", ylabel="M / (pRt)", ylim=(-0.03, 0.03),
-       title="Junction perturbation of the resultants (3D minus Lame)\nagainst thin-shell theory (dotted: beta s = -pi/4, -pi)")
-ax2.set(ylabel="dN_theta / (pR)", ylim=(-0.3, 0.3))
-h1, l1 = ax.get_legend_handles_labels()
-h2, l2 = ax2.get_legend_handles_labels()
-ax.legend(h1 + h2, l1 + l2, fontsize=7, loc="upper left")
-ax.grid(alpha=0.5)
-
-ax = fig.add_subplot(grid[1, 2])
+surfaces = {"meridional, outer": "s_out", "meridional, inner": "s_in", "hoop, outer": "t_out", "hoop, inner": "t_in"}
 rr = np.linspace(a, b, 50)
-c, h = fine["cyl"], fine["sph"]
-ax.plot((rr - a) * 1e3, (A_cyl + B_cyl / rr**2) / S0, color=GREEN, lw=1, ls="--", label="Lame: cylinder hoop")
-ax.plot((c["r"] - a) * 1e3, c["t"] / S0, "o", color=GREEN, label="3D: cylinder hoop (z = 0)")
-ax.plot((rr - a) * 1e3, np.full_like(rr, A_cyl) / S0, color=COPPER, lw=1, ls="--", label="Lame: cylinder axial")
-ax.plot((c["r"] - a) * 1e3, c["s"] / S0, "s", color=COPPER, label="3D: cylinder axial")
-ax.plot((rr - a) * 1e3, C_sph * (1 + b**3 / (2 * rr**3)) / S0, color="#A85539", lw=1, ls="--", label="Lame: sphere")
-ax.plot((h["r"] - a) * 1e3, 0.5 * (h["t"] + h["s"]) / S0, "^", color="#A85539", label="3D: head (75 deg latitude)")
-ax.axhline(1.0, color="#9FA593", lw=0.8, ls=":")
-ax.axhline(0.5, color="#9FA593", lw=0.8, ls=":")
-ax.text(0.5, 1.008, "membrane pR/t", fontsize=8, color=INK)
-ax.text(0.5, 0.508, "membrane pR/2t", fontsize=8, color=INK)
-ax.set(xlabel="depth from the inner surface / mm", ylabel="stress / (pR/t)",
-       title="Far field: stresses through the wall vs Lame")
-ax.legend(fontsize=7, loc="center right")
-ax.grid(alpha=0.5)
-plt.show()
+cylinder, head = fine["cyl"], fine["sph"]
+fig = plots.figure(layout=[["vessel"] * 4 + ["map"] * 4 + ["study"] * 4,
+                           ["surface"] * 3 + ["moment"] * 3 + ["hoop"] * 3 + ["wall"] * 3], size=(18, 11))
+plots.surface(fine["von_mises"], boundary=bnd.outer | bnd.inner, component=lambda stress, position: stress / 1e6,
+              symmetry={"planes": [((0, 0, 1), (0, 0, 0)), ((1, 0, 0), (0, 0, 0))]}, limits=(0.3 * S0 / 1e6, S0 / 1e6),
+              subdivisions=3, camera=plots.Camera(elevation=22, azimuth=-58, up="y"), label="von Mises stress [MPa]",
+              title="von Mises stress on the vessel, half cut away (Q2, 4 elements through the wall)", ax=fig["vessel"])
+plots.heatmap(SS / np.sqrt(R * t), ZZ * 1e3, meridional, limits=(0.30, 0.66), contours=9, aspect="auto",
+              label="meridional stress / (pR/t)", xlabel="meridional distance from the junction s / sqrt(R t) (cylinder < 0 < head)",
+              ylabel="position in the wall [mm] (outer +)", title="Meridional stress across the junction: the bending flips sides",
+              ax=fig["map"])
+plots.line([1, 2, 4], {label: 100 * (np.array([f(runs[k]) for k in ("t1", "t2", "t4")]) / f(fine) - 1) for label, f in quantities[:4]},
+           hlines=0.0, markers=True, xlabel="Q2 elements through the thickness", ylabel="difference from the finest mesh [%]",
+           title="Mesh study", ax=fig["study"])
+plots.line(x, {label: fine[key] / S0 for label, key in surfaces.items()},
+           reference={label: shell[key] / S0 for label, key in surfaces.items()}, vlines=0.0, ylimits=(0.1, 1.1),
+           xlabel="s / sqrt(R t) (cylinder < 0 < head)", ylabel="surface stress / (pR/t)",
+           title="Surface stresses: 3D (solid), Lamé + thin shell (dashed)", legend="lower left", ax=fig["surface"])
+plots.line(x, {"bending moment": fine["dM"] / (p * R * t)}, reference={"bending moment": shell["dM"] / (p * R * t)},
+           vlines=0.0, ylimits=(-0.03, 0.03), xlabel="s / sqrt(R t)", ylabel="M / (pRt)",
+           title="Junction bending moment: 3D (solid), thin shell (dashed)", ax=fig["moment"])
+plots.line(x, {"hoop force perturbation": fine["dN_t"] / (p * R)}, reference={"hoop force perturbation": shell["dN_t"] / (p * R)},
+           vlines=0.0, ylimits=(-0.3, 0.3), xlabel="s / sqrt(R t)", ylabel="dN_theta / (pR)",
+           title="Junction hoop force: 3D (solid), thin shell (dashed)", ax=fig["hoop"])
+plots.line(points={"cylinder hoop (z = 0)": ((cylinder["r"] - a) * 1e3, cylinder["t"] / S0),
+                   "cylinder axial": ((cylinder["r"] - a) * 1e3, cylinder["s"] / S0),
+                   "head (75 deg latitude)": ((head["r"] - a) * 1e3, 0.5 * (head["t"] + head["s"]) / S0)},
+           reference={"cylinder hoop (z = 0)": ((rr - a) * 1e3, (A_cyl + B_cyl / rr**2) / S0),
+                      "cylinder axial": ((rr - a) * 1e3, np.full_like(rr, A_cyl) / S0),
+                      "head (75 deg latitude)": ((rr - a) * 1e3, C_sph * (1 + b**3 / (2 * rr**3)) / S0)},
+           hlines={"membrane pR/t": 1.0, "membrane pR/2t": 0.5}, xlabel="depth from the inner surface [mm]",
+           ylabel="stress / (pR/t)", title="Far field through the wall: 3D (markers), Lamé (dashed)",
+           legend="center right", ax=fig["wall"])
+plots.show()
 
 
 # ## Going further

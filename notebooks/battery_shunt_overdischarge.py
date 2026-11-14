@@ -70,38 +70,13 @@ behaviour.
 # about 0.07 (0.5C); the shunts fire near 4400 s and 5800 s at 0.5C and near
 # 1350 s and 1450 s at 2C.
 
-from importlib.metadata import version
 from time import perf_counter
-
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
 
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
+from onesim.numerics.time import AdaptiveBDF, AdaptiveRungeKutta45, EventDefinition
+from onesim.visualization import theme, plots
 
-from onesim.numerics.discretization.execution.backends.dynamic_analysis import (
-    AdaptiveBDF,
-    AdaptiveRungeKutta45,
-    EventDefinition,
-)
-
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -119,18 +94,18 @@ print("OneSimulation:", version("onesimulation"))
 
 FARADAY, R_GAS, temperature = 96485.33212, 8.314462618, 298.15
 capacity_ah = 12.0
-capacity = capacity_ah * 3600.0           # C, Q
-one_c_current = capacity_ah               # A, I_1C
+capacity = capacity_ah * 3600.0
+one_c_current = capacity_ah
 initial_soc = 1.0
-eta_ir_1c = 0.02                          # V, ohmic overpotential at 1C
-exchange_ratio = 0.85                     # J_0, exchange current in units of I_1C
-diffusion_time = 1000.0                   # s, tau
-short_conductance = 0.5                   # S, G_short (cell 1 only)
-short_start = 50.0                        # s
-shunt_off = 1.0e8                         # Ohm, shunt with SOC > 0.2
+eta_ir_1c = 0.02
+exchange_ratio = 0.85
+diffusion_time = 1000.0
+short_conductance = 0.5
+short_start = 50.0
+shunt_off = 1.0e8
 machine_epsilon = np.finfo(float).eps
-shunt_on = shunt_off * machine_epsilon    # Ohm, about 2.2e-8
-load_resistance = 10e-3                   # Ohm
+shunt_on = shunt_off * machine_epsilon
+load_resistance = 10e-3
 threshold = 0.2
 ocv_plateau, ocv_slope, ocv_knee = 3.55, 0.6, 0.025
 
@@ -188,8 +163,7 @@ class StringModel:
         self.dx = 1.0 / shells
         self.volume = (faces[1:] ** 3 - faces[:-1] ** 3) / 3.0
         self.area = faces**2
-        self.surface_lever = self.dx * diffusion_time / (6.0 * capacity)   # s_surf = s_N - lever * I
-        # Tridiagonal diffusion operator of one particle (zero flux at x = 0).
+        self.surface_lever = self.dx * diffusion_time / (6.0 * capacity)
         laplace = np.zeros((shells, shells))
         for i in range(shells - 1):
             g = self.area[i + 1] / (self.dx * diffusion_time)
@@ -301,7 +275,6 @@ def simulate(c_rate, shunts, end_time, method="bdf", shells=20, tolerance=1e-6):
     wall = perf_counter() - start
     times, states = np.asarray(times), np.asarray(states)
     circuit = [model.circuit(t, y) for t, y in zip(times, states)]
-    # Left limits at the stored points: the shunt state of the previous point (it only changes at events).
     left_limit = [circuit[0][0]] + [
         model.circuit(t, np.concatenate([y[:2 * shells], previous[2 * shells:]]))[0]
         for t, y, previous in zip(times[1:], states[1:], states[:-1])]
@@ -352,7 +325,7 @@ for tolerance in (1e-4, 1e-5, 1e-7):
 
 roots = []
 for n in range(1, 400):
-    low, high = n * np.pi, n * np.pi + 0.5 * np.pi      # f = sin - x cos changes sign in between
+    low, high = n * np.pi, n * np.pi + 0.5 * np.pi
     for _ in range(80):
         middle = 0.5 * (low + high)
         same_side = np.sign(np.sin(middle) - middle * np.cos(middle)) == np.sign(np.sin(low) - low * np.cos(low))
@@ -450,102 +423,55 @@ for (shells, method, tolerance), result in sorted(comparison.items(), key=lambda
 
 # ## Figure
 
-fig, axes = plt.subplots(3, 2, figsize=(12, 13.5), constrained_layout=True)
-styles = {False: "-", True: "--"}
-colours = {0.5: (GREEN, COPPER), 2.0: ("#8B9A8D", "#CD9561")}
-ax = axes[0, 0]
-for (c_rate, shunts), result in runs.items():
-    cell1, cell2 = colours[c_rate]
-    ax.plot(result["times"], result["voltage"][:, 0], styles[shunts], color=cell1, lw=1.5,
-            label=f"{c_rate}C cell 1" if not shunts else None)
-    ax.plot(result["times"], result["voltage"][:, 1], styles[shunts], color=cell2, lw=1.5,
-            label=f"{c_rate}C cell 2" if not shunts else None)
-ax.set(xlabel="Time / s", ylabel="Terminal voltage / V", title="Cell voltages (solid: no shunts, dashed: shunts)",
-       ylim=(-11, 4.6))
-ax.legend(loc="lower left", fontsize=9)
-ax.grid(alpha=0.3)
-
-ax = axes[0, 1]
-for (c_rate, shunts), result in runs.items():
-    cell1, cell2 = colours[c_rate]
-    ax.plot(result["times"], result["current"][:, 0], styles[shunts], color=cell1, lw=1.5)
-    ax.plot(result["times"], result["current"][:, 1], styles[shunts], color=cell2, lw=1.5)
-peak = reference["current"].max()
-ax.set(xlabel="Time / s", ylabel="Internal cell current (discharge > 0) / A", ylim=(-3, 32),
-       title=f"Cell currents (bypass discharge peaks at {peak:.0f} A, clipped)")
-ax.grid(alpha=0.3)
-
-ax = axes[1, 0]
-for (c_rate, shunts), result in runs.items():
-    cell1, cell2 = colours[c_rate]
-    ax.plot(result["times"], result["soc"][:, 0], styles[shunts], color=cell1, lw=1.5,
-            label=f"{c_rate}C cell 1" if not shunts else None)
-    ax.plot(result["times"], result["soc"][:, 1], styles[shunts], color=cell2, lw=1.5,
-            label=f"{c_rate}C cell 2" if not shunts else None)
-    for event_id, event_time in result["events"].items():
-        ax.plot(event_time, threshold, "o", color=INK, ms=4)
-ax.axhline(threshold, color=INK, ls=":", lw=1.0)
-ax.axhline(0.0, color="#9FA593", lw=0.8)
-ax.set(xlabel="Time / s", ylabel="State of charge", title="State of charge (dots: shunt events at SOC = 0.2)")
-ax.legend(loc="upper right", fontsize=9)
-ax.grid(alpha=0.3)
-
-ax = axes[1, 1]
+rates = sorted({c_rate for c_rate, _ in runs})
+curve = {(c_rate, shunts, cell): f"{c_rate}C cell {cell + 1}" + (", shunts" if shunts else "")
+         for c_rate, shunts in runs for cell in (0, 1)}
+colors = {label: 2 * rates.index(c_rate) + cell for (c_rate, _, cell), label in curve.items()}
+dashed = {label: "dashed" for (_, shunts, _), label in curve.items() if shunts}
+history = lambda key: {label: (runs[c_rate, shunts]["times"], runs[c_rate, shunts][key][:, cell])
+                       for (c_rate, shunts, cell), label in curve.items()}
+events = [time for result in runs.values() for time in result["events"].values()]
 zoom, coarse = reference, runs[(0.5, True)]
 t1 = zoom["events"]["shunt 1 on"]
 window = (zoom["times"] > t1 - 20) & (zoom["times"] < t1 + 300)
 marks = np.flatnonzero((coarse["times"] > t1 - 20) & (coarse["times"] < t1 + 300))
 marks = marks[np.unique(np.linspace(0, marks.size - 1, 30).astype(int))]
-ax.semilogy(zoom["times"][window] - t1, np.maximum(zoom["current"][window, 0], 1e-2), color=GREEN, lw=1.6,
-            label="Cell 1 current, RK45 reference")
-ax.semilogy(coarse["times"][marks] - coarse["events"]["shunt 1 on"], np.maximum(coarse["current"][marks, 0], 1e-2),
-            "s", color=GREEN, ms=4, mfc="none", label="Cell 1 current, BDF2 steps")
-ax2 = ax.twinx()
-ax2.plot(zoom["times"][window] - t1, zoom["surface"][window, 0], color=COPPER, lw=1.6, label="Surface SOC (reference)")
-ax2.plot(zoom["times"][window] - t1, zoom["soc"][window, 0], "--", color=COPPER, lw=1.2, label="Average SOC (reference)")
-ax2.plot(coarse["times"][marks] - coarse["events"]["shunt 1 on"], coarse["soc"][marks, 0], "s", color=COPPER, ms=4,
-         mfc="none", label="Average SOC, BDF2 steps")
-ax2.set_ylabel("State of charge", color=COPPER)
-ax.set(xlabel="Time after shunt 1 fires / s", ylabel="Current / A", title="Bypass transient of cell 1 at 0.5C")
-lines, lines2 = ax.get_legend_handles_labels(), ax2.get_legend_handles_labels()
-ax.legend(lines[0] + lines2[0], lines[1] + lines2[1], loc="upper right", fontsize=8.5)
-ax.grid(alpha=0.3, which="both")
-
-ax = axes[2, 0]
 fine = np.geomspace(1.0, 5700.0, 600)
-ax.plot(fine, exact_surface_deviation(fine, source_half_c) * 1e3, color=INK, lw=2.2, label="Exact sphere series")
-for shells, colour in zip((10, 20, 40), (COPPER, GREEN, "#8B9A8D")):
-    result = comparison[(shells, "bdf", 1e-6)]
-    window = result["times"] < 5750.0
-    ax.plot(result["times"][window], (result["surface"][window, 1] - result["soc"][window, 1]) * 1e3, "--",
-            color=colour, lw=1.4, label=f"Finite volumes, N = {shells}")
-ax.set(xlabel="Time / s", ylabel="(surface - average) SOC  x 1000", xscale="log", xlim=(1, 6000),
-       title="Cell 2 particle: finite volumes vs exact series")
-ax.legend(loc="lower left", fontsize=9)
-ax.grid(alpha=0.3, which="both")
-
-ax = axes[2, 1]
-shell_counts = np.array([10, 20, 40])
-tolerances = np.array([1e-4, 1e-5, 1e-6, 1e-7])
-for method, marker, colour, name in (("bdf", "s", COPPER, "BDF2 + exact Jacobian"),
-                                     ("rk45", "o", GREEN, "Dormand-Prince RK45")):
-    steps = [comparison[(n, method, 1e-6)]["accepted"] for n in shell_counts]
-    ax.loglog(shell_counts, steps, marker + "-", color=colour, lw=1.8, ms=7, label=f"{name}, tol 1e-6")
-ax.set(xlabel="Particle shells N (solid)", ylabel="Accepted steps over 10000 s")
-ax.set_title("Stiffness: explicit steps grow with the mesh and ignore the tolerance", pad=28)
-ax.set_xticks(shell_counts, [str(n) for n in shell_counts])
-ax.xaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
-ax.grid(alpha=0.3, which="both")
-top = ax.twiny()
-for method, marker, colour, name in (("bdf", "s", COPPER, "BDF2 + exact Jacobian"),
-                                     ("rk45", "o", GREEN, "Dormand-Prince RK45")):
-    steps = [comparison[(20, method, tol)]["accepted"] for tol in tolerances]
-    top.loglog(tolerances, steps, marker + ":", color=colour, lw=1.3, ms=5, label=f"{name}, N = 20")
-top.set_xlabel("Relative tolerance at N = 20 (dotted)")
-top.invert_xaxis()
-lines, lines2 = ax.get_legend_handles_labels(), top.get_legend_handles_labels()
-ax.legend(lines[0] + lines2[0], lines[1] + lines2[1], loc="upper left", fontsize=8.5)
-plt.show()
+shell_counts, tolerances = np.array([10, 20, 40]), np.array([1e-4, 1e-5, 1e-6, 1e-7])
+methods = {"bdf": "BDF2 + exact Jacobian", "rk45": "Dormand-Prince RK45"}
+fig = plots.figure(layout=[["voltage"] * 3 + ["current"] * 3, ["soc"] * 3 + ["zoom"] * 3,
+                           ["particle", "particle", "shells", "shells", "tolerance", "tolerance"]], size=(13, 13.5))
+plots.line(y=history("voltage"), colors=colors, styles=dashed, ylimits=(-11, 4.6), xlabel="time [s]",
+           ylabel="terminal voltage [V]", title="Cell voltages (dashed: with shunts)", legend="lower left", ax=fig["voltage"])
+plots.line(y=history("current"), colors=colors, styles=dashed, ylimits=(-3, 32), xlabel="time [s]",
+           ylabel="internal cell current (discharge > 0) [A]", legend=False, ax=fig["current"],
+           title=f"Cell currents (bypass discharge peaks at {reference['current'].max():.0f} A, clipped)")
+plots.line(y=history("soc"), colors=colors, styles=dashed, points={"shunt events": (events, np.full(len(events), threshold))},
+           hlines={"shunt threshold": threshold}, xlabel="time [s]", ylabel="state of charge",
+           title="State of charge", legend="upper right", ax=fig["soc"])
+plots.line(y={"cell 1 current, RK45 reference": (zoom["times"][window] - t1, np.maximum(zoom["current"][window, 0], 1e-2))},
+           points={"cell 1 current, BDF2 steps": (coarse["times"][marks] - coarse["events"]["shunt 1 on"],
+                                                  np.maximum(coarse["current"][marks, 0], 1e-2))},
+           right={"surface SOC (reference)": (zoom["times"][window] - t1, zoom["surface"][window, 0]),
+                  "average SOC (reference)": (zoom["times"][window] - t1, zoom["soc"][window, 0])},
+           scale="logy", xlabel="time after shunt 1 fires [s]", ylabel="current [A]", right_label="state of charge",
+           title="Bypass transient of cell 1 at 0.5C", legend="upper right", ax=fig["zoom"])
+plots.line(y={f"finite volumes, N = {shells}":
+              (comparison[shells, "bdf", 1e-6]["times"][comparison[shells, "bdf", 1e-6]["times"] < 5750.0],
+               ((comparison[shells, "bdf", 1e-6]["surface"][:, 1] - comparison[shells, "bdf", 1e-6]["soc"][:, 1])
+                [comparison[shells, "bdf", 1e-6]["times"] < 5750.0]) * 1e3) for shells in (10, 20, 40)},
+           reference={"exact sphere series": (fine, exact_surface_deviation(fine, source_half_c) * 1e3)},
+           scale="logx", xlimits=(1, 6000), xlabel="time [s]", ylabel="(surface - average) SOC × 1000",
+           title="Cell 2 particle: finite volumes vs exact series", legend="lower left", ax=fig["particle"])
+plots.line(shell_counts, {f"{name}, tol 1e-6": [comparison[n, method, 1e-6]["accepted"] for n in shell_counts]
+                          for method, name in methods.items()},
+           markers=True, scale="loglog", xlabel="particle shells N", ylabel="accepted steps over 10000 s",
+           title="Stiffness: explicit steps grow with the mesh", ax=fig["shells"])
+plots.line(tolerances, {f"{name}, N = 20": [comparison[20, method, tol]["accepted"] for tol in tolerances]
+                        for method, name in methods.items()},
+           markers=True, scale="loglog", xlabel="relative tolerance at N = 20", ylabel="accepted steps over 10000 s",
+           title="... and ignore the tolerance", ax=fig["tolerance"])
+plots.show()
 
 
 # ## Going further
