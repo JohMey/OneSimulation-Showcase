@@ -172,7 +172,6 @@ front_x = x[crossing[np.argmax(np.abs(np.diff(rho))[crossing])]]
 measured_speed = (front_x - x0) / end_time
 print(f"  shock speed: {measured_speed:.4f}  vs  {S:.4f}")
 
-print("All Rankine-Hugoniot checks passed.")
 
 
 # ## Figure

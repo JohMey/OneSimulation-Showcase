@@ -165,7 +165,6 @@ for cells_x in (96, 192):
 # spacing it would be larger still). Under refinement the error must shrink.
 
 coarse, fine = runs[96], runs[192]
-print("\nAll checks against the Hertz line-contact solution passed.")
 
 
 # ## Figure

@@ -233,7 +233,6 @@ shock_level = 0.5 * (rho_star_R + rho_R)
 behind = x[(x > x_contact + margin) & (x <= 1.0) & (rho > shock_level)]
 sph_shock_position = float(behind.max())
 print(f"Shock position: SPH {sph_shock_position:.4f}, exact {x_shock:.4f}")
-print("All checks against the exact Riemann solution passed.")
 
 
 # ## Figure
