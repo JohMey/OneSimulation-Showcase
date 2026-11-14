@@ -1,209 +1,118 @@
 """OneSimulation example: inductance of a solenoid from the magnetic field energy.
 Requires the installed, activated OneSimulation runtime.
 
-The inductance extracted from the 3D FEM field energy is checked against the
-closed-form long-solenoid inductance with Nagaoka's end correction.
+The magnetic field of a coil is computed in 3D with edge elements. Its inductance follows from the
+stored field energy and is compared with the long-solenoid formula with Nagaoka's end correction.
 """
 
 
 # # Inductance from the magnetic field energy
 #
-# A circuit designer does not want the field of a coil, but the one number it implies:
-# its inductance. For a single winding carrying the current $I$ it follows from the
-# stored magnetic energy,
+# A circuit designer does not want the field of a coil but the one number it implies: its
+# inductance. It follows from the stored magnetic energy,
 #
-# $$W=\frac12\int_\Omega \mathbf B\cdot\mathbf H\,\mathrm dV,\qquad L=\frac{2W}{I^2}.$$
+# $$W=\frac12\int \mathbf B\cdot\mathbf H\,\mathrm dV,\qquad L=\frac{2W}{I^2}.$$
 #
-# A homogenised solenoid (inner radius $10$ mm, outer radius $20$ mm, length $120$ mm,
-# $240$ turns, $1\,\mathrm A$) is modelled as a uniform azimuthal current density on
-# one explicitly meshed winding region. OneSimulation solves
-# $\nabla\times(\mu^{-1}\nabla\times\mathbf A)=\mathbf J$ with a weak Coulomb gauge and
-# reconstructs $\mathbf B=\nabla\times\mathbf A$ and $\mathbf H=\mathbf B/\mu_0$. The
-# energy is then integrated cell by cell over the whole computational domain.
+# The coil is a solenoid with 240 turns, inner radius 10 mm, outer radius 20 mm and length 120 mm,
+# carrying 1 A. The winding is a uniform azimuthal current density. The model solves
+# $\nabla\times(\mu_0^{-1}\nabla\times\mathbf A)=\mathbf J$ with Nédélec edge elements and a Coulomb
+# gauge in an air cylinder with magnetic insulation on its surface.
 #
-# **Reference.** The closed-form inductance used here is the long-solenoid formula for a
-# winding of finite radial thickness, multiplied by Nagaoka's end-correction factor:
+# **Reference.** The long-solenoid formula for a winding of finite thickness, multiplied by
+# Nagaoka's end-correction factor $K$:
 #
-# $$L_\mathrm{ref}=K\!\left(\tfrac{\ell}{2R_m}\right)\,\mu_0\,n^2\,\ell\,A_\mathrm{eff},\qquad
-#   n=\frac{N}{\ell},\qquad
-#   A_\mathrm{eff}=\pi\Bigl[R_i^2+\frac{w\,(R_o+3R_i)}{6}\Bigr],\quad w=R_o-R_i .$$
+# $$L_\mathrm{ref}=K\,\mu_0\,n^2\,\ell\,A_\mathrm{eff},\qquad n=\frac{N}{\ell},\qquad
+#   A_\mathrm{eff}=\pi\Bigl[R_i^2+\frac{(R_o-R_i)(R_o+3R_i)}{6}\Bigr].$$
 #
-# $A_\mathrm{eff}$ is the exact energy-equivalent cross-section of an infinitely long
-# winding in which $B$ falls linearly from $\mu_0 n I$ at $R_i$ to zero at $R_o$ (for a
-# thin winding it reduces to $\pi R_m^2$). $K$ is Nagaoka's factor for a current sheet of
-# mean radius $R_m$, written with complete elliptic integrals; for the present
-# length-to-diameter ratio of 4 it is $K\approx0.90$. Combining the two corrections
-# multiplicatively is accurate to about 2 % for this winding.
-#
-# Two effects make the finite-element inductance fall below $L_\mathrm{ref}$, and both
-# are quantified below: the magnetic insulation on the finite domain confines the return
-# flux (about 3 %, estimated by a coaxial-return formula), and the finite-element energy
-# of a vector-potential formulation is a lower bound that approaches the exact value
-# from below as the winding is resolved more finely (a further 5-7 % on the modest mesh
-# used here). The example tolerance of 12 % against the free-space closed form, and 10 %
-# once the confinement estimate is taken out, covers both.
+# $A_\mathrm{eff}$ accounts for the field falling linearly across the winding. The combination is
+# accurate to about 2 % for this coil.
 
 import numpy as np
 from scipy.special import ellipe, ellipk
 
+from onesim.cad.d2 import Plane
 from onesim.cad.d3 import Cylinder
 from onesim.materials import VacuumPermeability
-from onesim.meshing import TetrahedralMesher, LocalRefinement
+from onesim.meshing import LocalRefinement, TetrahedralMesher
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Nedelec
 from onesim.numerics.linear import SparseDirect
-from onesim.physics.magnetostatics import (
-    CoulombGauge, MagneticInsulation, MagneticVectorPotential,
-    Magnetostatics, SolenoidCurrent,
-)
+from onesim.physics.magnetostatics import CoulombGauge, MagneticInsulation, MagneticVectorPotential, Magnetostatics, SolenoidCurrent
+from onesim.results.integration import mean_value, measure
 from onesim.simulation import Problem, Simulation
 from onesim.visualization import theme, plots
 
 theme.set()
 
-
-# ## Parameters and closed-form reference
-
-domain_length, domain_radius = 0.32, 0.08
-coil_length = 0.12
-inner_radius, outer_radius = 0.010, 0.020
-turns, current = 240, 1.0
-center_z = domain_length / 2.0
-
+inner_radius, outer_radius, coil_length, turns, current = 0.010, 0.020, 0.12, 240, 1.0
+domain_radius, domain_length = 0.10, 0.36
 mu0 = float(VacuumPermeability().evaluate())
-turns_per_metre = turns / coil_length
-winding_thickness = outer_radius - inner_radius
-mean_radius = 0.5 * (inner_radius + outer_radius)
-B_ideal = mu0 * turns_per_metre * current
-area_eff = np.pi * (inner_radius**2 + winding_thickness * (outer_radius + 3 * inner_radius) / 6.0)
-
-k2 = (2 * mean_radius) ** 2 / ((2 * mean_radius) ** 2 + coil_length**2)
-nagaoka = 4.0 / (3.0 * np.pi * np.sqrt(1.0 - k2)) * (
-    ((1.0 - k2) / k2) * (ellipk(k2) - ellipe(k2)) + ellipe(k2) - np.sqrt(k2))
-L_long = mu0 * turns_per_metre**2 * coil_length * area_eff
-L_ref = nagaoka * L_long
-
-area_return = np.pi * domain_radius**2 - area_eff
-confinement = 1.0 / (1.0 + area_eff / area_return)
-
-print(f"effective winding area A_eff = {area_eff*1e6:.1f} mm^2  (thin-sheet pi*R_m^2 = {np.pi*mean_radius**2*1e6:.1f} mm^2)")
-print(f"Nagaoka factor K(l/2R_m = {coil_length/(2*mean_radius):.1f}) = {nagaoka:.4f}")
-print(f"closed-form inductance: L_ref = K * mu0 n^2 l A_eff = {L_ref*1e6:.1f} uH")
-print(f"flux-confinement estimate for the finite domain: factor {confinement:.3f}")
 
 
-# ## Model, mesh and solver
+def reference_inductance():
+    """Long-solenoid inductance of the thick winding with Nagaoka's end correction."""
+    mean_radius, thickness = (inner_radius + outer_radius) / 2, outer_radius - inner_radius
+    area = np.pi * (inner_radius**2 + thickness * (outer_radius + 3 * inner_radius) / 6)
+    k2 = (2 * mean_radius) ** 2 / ((2 * mean_radius) ** 2 + coil_length**2)
+    nagaoka = 4 / (3 * np.pi * np.sqrt(1 - k2)) * ((1 - k2) / k2 * (ellipk(k2) - ellipe(k2)) + ellipe(k2) - np.sqrt(k2))
+    return nagaoka * mu0 * (turns / coil_length) ** 2 * coil_length * area
+
+
+# ## Model
 #
-# Every face of the cylindrical domain carries magnetic insulation. The winding annulus
-# is an embedded mesh region with a local target size small enough for two to three
-# tetrahedra across the winding thickness, where $B$ falls off linearly.
+# The winding is an embedded region of the air cylinder, meshed finely enough to resolve the field
+# across its thickness.
 
-geometry = Cylinder(radius=domain_radius, length=domain_length)
-coil = SolenoidCurrent(
-    inner_radius=inner_radius, outer_radius=outer_radius, length=coil_length,
-    center=(0.0, 0.0, center_z), turns=turns, current=current,
-)
-model = Magnetostatics(
-    domain=geometry.volume, permeability=VacuumPermeability(),
-    formulation=MagneticVectorPotential(gauge=CoulombGauge()), current_sources=(coil,),
-)
-problem = Problem(
-    name="Solenoid inductance from field energy",
-    geometry=geometry, physics=(model,),
-    boundary_conditions=(MagneticInsulation(boundary=geometry.boundaries.all, physics=model),),
-)
-mesh = TetrahedralMesher(
-    target_size=0.03, embedded_regions=(coil.support,),
-    refinements=(LocalRefinement(region=coil.support, target_size=0.0033),),
-).generate(geometry)
-print("Mesh:", f"{mesh.cell_count} tetrahedra")
-result = Simulation(
-    problem=problem, mesh=mesh,
-    numerics=Numerics(spatial=FiniteElement(element=Nedelec(order=1)), linear_solver=SparseDirect()),
-).solve_stationary()
+air = Cylinder(radius=domain_radius, length=domain_length)
+coil = SolenoidCurrent(inner_radius=inner_radius, outer_radius=outer_radius, length=coil_length, turns=turns,
+                       current=current, center=(0, 0, domain_length / 2))
+model = Magnetostatics(domain=air.volume, permeability=VacuumPermeability(),
+                       formulation=MagneticVectorPotential(gauge=CoulombGauge()), current_sources=(coil,))
+problem = Problem(name="Solenoid inductance", geometry=air, physics=(model,),
+                  boundary_conditions=(MagneticInsulation(boundary=air.boundaries.all, physics=model),))
+mesh = TetrahedralMesher(target_size=0.04, embedded_regions=(coil.support,),
+                         refinements=(LocalRefinement(region=coil.support, target_size=0.007),)).generate(air)
+numerics = Numerics(spatial=FiniteElement(element=Nedelec(order=2)), linear_solver=SparseDirect())
+result = Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_stationary()
+flux_density = result.field(model.magnetic_flux_density)
 
 
-# ## Field energy and inductance
+# ## Results
 #
-# With first-order Nedelec elements $\mathbf B=\nabla\times\mathbf A$ is constant on
-# every tetrahedron, so a one-point (centroid) rule integrates $\mathbf B\cdot\mathbf H$
-# exactly. The same rule applied to $\tfrac12\int\mathbf J\cdot\mathbf A\,\mathrm dV$
-# over the winding cells (flux-linkage form of the energy) must give the same value: for
-# the Galerkin solution the two energy forms coincide.
+# The energy integral runs over the whole air cylinder.
 
-B_field = result.field(model.magnetic_flux_density)
-H_field = result.field(model.magnetic_field_strength)
-A_field = result.field(model.vector_potential)
-
-vertices = np.asarray(mesh.coordinates)[np.asarray(mesh.cells)]
-edges = vertices[:, 1:] - vertices[:, :1]
-cell_volumes = np.abs(np.einsum("ij,ij->i", edges[:, 0], np.cross(edges[:, 1], edges[:, 2]))) / 6.0
-centroids = vertices.mean(axis=1)
-print(f"Quadrature: {len(centroids)} cell centroids, meshed volume {cell_volumes.sum()*1e3:.3f} dm^3 "
-      f"(cylinder {np.pi*domain_radius**2*domain_length*1e3:.3f} dm^3)")
-
-B_cells = np.asarray(B_field.evaluate(centroids))
-H_cells = np.asarray(H_field.evaluate(centroids))
-energy_cells = 0.5 * np.einsum("ij,ij->i", B_cells, H_cells) * cell_volumes
-W_energy = float(energy_cells.sum())
-L_energy = 2.0 * W_energy / current**2
-
-radius = np.hypot(centroids[:, 0], centroids[:, 1])
-inside_length = np.abs(centroids[:, 2] - center_z) < coil_length / 2.0
-in_core = (radius < inner_radius) & inside_length
-in_winding = (radius >= inner_radius) & (radius < outer_radius) & inside_length
-J_magnitude = turns * current / (winding_thickness * coil_length)
-J_cells = np.zeros_like(centroids)
-J_cells[in_winding, 0] = -J_magnitude * centroids[in_winding, 1] / radius[in_winding]
-J_cells[in_winding, 1] = J_magnitude * centroids[in_winding, 0] / radius[in_winding]
-A_cells = np.asarray(A_field.evaluate(centroids[in_winding]))
-W_linkage = 0.5 * float(np.sum(np.einsum("ij,ij->i", J_cells[in_winding], A_cells) * cell_volumes[in_winding]))
-L_linkage = 2.0 * W_linkage / current**2
-
-B_centre = np.asarray(B_field.evaluate(np.array([[0.0, 0.0, center_z]])))[0]
-centre_axial = float(B_centre[2])
-L_centre = nagaoka * turns * centre_axial * area_eff / current
-
-share = {name: float(energy_cells[mask].sum()) / W_energy
-         for name, mask in (("core", in_core), ("winding", in_winding), ("outside", ~(in_core | in_winding)))}
-
-print(f"stored energy: {W_energy*1e6:.2f} uJ  (core {100*share['core']:.0f} %, winding {100*share['winding']:.0f} %, "
-      f"outside {100*share['outside']:.0f} %)")
-print(f"L from field energy  2W/I^2:          {L_energy*1e6:.1f} uH")
-print(f"L from flux linkage  int J.A dV / I^2: {L_linkage*1e6:.1f} uH")
-print(f"L closed form  K mu0 n^2 l A_eff:      {L_ref*1e6:.1f} uH")
-print(f"centre field: {centre_axial*1e3:.3f} mT = {centre_axial/B_ideal:.3f} mu0 n I;  "
-      f"closed form with this centre field: {L_centre*1e6:.1f} uH")
-
-ratio_ref = L_energy / L_ref
-ratio_confined = L_energy / (L_ref * confinement)
-ratio_centre = L_energy / L_centre
-ratio_routes = abs(L_energy - L_linkage) / L_energy
-print(f"L_energy / L_ref                      = {ratio_ref:.3f}   (free-space closed form; FEM lies below it)")
-print(f"L_energy / (L_ref * confinement)      = {ratio_confined:.3f}   (finite-domain confinement taken out)")
-print(f"L_energy / L_centre-based closed form = {ratio_centre:.3f}   (confinement bias removed, mesh error remains)")
-print(f"energy route vs flux-linkage route: {100*ratio_routes:.2f} %")
+squared = lambda B, position: (B**2).sum(axis=1)
+inductance = mean_value(flux_density, component=squared) * measure(flux_density) / (mu0 * current**2)
+reference = reference_inductance()
+centre_field = flux_density.evaluate([[0, 0, domain_length / 2]])[0, 2]
+print(f"{mesh.cell_count} tetrahedra")
+print(f"inductance from the field energy   {1e6 * inductance:7.1f} µH")
+print(f"closed form with end correction    {1e6 * reference:7.1f} µH   (difference {100 * (inductance / reference - 1):+.1f} %)")
+print(f"field at the coil centre           {1e3 * centre_field:7.3f} mT   ({centre_field / (mu0 * turns / coil_length * current):.3f} of the infinite solenoid)")
 
 
 # ## Figure
+#
+# The field strength in a section through the axis, and the axial field across the mid-plane
+# against the infinite solenoid, whose field falls linearly through the winding.
 
-r_line = np.linspace(0.0, 1.5 * outer_radius, 61)
-Bz_line = np.asarray(B_field.evaluate(np.column_stack((r_line, np.zeros_like(r_line), np.full_like(r_line, center_z)))))[:, 2]
-Bz_ideal = np.where(r_line < inner_radius, 1.0, np.clip((outer_radius - r_line) / winding_thickness, 0.0, 1.0)) * B_ideal
-fig = plots.figure(1, 2, size=(11, 4.6))
-plots.line(r_line * 1e3, {"OneSimulation 3D FEM, mid-plane": Bz_line * 1e3},
-           reference={"infinite solenoid (linear fall-off in the winding)": Bz_ideal * 1e3}, markers=True,
-           vlines={"winding": inner_radius * 1e3, "": outer_radius * 1e3},
-           xlabel="radius r [mm]", ylabel="axial flux density B_z [mT]", title="Mid-plane radial profile", ax=fig[0])
-plots.bars(["field energy\n2W/I²", "flux linkage\n∫J·A dV/I²", "closed form", "closed form with\nFEM centre field"],
-           np.array([L_energy, L_linkage, L_ref, L_centre]) * 1e6, ylabel="inductance [µH]",
-           title="Inductance: field routes versus closed form", ax=fig[1])
+axial = lambda B, position: 1e3 * B[:, 2]
+r = np.linspace(0, 1.5 * outer_radius, 61)
+profile = axial(flux_density.evaluate(np.column_stack((r, np.zeros_like(r), np.full_like(r, domain_length / 2)))), None)
+ideal = 1e3 * mu0 * turns / coil_length * current * np.clip((outer_radius - r) / (outer_radius - inner_radius), 0, 1)
+
+fig = plots.figure(1, 2, size=(13, 5))
+plots.section(flux_density, plane=Plane(origin=(0, 0, 0), normal=(0, 1, 0)), component=axial, colormap="diverging",
+              contours=14, subdivisions=2, label="B_z [mT]", title="Axial field in a section through the axis",
+              xlimits=(-0.06, 0.06), ylimits=(0.08, 0.28), ax=fig[0])
+plots.line(1e3 * r, {"simulation": profile}, reference={"infinite solenoid": ideal},
+           vlines={"winding": 1e3 * inner_radius, "": 1e3 * outer_radius}, xlabel="radius [mm]",
+           ylabel="axial flux density [mT]", title="Mid-plane profile", ax=fig[1])
 plots.show()
 
 
 # ## Going further
 #
-# Refine the winding (smaller local target size) and watch the energy-based inductance
-# climb towards the reference from below; enlarge the domain radius and the confinement
-# factor approaches one. The same recipe, with $\tfrac12\int\varepsilon|\mathbf E|^2\,\mathrm dV$,
-# extracts capacitances from electrostatic solutions.
+# Shorten the coil and watch the end correction grow, or enlarge the air cylinder: the insulated
+# surface confines the return flux and lowers the inductance slightly. The same recipe with
+# $\tfrac12\int\varepsilon|\mathbf E|^2\,\mathrm dV$ gives capacitances from electrostatic fields.

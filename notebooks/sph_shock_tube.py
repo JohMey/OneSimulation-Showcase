@@ -1,36 +1,28 @@
 """OneSimulation example: the Sod shock tube solved with Lagrangian SPH particles.
 Requires the installed, activated OneSimulation runtime.
 
-The OneSimulation solution is checked against the exact solution of the
-Riemann problem: the plateau states behind the shock and behind the contact
-discontinuity, and the full density, velocity and pressure profiles at t = 0.2.
+A diaphragm separates dense, pressurised gas from thin gas. After it is removed, a rarefaction, a
+contact discontinuity and a shock emerge. The particle simulation is compared with the exact
+solution of the Riemann problem.
 """
 
 
 # # The Sod shock tube with smoothed-particle hydrodynamics
 #
-# A tube filled with an ideal gas ($\gamma=1.4$) is divided by a diaphragm. On
-# the left the gas is dense and pressurised, on the right it is thin and at low
-# pressure; both halves are at rest:
+# A tube filled with an ideal gas ($\gamma=1.4$) is divided by a diaphragm. Both halves are at rest:
 #
 # $$(\rho,u,p)_L=(1,\,0,\,1),\qquad (\rho,u,p)_R=(0.125,\,0,\,0.1).$$
 #
-# When the diaphragm is removed, three waves emerge: a rarefaction fan running
-# left into the dense gas, a contact discontinuity and a shock running right
-# into the thin gas. Between the waves the gas settles into two plateaus that
-# share the same pressure $p_*$ and velocity $u_*$ but differ in density.
+# When the diaphragm is removed, three waves emerge: a rarefaction fan running left into the
+# dense gas, a contact discontinuity and a shock running right into the thin gas.
 #
-# OneSimulation solves the problem with its **Lagrangian SPH provider**: the
-# gas is represented by moving particles with a cubic-spline kernel, an ideal
-# gas equation of state and Monaghan's artificial viscosity for the shock. Mass,
-# momentum and total energy are conserved pairwise by construction.
+# The gas is represented by moving particles with a cubic-spline kernel and Monaghan's artificial
+# viscosity for the shock. Mass, momentum and total energy are conserved by construction.
 #
-# **Reference.** The exact solution of the Riemann problem is obtained by
-# solving the pressure equation $f_L(p_*)+f_R(p_*)+u_R-u_L=0$ (shock relation on
-# the right, isentropic rarefaction relation on the left) for $p_*$ and then
-# assembling the self-similar wave pattern. For the Sod data this gives
-# $p_*\approx0.3031$, $u_*\approx0.9275$, $\rho_{*L}\approx0.4263$ and the
-# post-shock density $\rho_{*R}\approx0.2656$.
+# **Reference.** The exact solution of the Riemann problem: the pressure $p_*$ between the waves
+# solves $f_L(p_*)+f_R(p_*)=0$ (shock relation on the right, isentropic relation on the left), and
+# the self-similar wave pattern follows from it (Toro, *Riemann Solvers and Numerical Methods for
+# Fluid Dynamics*).
 
 import numpy as np
 from scipy.optimize import brentq
@@ -40,195 +32,77 @@ from onesim.visualization import theme, plots
 
 theme.set()
 
+gamma, diaphragm, end_time = 1.4, 0.5, 0.2
+left, right = (1.0, 1.0), (0.125, 0.1)
 
-# ## Parameters
+
+def exact_solution(x):
+    """Density, velocity and pressure of the exact Riemann solution at the end time."""
+    (rho_l, p_l), (rho_r, p_r) = left, right
+    a_l, a_r, g = np.sqrt(gamma * p_l / rho_l), np.sqrt(gamma * p_r / rho_r), (gamma - 1) / (gamma + 1)
+    fan = lambda p: 2 * a_l / (gamma - 1) * ((p / p_l) ** ((gamma - 1) / (2 * gamma)) - 1)
+    shock = lambda p: (p - p_r) * np.sqrt(2 / ((gamma + 1) * rho_r) / (p + g * p_r))
+    p_star = brentq(lambda p: fan(p) + shock(p), 1e-6, 10.0, xtol=1e-14)
+    u_star = 0.5 * (shock(p_star) - fan(p_star))
+    rho_star_l = rho_l * (p_star / p_l) ** (1 / gamma)
+    rho_star_r = rho_r * (p_star / p_r + g) / (g * p_star / p_r + 1)
+    shock_speed = a_r * np.sqrt((gamma + 1) / (2 * gamma) * p_star / p_r + (gamma - 1) / (2 * gamma))
+    xi = (x - diaphragm) / end_time
+    u_fan = 2 / (gamma + 1) * (a_l + xi)
+    a_fan = a_l - 0.5 * (gamma - 1) * u_fan
+    regions = [xi <= -a_l, xi < u_star - np.sqrt(gamma * p_star / rho_star_l), xi < u_star, xi < shock_speed]
+    return (np.select(regions, [rho_l, rho_l * (a_fan / a_l) ** (2 / (gamma - 1)), rho_star_l, rho_star_r], rho_r),
+            np.select(regions, [0.0, u_fan, u_star, u_star], 0.0),
+            np.select(regions, [p_l, p_l * (a_fan / a_l) ** (2 * gamma / (gamma - 1)), p_star, p_star], p_r))
+
+
+# ## Simulation
 #
-# The diaphragm sits at $x=0.5$ and the solution is read at $t=0.2$, when the
-# shock has reached $x\approx0.85$ and the head of the rarefaction
-# $x\approx0.26$. The particles live in a periodic box $[-0.5,\,1.5]$: the
-# periodic seam at $x=\pm0.5$ from the ends is itself a (mirrored) Riemann
-# problem, but its waves stay outside $[0,1]$ until well after $t=0.2$. Equally
-# spaced particles carry the local mass $\rho\,\Delta x$; the smoothing length
-# is $2.5\,\Delta x$, so each particle interacts with ten neighbours.
+# 1600 equally spaced particles carry the mass of their cell; the smoothing length is 2.5
+# particle spacings.
 
-gamma = 1.4
-rho_L, u_L, p_L = 1.0, 0.0, 1.0
-rho_R, u_R, p_R = 0.125, 0.0, 0.1
-x_diaphragm = 0.5
-end_time = 0.2
-x_lo, x_hi = -0.5, 1.5
-PARTICLES = 1600
-dx = (x_hi - x_lo) / PARTICLES
-smoothing_length = 2.5 * dx
-print(f"{PARTICLES} particles, dx = {dx:.5f}, h = {smoothing_length:.5f}")
-
-
-# ## Exact Riemann solution
-#
-# Standard exact solver: Newton-free root finding for the star pressure,
-# then the self-similar sampling of the four states and the rarefaction fan.
-
-def _sound(rho, p):
-    return np.sqrt(gamma * p / rho)
-
-
-def _f(p, rho_k, p_k):
-    a_k = _sound(rho_k, p_k)
-    if p > p_k:
-        A = 2.0 / ((gamma + 1.0) * rho_k)
-        B = (gamma - 1.0) / (gamma + 1.0) * p_k
-        return (p - p_k) * np.sqrt(A / (p + B))
-    return 2.0 * a_k / (gamma - 1.0) * ((p / p_k) ** ((gamma - 1.0) / (2.0 * gamma)) - 1.0)
-
-
-p_star = brentq(lambda p: _f(p, rho_L, p_L) + _f(p, rho_R, p_R) + u_R - u_L, 1e-6, 10.0, xtol=1e-14)
-u_star = 0.5 * (u_L + u_R) + 0.5 * (_f(p_star, rho_R, p_R) - _f(p_star, rho_L, p_L))
-rho_star_L = rho_L * (p_star / p_L) ** (1.0 / gamma)
-ratio = p_star / p_R
-rho_star_R = rho_R * (ratio + (gamma - 1) / (gamma + 1)) / ((gamma - 1) / (gamma + 1) * ratio + 1.0)
-a_L, a_R = _sound(rho_L, p_L), _sound(rho_R, p_R)
-a_star_L = _sound(rho_star_L, p_star)
-shock_speed = u_R + a_R * np.sqrt((gamma + 1) / (2 * gamma) * ratio + (gamma - 1) / (2 * gamma))
-head_speed, tail_speed = u_L - a_L, u_star - a_star_L
-print(f"Exact star state: p* = {p_star:.4f}, u* = {u_star:.4f}, rho*L = {rho_star_L:.4f}, rho*R = {rho_star_R:.4f}")
-print(f"Wave speeds: rarefaction head {head_speed:.4f}, tail {tail_speed:.4f}, contact {u_star:.4f}, shock {shock_speed:.4f}")
-
-
-def exact_solution(x, t):
-    xi = (x - x_diaphragm) / t
-    rho = np.empty_like(xi)
-    u = np.empty_like(xi)
-    p = np.empty_like(xi)
-    left = xi <= head_speed
-    fan = (xi > head_speed) & (xi < tail_speed)
-    star_l = (xi >= tail_speed) & (xi < u_star)
-    star_r = (xi >= u_star) & (xi < shock_speed)
-    right = xi >= shock_speed
-    rho[left], u[left], p[left] = rho_L, u_L, p_L
-    u[fan] = 2.0 / (gamma + 1) * (a_L + 0.5 * (gamma - 1) * u_L + xi[fan])
-    a_fan = a_L - 0.5 * (gamma - 1) * (u[fan] - u_L)
-    rho[fan] = rho_L * (a_fan / a_L) ** (2.0 / (gamma - 1))
-    p[fan] = p_L * (a_fan / a_L) ** (2.0 * gamma / (gamma - 1))
-    rho[star_l], u[star_l], p[star_l] = rho_star_L, u_star, p_star
-    rho[star_r], u[star_r], p[star_r] = rho_star_R, u_star, p_star
-    rho[right], u[right], p[right] = rho_R, u_R, p_R
-    return rho, u, p
-
-
-# ## Model and the actual computation
-#
-# Each particle starts from the piecewise-constant initial data: its mass is
-# $\rho\,\Delta x$ and its specific internal energy $e=p/((\gamma-1)\rho)$. The
-# boundary condition of the particle cloud is the periodic box. The time step
-# is limited internally by the SPH signal-speed CFL condition; the requested
-# step only caps it.
-
-x_init = x_lo + (np.arange(PARTICLES) + 0.5) * dx
-rho_init = np.where(x_init < x_diaphragm, rho_L, rho_R)
-p_init = np.where(x_init < x_diaphragm, p_L, p_R)
+count, lower, upper = 1600, -0.5, 1.5
+spacing = (upper - lower) / count
+start = lower + (np.arange(count) + 0.5) * spacing
+density, pressure = np.where(start < diaphragm, left[0], right[0]), np.where(start < diaphragm, left[1], right[1])
 gas = HydrodynamicPublicApi.create_provider(
-    "sph_hydrodynamics",
-    positions=x_init,
-    masses=rho_init * dx,
-    velocities=np.zeros(PARTICLES),
-    specific_internal_energy=p_init / ((gamma - 1.0) * rho_init),
-    smoothing_length=smoothing_length,
-    gamma=gamma,
-    viscosity_alpha=1.0, viscosity_beta=2.0,
-    periodic_bounds=((x_lo, x_hi),),
-    final_time=end_time,
-    time_step=1.0e-3,
-    cfl=0.25,
-)
+    "sph_hydrodynamics", positions=start, masses=density * spacing, velocities=np.zeros(count),
+    specific_internal_energy=pressure / ((gamma - 1) * density), smoothing_length=2.5 * spacing, gamma=gamma,
+    viscosity_alpha=1.0, viscosity_beta=2.0, periodic_bounds=((lower, upper),), final_time=end_time,
+    time_step=1.0e-3, cfl=0.25)
 result = gas.run()
-print(f"Finished at t = {result.time:g} after {result.step_count} steps")
+
+
+# ## Results
+#
+# Particle values between $x=0$ and $x=1$ against the exact solution.
 
 order = np.argsort(result.positions[:, 0])
 x = result.positions[order, 0]
-rho = result.density[order]
-velocity = result.velocities[order, 0]
-pressure = result.pressure[order]
-
-
-# ## Conservation and plateau states
-#
-# SPH conserves mass, momentum and total energy pairwise; the balances
-# reported by the provider must agree to round-off. The plateau values are
-# averaged over the interior of each plateau (clear of the smeared waves) and
-# compared with the exact star states.
-
-first, last = result.initial_balance, result.final_balance
-print(f"Mass {first.mass:.6f} -> {last.mass:.6f},  total energy {first.total_energy:.6f} -> {last.total_energy:.6f}")
-
-x_head = x_diaphragm + head_speed * end_time
-x_tail = x_diaphragm + tail_speed * end_time
-x_contact = x_diaphragm + u_star * end_time
-x_shock = x_diaphragm + shock_speed * end_time
-margin = 8 * smoothing_length
-star_l_window = (x > x_tail + margin) & (x < x_contact - margin)
-star_r_window = (x > x_contact + margin) & (x < x_shock - margin)
-
-plateaus = {
-    "p* (left plateau)": (pressure[star_l_window].mean(), p_star),
-    "p* (right plateau)": (pressure[star_r_window].mean(), p_star),
-    "u* (left plateau)": (velocity[star_l_window].mean(), u_star),
-    "u* (right plateau)": (velocity[star_r_window].mean(), u_star),
-    "rho*L": (rho[star_l_window].mean(), rho_star_L),
-    "rho*R (post-shock)": (rho[star_r_window].mean(), rho_star_R),
-}
-for name, (sph_value, exact_value) in plateaus.items():
-    print(f"{name:20s}: SPH {sph_value:.4f}   exact {exact_value:.4f}   ({100*(sph_value/exact_value-1):+.2f} %)")
-
-
-# ## Profiles at t = 0.2
-#
-# The whole profiles are compared on the classical window $[0,1]$ with the
-# relative $L^1$ error $\int|q_\mathrm{SPH}-q_\mathrm{exact}|\,dx\,/\int|q_\mathrm{exact}|\,dx$.
-# SPH spreads the shock over a few smoothing lengths and leaves the familiar
-# small pressure blip at the contact, so a few percent is the honest tolerance.
-
-window = (x >= 0.0) & (x <= 1.0)
-rho_exact, u_exact, p_exact = exact_solution(x[window], end_time)
-
-
-def relative_l1(sph_values, exact_values):
-    return float(np.sum(np.abs(sph_values - exact_values)) / np.sum(np.abs(exact_values)))
-
-
-l1 = {
-    "density": relative_l1(rho[window], rho_exact),
-    "velocity": relative_l1(velocity[window], u_exact),
-    "pressure": relative_l1(pressure[window], p_exact),
-}
-for name, error in l1.items():
-    print(f"Relative L1 error of the {name} profile on [0, 1]: {100*error:.2f} %")
-
-# The shock front must sit at the exact position: locate it as the point where
-# the density crosses the mid-value between the post-shock plateau and rho_R
-# (searched on [0, 1] only, so the seam waves near the periodic box edges do
-# not interfere).
-shock_level = 0.5 * (rho_star_R + rho_R)
-behind = x[(x > x_contact + margin) & (x <= 1.0) & (rho > shock_level)]
-sph_shock_position = float(behind.max())
-print(f"Shock position: SPH {sph_shock_position:.4f}, exact {x_shock:.4f}")
+inside = (x >= 0) & (x <= 1)
+x = x[inside]
+particles = {"density": result.density[order][inside], "velocity": result.velocities[order, 0][inside],
+             "pressure": result.pressure[order][inside]}
+exact = dict(zip(particles, exact_solution(x)))
+for name in particles:
+    print(f"{name:9s} mean deviation from the exact solution: "
+          f"{100 * np.abs(particles[name] - exact[name]).sum() / np.abs(exact[name]).sum():.2f} %")
+print(f"mass {result.initial_balance.mass:.6f} -> {result.final_balance.mass:.6f},  "
+      f"total energy {result.initial_balance.total_energy:.6f} -> {result.final_balance.total_energy:.6f}")
 
 
 # ## Figure
 
-x_fine = np.linspace(0.0, 1.0, 1200)
-fig = plots.figure(1, 3, size=(13, 4.2))
-for panel, name, particles, exact in zip(fig, ("density", "velocity", "pressure"), (rho, velocity, pressure),
-                                         exact_solution(x_fine, end_time)):
-    plots.line(points={f"SPH particles ({PARTICLES} total)": (x[window], particles[window])},
-               reference={"exact Riemann solution": (x_fine, exact)}, xlimits=(0, 1), xlabel="position x",
-               ylabel=name, title=f"{name.capitalize()} at t = {end_time:g}", ax=panel)
+fine = np.linspace(0, 1, 1200)
+fig = plots.figure(1, 3, size=(15, 4.5))
+for panel, name, reference in zip(fig, particles, exact_solution(fine)):
+    plots.line(points={"SPH particles": (x, particles[name])}, reference={"exact Riemann solution": (fine, reference)},
+               xlabel="position", ylabel=name, title=f"{name.capitalize()} at t = {end_time}", ax=panel)
 plots.show()
 
 
 # ## Going further
 #
-# Halve `dx` (double `PARTICLES`) and the smeared shock and contact sharpen
-# while the plateaus stay put; reduce `viscosity_alpha` and watch post-shock
-# oscillations appear, the reason artificial viscosity is needed at all. The
-# same provider runs in two and three dimensions with a periodic box per
-# direction, so a 2D Riemann problem is the natural next step.
+# Halve the particle spacing and the waves sharpen; lower the artificial viscosity and
+# oscillations appear behind the shock. A stronger pressure ratio turns the problem into a blast
+# wave.
