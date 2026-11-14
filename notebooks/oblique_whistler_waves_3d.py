@@ -62,8 +62,7 @@ import numpy as np
 
 from onesim.physics.magnetohydrodynamics import ResistiveMHD3DSolver
 from onesim.results import fourier_coefficient, fourier_interpolate, oscillation_fit
-from onesim.visualization import (theme, figure, show, curve_plot, convergence_plot, grid_plot,
-                                  computed, reference, measured)
+from onesim.visualization import theme, plots
 
 theme.set()
 print("OneSimulation:", version("onesimulation"))
@@ -85,11 +84,11 @@ rho_0, B_0, eta_H, gamma, c_s = 1.0, 1.0, 0.5, 5.0 / 3.0, 0.5
 p_0 = rho_0 * c_s**2 / gamma
 B0_vec = np.array([0.0, 0.0, B_0])
 v_A, d_i = B_0 / np.sqrt(rho_0), eta_H / np.sqrt(rho_0)
-amplitude = 1.0e-7                   # magnetic amplitude of every launched mode, in units of B_0
-final_time = 4.0 * np.pi             # simulated time
-sample_interval = 0.08               # time between two stored samples
+amplitude = 1.0e-7
+final_time = 4.0 * np.pi
+sample_interval = 0.08
 
-WHISTLER, ION_CYCLOTRON = -1, -2     # index of the branch in the ascending list of positive roots
+WHISTLER, ION_CYCLOTRON = -1, -2
 modes = [((0, 0, 1), WHISTLER), ((0, 0, 3), WHISTLER), ((1, 0, 1), WHISTLER), ((2, 0, 2), WHISTLER),
          ((3, 0, 3), WHISTLER), ((1, 2, 2), WHISTLER), ((2, 2, 1), WHISTLER), ((0, 3, 0), WHISTLER),
          ((0, 0, 2), ION_CYCLOTRON), ((0, 1, 1), ION_CYCLOTRON), ((0, 2, 2), ION_CYCLOTRON),
@@ -126,14 +125,14 @@ print(f"v_A = {v_A:.3f}, d_i = {d_i:.3f}, c_s = {c_s:.3f}, beta = {2*p_0/B_0**2:
 def linear_operator(k):
     """Linearised Hall-MHD operator L(k) acting on (rho', v, p', b) (reference)."""
     ik = 1j * np.asarray(k, float)
-    K, C = np.cross(ik, np.eye(3)).T, np.cross(B0_vec, np.eye(3)).T.astype(complex)   # a x (.) as matrices
+    K, C = np.cross(ik, np.eye(3)).T, np.cross(B0_vec, np.eye(3)).T.astype(complex)
     L = np.zeros((8, 8), complex)
     L[0, 1:4] = -rho_0 * ik
     L[1:4, 4] = -ik / rho_0
     L[1:4, 5:8] = (-np.outer(ik, B0_vec) + (ik @ B0_vec) * np.eye(3)) / rho_0
     L[4, 1:4] = -gamma * p_0 * ik
-    L[5:8, 1:4] = -K @ C                                   # curl(v x B0)
-    L[5:8, 5:8] = (eta_H / rho_0) * K @ C @ K              # -(eta_H/rho0) curl((curl b) x B0)
+    L[5:8, 1:4] = -K @ C
+    L[5:8, 5:8] = (eta_H / rho_0) * K @ C @ K
     return L
 
 
@@ -205,7 +204,7 @@ for scheme, N, dt in configurations:
         np.array([fourier_coefficient(snapshot.magnetic_field, k, solver.axes) for k in wavevectors]),
         snapshot.total_energy.sum(), np.abs(snapshot.divergence).max()))
     times = np.array([t for t, _ in result.history])
-    coefficients = np.array([record[0] for _, record in result.history])       # (time, mode, component)
+    coefficients = np.array([record[0] for _, record in result.history])
     energy = np.array([record[1] for _, record in result.history])
     polarisation = vectors[:, 5:8]
     signals = np.einsum("tmc,mc->tm", coefficients, polarisation.conj()) / np.sum(np.abs(polarisation) ** 2, 1)
@@ -302,59 +301,63 @@ print(f"  (dominated by the fastest mode {modes[fastest][0]}, omega dt = "
 # $\theta=0^\circ$ and $45^\circ$ (lines: closed form, symbols: measured), and the resolution and
 # time-step studies.
 
-panels = figure([["bx", "by", "series", "series"], ["angle", "wavenumber", "resolution", "time step"]],
-                size=(16, 9.2))
-fine = np.linspace(0, 2 * np.pi, 160, endpoint=False)
-for name, data, axes_names, title in (
-        ("bx", main["final"][0][:, :, 0], ("x", "y"), "b_x on the plane z = 0, normal to B_0"),
-        ("by", main["final"][1][:, 0, :], ("x", "z"), "b_y on the plane y = 0, containing B_0")):
-    grid_plot(fine, fine, fourier_interpolate(data, 160) / amplitude, ax=panels[name], colormap="diverging",
-              label="b / (10^-7 B_0)", title=title, x_label=axes_names[0], y_label=axes_names[1])
+fig = plots.figure(layout=[["bx", "by", "series", "series"], ["angle", "wavenumber", "resolution", "time step"]],
+                   size=(16, 9.2))
 
+fine = np.linspace(0, 2 * np.pi, 160, endpoint=False)
+fig["bx"].image(fine, fine, fourier_interpolate(main["final"][0][:, :, 0], 160) / amplitude,
+                colormap="diverging", label="b / (10^-7 B_0)")
+fig["bx"].labels("x", "y", title="b_x on the plane z = 0, normal to B_0")
+fig["by"].image(fine, fine, fourier_interpolate(main["final"][1][:, 0, :], 160) / amplitude,
+                colormap="diverging", label="b / (10^-7 B_0)")
+fig["by"].labels("x", "z", title="b_y on the plane y = 0, containing B_0")
+
+panel = fig["series"]
 t_fine = np.linspace(0, final_time, 1200)
-series = []
 for colour, (m, every) in enumerate(((6, 1), (13, 2))):
     a = main["signals"][:, m] / main["signals"][0, m]
-    series += [reference(t_fine, np.cos(omega_exact[m] * t_fine), color=colour),
-               measured(main["times"][::every], a.real[::every], color=colour,
-                        label=f"k = {modes[m][0]}, {branch_name[branches[m]]}, omega = {main['omega'][m]:.4f}")]
-curve_plot(*series, ax=panels["series"], x_label="time t", y_label="Re a(t) / a(0)", legend="lower left",
-           title="Launched-mode amplitudes (symbols) and cos(omega t) from the dispersion relation")
+    panel.reference(t_fine, np.cos(omega_exact[m] * t_fine), color=colour)
+    panel.points(main["times"][::every], a.real[::every], color=colour,
+                 label=f"k = {modes[m][0]}, {branch_name[branches[m]]}, omega = {main['omega'][m]:.4f}")
+panel.labels("time t", "Re a(t) / a(0)",
+             title="Launched-mode amplitudes (symbols) and cos(omega t) from the dispersion relation")
+panel.legend("lower left")
 
+panel = fig["angle"]
 angles = np.linspace(0.0, np.pi / 2, 181)
-roots = np.array([np.r_[np.nan, np.nan, np.nan, dispersion_roots(3.0, th)][-3:] for th in angles])  # slow root vanishes at 90 deg
+roots = np.array([np.r_[np.nan, np.nan, np.nan, dispersion_roots(3.0, th)][-3:] for th in angles])
 on_shell = np.isclose(k_abs, 3.0)
-curve_plot(computed(np.degrees(angles), roots[:, 2], "fast / whistler", color=1),
-           computed(np.degrees(angles), roots[:, 1], "ion-cyclotron / KAW", color=0),
-           computed(np.degrees(angles), roots[:, 0], "slow", color=2),
-           measured(np.degrees(theta[on_shell]), main["omega"][on_shell], "measured", color="ink"),
-           ax=panels["angle"], x_label="angle theta between k and B_0 [deg]", y_label="omega",
-           title="|k| = 3: frequency vs angle")
+panel.line(np.degrees(angles), roots[:, 2], "fast / whistler", color=1)
+panel.line(np.degrees(angles), roots[:, 1], "ion-cyclotron / KAW", color=0)
+panel.line(np.degrees(angles), roots[:, 0], "slow", color=2)
+panel.points(np.degrees(theta[on_shell]), main["omega"][on_shell], "measured", color="ink")
+panel.labels("angle theta between k and B_0 [deg]", "omega", title="|k| = 3: frequency vs angle")
 
+panel = fig["wavenumber"]
 k_line = np.linspace(0.05, 4.6, 200)
-curves = []
-for degrees in (0.0, 45.0):
+for degrees, style in ((0.0, "solid"), (45.0, "dashed")):
     r = np.array([dispersion_roots(k, np.radians(degrees)) for k in k_line])
     lower = k_line * v_A * (np.sqrt(1 + (k_line * d_i / 2) ** 2) - k_line * d_i / 2) if degrees == 0 else r[:, -2]
-    curves += [computed(k_line, r[:, -1], f"whistler, theta = {degrees:.0f} deg", color=1 if degrees == 0 else 4),
-               computed(k_line, lower, f"ion-cyclotron/KAW, theta = {degrees:.0f} deg", color=0 if degrees == 0 else 3)]
+    panel.line(k_line, r[:, -1], f"whistler, theta = {degrees:.0f} deg", color=1, style=style)
+    panel.line(k_line, lower, f"ion-cyclotron/KAW, theta = {degrees:.0f} deg", color=0, style=style)
 on_lines = np.isclose(np.degrees(theta), 0.0) | np.isclose(np.degrees(theta), 45.0)
-curve_plot(*curves, reference(k_line, k_line * v_A, "Alfven omega = k v_A"),
-           measured(k_abs[on_lines], main["omega"][on_lines], "measured", color="ink"),
-           ax=panels["wavenumber"], x_label="|k|", y_label="omega", legend="upper left",
-           title="Frequency vs |k| (symbols: measured)")
+panel.line(k_line, k_line * v_A, "Alfven omega = k v_A", color="ink", style="dotted")
+panel.points(k_abs[on_lines], main["omega"][on_lines], "measured", color="ink")
+panel.labels("|k|", "omega", title="Frequency vs |k| (symbols: measured)").legend("upper left")
 
-hs = np.array([run["h"] for run in fd_study])
-convergence_plot({**{f"central diff., k = {modes[m][0]}": hs for m in (4, 6, 11)},
-                  "spectral, all modes (max)": np.array([run["h"] for run in spectral_study])},
-                 {**{f"central diff., k = {modes[m][0]}": np.abs(w[:, m] / omega_exact[m] - 1) for m in (4, 6, 11)},
-                  "spectral, all modes (max)": [np.max(np.abs(run["omega"] / omega_exact - 1)) for run in spectral_study]},
-                 orders=(2,), ax=panels["resolution"], x_label="grid spacing h",
-                 y_label="|omega / omega_exact - 1|", title="Resolution study")
-convergence_plot([run["dt"] for run in time_study], {"spectral 16^3, max over modes": errors}, orders=(4,),
-                 ax=panels["time step"], x_label="time step dt", y_label="|omega / omega_exact - 1|",
-                 title="Time-step study (RK4)")
-show()
+panel = fig["resolution"]
+hs = [run["h"] for run in fd_study]
+for m in (4, 6, 11):
+    panel.line(hs, np.abs(w[:, m] / omega_exact[m] - 1), f"central diff., k = {modes[m][0]}", markers=True)
+panel.slope(2)
+panel.line([run["h"] for run in spectral_study], [np.max(np.abs(run["omega"] / omega_exact - 1)) for run in spectral_study],
+           "spectral, all modes (max), dt = 0.008", markers=True)
+panel.scale("log", "log").labels("grid spacing h", "|omega / omega_exact - 1|", title="Resolution study")
+
+panel = fig["time step"]
+panel.line([run["dt"] for run in time_study], errors, "spectral 16^3, max over modes", markers=True).slope(4)
+panel.scale("log", "log").labels("time step dt", "|omega / omega_exact - 1|", title="Time-step study (RK4)")
+plots.show()
 
 
 # ## Going further
