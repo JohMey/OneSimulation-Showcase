@@ -1,424 +1,143 @@
 """OneSimulation example: thermal stresses in a coated plate (plane strain).
 Requires the installed, activated OneSimulation runtime.
 
-The 2D plane-strain stress field of a two-layer plate cooled after coating is
-computed in OneSimulation and compared with the closed-form bilayer (Timoshenko)
-solution at mid-span (for the actual plate and for a three times longer one),
-with the section equilibrium and a mesh study at the free edge.
+A coated plate is cooled from the deposition temperature. The two layers contract differently, so
+the plate bends and the coating ends up in compression. The stress field is compared with the
+closed-form bilayer solution, and the stress concentration at the free edge is shown.
 """
 
 
 # # Thermal stresses in a coated plate
 #
-# A substrate plate ($10$ mm thick) carries a coating ($2$ mm thick); the plate
-# is $20$ mm long. The coating is deposited at $800\,^\circ$C, where both
-# layers are stress free, and the plate is then cooled to $150\,^\circ$C. The
-# substrate contracts more than the coating
-# ($\alpha_s=3\cdot10^{-6}$ 1/K against $\alpha_c=5\cdot10^{-7}$ 1/K), so the
-# coating ends up in compression, the substrate next to it in tension, and the
-# plate bends. The plate is thick in the third direction and is in **plane
-# strain**: the field depends on $(x,y)$ only and $u_z=0$. Near the two free
-# ends the stresses must turn around to leave the end faces traction free,
-# which creates the classical free-edge concentration of peel and shear stress
-# at the interface.
+# A substrate plate (10 mm thick) carries a coating (2 mm thick). The coating is deposited at
+# 800 °C, where both layers are stress free, and the plate is then cooled to 150 °C. The substrate
+# contracts more than the coating, so the coating ends up in compression and the plate bends. Near
+# the free ends the stresses must turn around, which concentrates peel and shear stress at the
+# interface.
 #
 # | layer | $E$ | $\nu$ | $\alpha$ |
 # |---|---|---|---|
 # | substrate | 130 GPa | 0.28 | $3\cdot10^{-6}$ 1/K |
 # | coating | 70 GPa | 0.17 | $5\cdot10^{-7}$ 1/K |
 #
-# **Reference.** Away from the free ends the plate behaves like a bilayer
-# beam (Timoshenko, *Analysis of bi-metal thermostats*, J. Opt. Soc. Am. 11,
-# 233, 1925). With the plane-strain modulus $E_i'=E_i/(1-\nu_i^2)$ and the
-# plane-strain thermal strain $e_i=(1+\nu_i)\alpha_i\Delta T$, the axial strain
-# is linear across the section, $\varepsilon_{xx}=\varepsilon_0+\kappa y$, and
+# The plate is long in the third direction and is in plane strain, $u_z=0$.
+#
+# **Reference.** Away from the ends the plate behaves like a bilayer beam (Timoshenko, 1925). With
+# $E_i'=E_i/(1-\nu_i^2)$ and the thermal strain $e_i=(1+\nu_i)\alpha_i\Delta T$,
 #
 # $$\sigma_{xx}(y)=E_i'\,\bigl(\varepsilon_0+\kappa y-e_i\bigr),\qquad
-#   \sum_i\int_i\sigma_{xx}\,dy=0,\qquad \sum_i\int_i\sigma_{xx}\,y\,dy=0,$$
+#   \sum_i\int_i\sigma_{xx}\,dy=0,\qquad \sum_i\int_i\sigma_{xx}\,y\,dy=0 ,$$
 #
-# which fixes $\varepsilon_0$ and $\kappa$. This is the exact interior
-# (Saint-Venant) solution of the 2D problem for a long plate; the mid-span of
-# this short plate ($20$ mm long, $12$ mm thick) lies only $0.83$ thicknesses
-# from each end, so the end disturbance has not decayed completely there.
-# The comparison therefore combines (1) the mid-span stresses against this
-# closed form, for the actual plate and for the same model with a plate three
-# times as long, where the end disturbance has decayed at mid-span and the
-# field must reduce to the closed form, (2) exact equilibrium identities of the
-# computed field (zero net force and moment over the mid-span section;
-# interface shear force equal to the coating force) and (3) a three-mesh study
-# (observed order, Richardson estimate) of the stresses near the free edge and
-# at mid-span.
-#
-# **How plane strain is obtained.** OneSimulation's thermoelastic solid
-# (`LinearElasticity` with a thermal eigenstrain) is formulated in 3D. The
-# section is extruded into a thin slab, one quadratic hexahedron thick. Plane
-# strain means $\varepsilon_{zz}=0$ and therefore
-# $\sigma_{zz}=\nu(\sigma_{xx}+\sigma_{yy})-E\alpha\Delta T$; the two $z$ faces
-# receive exactly this normal traction, computed from the in-plane stresses of
-# the previous solve. At the fixed point of this update the slab carries a
-# $z$-independent field with $\varepsilon_{zz}=0$, i.e. the exact plane-strain
-# solution; the printed $\max|\varepsilon_{zz}|$ shows how closely it is reached.
-# The plate is free in its plane, as in the original set-up, so the rigid-body
-# motions are removed by OneSimulation's exact rigid-motion gauge (no supports).
-#
-# **Method.** Continuous Galerkin finite elements: tensor-product quadratic
-# ($Q_2$, 27-node) Lagrange displacement on hexahedra, $3\times3\times3$ Gauss
-# points per cell, with a cell-wise layered material law
-# (`PropertyLaw` in $y$) and the isotropic thermal eigenstrain
-# $\alpha(T-T_\text{ref})\mathbf I$. The temperature comes from a trilinear
-# ($Q_1$) heat-conduction solve. The problem is stationary (no time
-# integrator); each solve uses a sparse direct (LU) solver with the six
-# rigid-body modes eliminated exactly, and four plane-strain traction updates
-# (a fixed-point iteration) are made per mesh.
+# where the two balances fix the strain $\varepsilon_0$ and the curvature $\kappa$.
 
+from dataclasses import replace
 import numpy as np
 
 from onesim.cad.d2 import Plane
-from onesim.cad.d3 import TrilinearHexahedron
+from onesim.cad.d3 import Box
 from onesim.materials import IsotropicSolid
-from onesim.meshing import TrilinearHexahedralMesher
+from onesim.meshing import Geometric, Piecewise, StructuredHexahedralMesher, Uniform
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.field_transfer import FiniteElementEvaluation
 from onesim.numerics.linear import SparseDirect
 from onesim.physics.heat_transfer import FixedTemperature, HeatConduction
-from onesim.physics.solid_mechanics import IsotropicThermalExpansion, LinearElasticity, Traction, TractionFree
-from onesim.simulation import Problem, Simulation
+from onesim.physics.solid_mechanics import FixedDisplacementComponents, IsotropicThermalExpansion, LinearElasticity, TractionFree
+from onesim.simulation import Problem, Simulation, regionwise
 from onesim.simulation.field_connections import FieldCoupling
-from onesim.simulation.field_constraints import RigidMotionGauge
 from onesim.visualization import theme, plots
 
 theme.set()
 
-
-# ## Parameters
-
-length = 0.020
-h_sub, h_coat = 0.010, 0.002
-height = h_sub + h_coat
-slab = 0.0005
-E_sub, nu_sub, alpha_sub = 130e9, 0.28, 3.0e-6
-E_coat, nu_coat, alpha_coat = 70e9, 0.17, 5.0e-7
-T_stress_free = 1073.15
-T_final = 423.15
-delta_T = T_final - T_stress_free
+half_length, substrate, coating, slab = 0.030, 0.010, 0.002, 0.0005
+layers = {"substrate": (130e9, 0.28, 3.0e-6), "coating": (70e9, 0.17, 5.0e-7)}
+deposition, final = 1073.15, 423.15
 
 
-def layer_constants(y):
-    """E, nu, alpha of the layer at height y (coating above the interface)."""
-    coat = np.asarray(y) > h_sub
-    return (np.where(coat, E_coat, E_sub), np.where(coat, nu_coat, nu_sub),
-            np.where(coat, alpha_coat, alpha_sub))
-
-
-class LayerProperty:
-    """Material property that takes one value in the substrate and another in the coating."""
-
-    def __init__(self, substrate, coating, unit):
-        self.substrate, self.coating, self.unit = substrate, coating, unit
-
-    def evaluate(self, y):
-        return np.where(np.asarray(y) > h_sub, self.coating, self.substrate)
-
-
-material = IsotropicSolid(
-    density=3000.0, specific_heat_capacity=700.0, thermal_conductivity=30.0,
-    youngs_modulus=LayerProperty(E_sub, E_coat, "Pa"),
-    poisson_ratio=LayerProperty(nu_sub, nu_coat, "1"),
-    thermal_expansion_coefficient=LayerProperty(alpha_sub, alpha_coat, "1/K"),
-)
-
-layers = ((0.0, h_sub, E_sub, nu_sub, alpha_sub), (h_sub, height, E_coat, nu_coat, alpha_coat))
-matrix, rhs = np.zeros((2, 2)), np.zeros(2)
-for y0, y1, E, nu, alpha in layers:
-    Ep, e = E / (1 - nu**2), (1 + nu) * alpha * delta_T
-    m0, m1, m2 = y1 - y0, (y1**2 - y0**2) / 2, (y1**3 - y0**3) / 3
-    matrix += Ep * np.array([[m0, m1], [m1, m2]])
-    rhs += Ep * e * np.array([m0, m1])
-eps0, kappa = np.linalg.solve(matrix, rhs)
-
-
-def sigma_xx_bilayer(y, coat):
-    E, nu, alpha = (E_coat, nu_coat, alpha_coat) if coat else (E_sub, nu_sub, alpha_sub)
-    return E / (1 - nu**2) * (eps0 + kappa * np.asarray(y) - (1 + nu) * alpha * delta_T)
-
-
-coat_force_bilayer = (h_coat / 2) * (sigma_xx_bilayer(h_sub, True) + sigma_xx_bilayer(height, True))
-print(f"Bilayer solution: eps0 = {eps0:.4e}, curvature = {kappa:.4f} 1/m, "
-      f"coating force = {coat_force_bilayer / 1e3:.2f} kN/m")
-
-
-# ## Geometry and mesh
-#
-# The section is the rectangle $0\le x\le L$, $0\le y\le 12$ mm with the
-# interface at $y=10$ mm, extruded by $0.5$ mm in $z$. `TrilinearHexahedralMesher`
-# builds a tensor grid with prescribed (graded) node positions. The cells
-# shrink geometrically toward both free ends (factor 50) and toward the
-# interface (factor 40 in the substrate, 8 in the coating), so the mesh is
-# finest at the two interface corners where the free-edge stresses
-# concentrate; every layer has its own cell rows (each cell lies in one
-# material), and the coating has several cells across its thickness.
-# Displacements are quadratic (27-node Lagrange hexahedra).
-#
-# At the interface corner itself the elastic field of a bimaterial wedge is
-# weakly singular (Bogy, J. Appl. Mech. 35, 460, 1968), so the corner value is
-# not a meaningful number. The mesh study therefore follows the peel and shear
-# stress at fixed distances from the free end, where the exact field is finite.
-
-
-def geometric(n, ratio):
-    """n cells on [0, 1]; the last cell is `ratio` times the first."""
-    sizes = ratio ** (np.arange(n) / max(n - 1, 1))
-    nodes = np.r_[0.0, np.cumsum(sizes)] / sizes.sum()
-    nodes[-1] = 1.0
-    return nodes
-
-
-def mesh_axes(nx, n_sub, n_coat):
-    half = 0.5 * geometric(nx // 2, 50.0)
-    x = np.r_[half, 1.0 - half[::-1][1:]]
-    y_sub = h_sub * (1 - geometric(n_sub, 40.0)[::-1])
-    y_coat = h_sub + h_coat * geometric(n_coat, 8.0)
-    y = np.r_[y_sub, y_coat[1:]] / height
-    x[-1] = y[-1] = 1.0
-    return x, y
+def bilayer_stress(y):
+    """Axial stress of the bilayer beam at the height y."""
+    stiffness, load = np.zeros((2, 2)), np.zeros(2)
+    for (E, nu, alpha), (lower, upper) in zip(layers.values(), ((0, substrate), (substrate, substrate + coating))):
+        moments = [(upper**k - lower**k) / k for k in (1, 2, 3)]
+        stiffness += E / (1 - nu**2) * np.array([moments[:2], moments[1:]])
+        load += E / (1 - nu**2) * (1 + nu) * alpha * (final - deposition) * np.array(moments[:2])
+    strain, curvature = np.linalg.solve(stiffness, load)
+    E, nu, alpha = (np.where(np.asarray(y) > substrate, c, s) for s, c in zip(*layers.values()))
+    return E / (1 - nu**2) * (strain + curvature * np.asarray(y) - (1 + nu) * alpha * (final - deposition))
 
 
 # ## Model
 #
-# Boundary conditions on every face of the slab:
+# A thin slab of one half of the 60 mm long plate: $u_z=0$ on both slab faces gives plane strain,
+# and the mid-span is a symmetry plane, held at its lower edge. The material properties are given
+# layer by layer, and the mesh is graded towards the interface and the free end.
+# The uniform final temperature comes from a heat-conduction model and enters the mechanics as
+# thermal strain.
+
+plate = Box(length=half_length, width=substrate + coating, height=slab)
+faces = plate.boundaries
+coat = Box(length=half_length, width=coating, height=slab, origin=(0.0, substrate, 0.0))
+layered = lambda index, unit: regionwise(((coat, layers["coating"][index]),), default=layers["substrate"][index], unit=unit)
+material = replace(IsotropicSolid(density=3000.0, specific_heat_capacity=700.0, thermal_conductivity=30.0,
+                                  youngs_modulus=1e9, poisson_ratio=0.3, thermal_expansion_coefficient=1e-6),
+                   youngs_modulus=layered(0, "Pa"), poisson_ratio=layered(1, "1"), thermal_expansion_coefficient=layered(2, "1/K"))
+across = Piecewise(((substrate, Geometric(12, ratio=40.0, toward="end")), (coating, Geometric(6, ratio=8.0))))
+mesh = StructuredHexahedralMesher(cells=(24, 18, 1), grading=(Geometric(24, ratio=50.0, toward="end"), across, Uniform(1))).generate(plate)
+numerics = Numerics(spatial=FiniteElement(element=Lagrange(order=2)), linear_solver=SparseDirect())
+
+heat = HeatConduction(domain=plate.volume, material=material)
+cooled = Simulation(problem=Problem(name="Final temperature", geometry=plate, physics=(heat,), boundary_conditions=(
+    FixedTemperature(boundary=faces.all, physics=heat, value=final),)), mesh=mesh, numerics=numerics).solve_stationary()
+
+solid = LinearElasticity(domain=plate.volume, material=material,
+                         thermal_strain=IsotropicThermalExpansion(reference_temperature=deposition))
+problem = Problem(name="Coated plate", geometry=plate, physics=(solid,), boundary_conditions=(
+    TractionFree(boundary=faces.x_max | faces.y_min | faces.y_max, physics=solid),
+    FixedDisplacementComponents(boundary=faces.z_min | faces.z_max, physics=solid, components=("z",)),
+    FixedDisplacementComponents(boundary=faces.x_min, physics=solid, components=("x", "y"),
+                                where={"y": lambda x, y, z: y < 1e-9})),
+    couplings=(FieldCoupling(source=cooled.field(heat.temperature), target=solid.temperature, transfer=FiniteElementEvaluation()),))
+stress = Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_stationary().field(solid.stress)
+
+
+# ## Results
 #
-# | face | condition |
-# |---|---|
-# | end faces $x=0$, $x=L$ | traction-free |
-# | lower and upper faces $y=0$, $y=H$ | traction-free |
-# | slab faces $z=0$, $z=\text{depth}$ | normal traction $\mp\sigma_{zz}^{\text{plane strain}}$, no shear |
-#
-# plus the rigid-motion gauge (free plate). The temperature field enters through
-# a field coupling from a heat-conduction solve with $T=150\,^\circ$C on every
-# face, i.e. the uniform final temperature.
+# The axial stress at mid-span against the bilayer solution.
 
-
-def build_plate(plate_length):
-    """Geometry, uniform final temperature and thermoelastic model of a plate of the given length."""
-    geometry = TrilinearHexahedron(vertices=(
-        (0, 0, 0), (plate_length, 0, 0), (plate_length, height, 0), (0, height, 0),
-        (0, 0, slab), (plate_length, 0, slab), (plate_length, height, slab), (0, height, slab),
-    ))
-    faces = geometry.boundaries
-    heat = HeatConduction(domain=geometry.volume, material=material)
-    temperature = Simulation(
-        problem=Problem(
-            name="Uniform final temperature", geometry=geometry, physics=(heat,),
-            boundary_conditions=(FixedTemperature(boundary=faces.all, physics=heat, value=T_final),),
-        ),
-        mesh=TrilinearHexahedralMesher(reference_axes=((0.0, 1.0),) * 3).generate(geometry),
-        numerics=Numerics(spatial=FiniteElement(element=Lagrange(order=1)), linear_solver=SparseDirect()),
-    ).solve_stationary().field(heat.temperature)
-    solid = LinearElasticity(
-        domain=geometry.volume, material=material,
-        thermal_strain=IsotropicThermalExpansion(reference_temperature=T_stress_free),
-    )
-    return dict(length=plate_length, geometry=geometry, faces=faces, temperature=temperature, solid=solid)
-
-
-def in_plane_stress(gradient, y):
-    """Stress components from a displacement gradient at heights y (Hooke law with thermal strain)."""
-    E, nu, alpha = layer_constants(y)
-    lam, mu, th = E * nu / ((1 + nu) * (1 - 2 * nu)), E / (2 * (1 + nu)), alpha * delta_T
-    exx, eyy, ezz = gradient[:, 0, 0], gradient[:, 1, 1], gradient[:, 2, 2]
-    exy = 0.5 * (gradient[:, 0, 1] + gradient[:, 1, 0])
-    trace = exx + eyy + ezz - 3 * th
-    return dict(xx=lam * trace + 2 * mu * (exx - th), yy=lam * trace + 2 * mu * (eyy - th),
-                zz=lam * trace + 2 * mu * (ezz - th), xy=2 * mu * exy, ezz=ezz)
-
-
-def solve_plane_strain(plate, cells, iterations=4):
-    """Solve the slab, updating the plane-strain traction on the z faces after every solve."""
-    geometry, faces, solid, L = plate["geometry"], plate["faces"], plate["solid"], plate["length"]
-    x_axis, y_axis = mesh_axes(*cells)
-    mesh = TrilinearHexahedralMesher(reference_axes=(tuple(x_axis), tuple(y_axis), (0.0, 1.0))).generate(geometry)
-    g = (np.polynomial.legendre.leggauss(3)[0] + 1) / 2
-    xg = np.sort(((x_axis[:-1, None] + np.diff(x_axis)[:, None] * g) * L).ravel())
-    yg = np.sort(((y_axis[:-1, None] + np.diff(y_axis)[:, None] * g) * height).ravel())
-    XG, YG = np.meshgrid(xg, yg, indexing="ij")
-    E, nu, alpha = layer_constants(YG)
-    table = {"szz": -E * alpha * delta_T}
-
-    def szz(x, y):
-        i = np.abs(xg[:, None] - np.ravel(x)[None, :]).argmin(axis=0)
-        j = np.abs(yg[:, None] - np.ravel(y)[None, :]).argmin(axis=0)
-        return table["szz"][i, j].reshape(np.shape(x))
-
-    def z_traction(sign):
-        return lambda x, y, z, t: np.stack((0 * x, 0 * x, sign * szz(x, y)), axis=-1)
-
-    problem = Problem(
-        name="Coated plate cooled from the deposition temperature", geometry=geometry, physics=(solid,),
-        boundary_conditions=(
-            TractionFree(boundary=faces.x_min | faces.x_max | faces.y_min | faces.y_max, physics=solid),
-            Traction(boundary=faces.z_min, physics=solid, value=z_traction(-1.0)),
-            Traction(boundary=faces.z_max, physics=solid, value=z_traction(+1.0)),
-        ),
-        constraints=(RigidMotionGauge(solid.displacement),),
-        couplings=(FieldCoupling(source=plate["temperature"], target=solid.temperature,
-                                 transfer=FiniteElementEvaluation()),),
-    )
-    simulation = Simulation(problem=problem, mesh=mesh, numerics=Numerics(
-        spatial=FiniteElement(element=Lagrange(order=2)), linear_solver=SparseDirect()))
-    points = np.column_stack((XG.ravel(), YG.ravel(), np.full(XG.size, slab / 2)))
-    thermal = abs(alpha_sub * delta_T)
-    print(f"Plate {1e3 * L:.0f} mm, mesh {cells[0]} x {cells[1] + cells[2]} cells "
-          f"(coating {cells[2]} cells, smallest cell {1e6 * np.diff(x_axis).min() * L:.0f} um)")
-    for iteration in range(iterations):
-        result = simulation.solve_stationary()
-        operator = result.operators[solid.model_id]
-        values = np.asarray(result.field(solid.displacement).values)
-        s = in_plane_stress(operator.space.gradient(values, points), YG.ravel())
-        new = (nu.ravel() * (s["xx"] + s["yy"]) - E.ravel() * alpha.ravel() * delta_T).reshape(XG.shape)
-        print(f"  update {iteration + 1}: max|eps_zz| / |alpha_s dT| = {np.abs(s['ezz']).max() / thermal:.1e}, "
-              f"max change of sigma_zz = {np.abs(new - table['szz']).max() / 1e6:.3f} MPa")
-        table["szz"] = new
-    return result
-
-
-# ## Solve
-#
-# The 20 mm plate on three meshes, each 1.5 times finer than the previous one
-# in both directions. In addition, the same model is solved for a plate three
-# times as long (60 mm), whose mid-span lies far enough from the free ends for
-# the end disturbance to have decayed: there the field must reduce to the
-# bilayer solution itself.
-
-plate = build_plate(length)
-mesh_family = ((16, 8, 4), (24, 12, 6), (36, 18, 9))
-runs = {cells: solve_plane_strain(plate, cells) for cells in mesh_family}
-long_plate = build_plate(3 * length)
-long_result = solve_plane_strain(long_plate, (36, 12, 6))
-
-
-# ## Comparison with the reference
-#
-# Printed below: the mid-span stresses of the 20 mm plate and of the 60 mm
-# plate next to the bilayer solution with their relative deviations, the
-# equilibrium identities of the computed field, and the three-mesh study with
-# the change between the two finest meshes, the observed order and the
-# Richardson estimate. In the short plate the deviation from the bilayer
-# solution is the physical end effect; in the long plate it must vanish. The
-# free-edge values and the coating stress converge fastest; the mid-span value
-# at the lower face converges most slowly, and its Richardson estimate shows
-# where it is heading.
-
-def evaluate_stress(plate, result, points):
-    return np.asarray(result.field(plate["solid"].stress).evaluate(np.asarray(points)))
-
-
-def gauss_line(a, b, n_cells, order=6):
-    """Gauss points and weights on [a, b] split into n_cells equal pieces."""
-    g, w = np.polynomial.legendre.leggauss(order)
-    edges = np.linspace(a, b, n_cells + 1)
-    pts = (edges[:-1, None] + (g + 1) / 2 * np.diff(edges)[:, None]).ravel()
-    return pts, np.tile(w / 2, n_cells) * np.repeat(np.diff(edges), order)
-
-
-tiny = 1e-9
-mid_heights = [0.0, h_sub - tiny, h_sub + tiny, height]
-edge_distances = (0.5e-3, 1.0e-3)
-
-
-def checks(plate, result):
-    L = plate["length"]
-    mid = evaluate_stress(plate, result, [[L / 2, y, slab / 2] for y in mid_heights])[:, 0]
-    ys, ws = gauss_line(0.0, h_sub, 20)
-    yc, wc = gauss_line(h_sub, height, 6)
-    s_sub = evaluate_stress(plate, result, [[L / 2, y, slab / 2] for y in ys])[:, 0]
-    s_coat = evaluate_stress(plate, result, [[L / 2, y, slab / 2] for y in yc])[:, 0]
-    force = ws @ s_sub + wc @ s_coat
-    moment = ws @ (s_sub * (ys - height / 2)) + wc @ (s_coat * (yc - height / 2))
-    coat_force = wc @ s_coat
-    xs, wx = gauss_line(0.0, L / 2, 40)
-    tau = 0.5 * (evaluate_stress(plate, result, [[x, h_sub - tiny, slab / 2] for x in xs])[:, 3]
-                 + evaluate_stress(plate, result, [[x, h_sub + tiny, slab / 2] for x in xs])[:, 3])
-    edge = evaluate_stress(plate, result, [[d, h_sub - tiny, slab / 2] for d in edge_distances])
-    return dict(mid=mid, force=force, moment=moment, coat_force=coat_force,
-                shear_force=abs(wx @ tau), peel=edge[:, 1], shear=edge[:, 3])
-
-
-results = {cells: checks(plate, runs[cells]) for cells in mesh_family}
-long_checks = checks(long_plate, long_result)
-fine = results[mesh_family[-1]]
-labels = ("lower face", "substrate at interface", "coating at interface", "upper face")
-reference_mid = np.array([sigma_xx_bilayer(0.0, False), sigma_xx_bilayer(h_sub, False),
-                          sigma_xx_bilayer(h_sub, True), sigma_xx_bilayer(height, True)])
-
-print("\nMid-span sigma_xx (MPa) against the bilayer (Timoshenko) solution")
-print(f"  {'':24s} {'bilayer':>9s} {'20 mm plate':>12s} {'deviation':>10s} {'60 mm plate':>12s} {'deviation':>10s}")
-for k, label in enumerate(labels):
-    ref, short, long_ = reference_mid[k], fine["mid"][k], long_checks["mid"][k]
-    print(f"  {label:24s} {ref / 1e6:9.2f} {short / 1e6:12.2f} {100 * (short / ref - 1):+9.2f}% "
-          f"{long_ / 1e6:12.2f} {100 * (long_ / ref - 1):+9.2f}%")
-print(f"  {'coating force (kN/m)':24s} {coat_force_bilayer / 1e3:9.2f} {fine['coat_force'] / 1e3:12.2f} "
-      f"{100 * (fine['coat_force'] / coat_force_bilayer - 1):+9.2f}% {long_checks['coat_force'] / 1e3:12.2f} "
-      f"{100 * (long_checks['coat_force'] / coat_force_bilayer - 1):+9.2f}%")
-
-print("\nEquilibrium of the computed field (20 mm plate, finest mesh)")
-print(f"  net axial force over the mid-span section / coating force   {fine['force'] / fine['coat_force']:+.2e}")
-print(f"  net bending moment / (coating force x plate thickness)       "
-      f"{fine['moment'] / (fine['coat_force'] * height):+.2e}")
-print(f"  interface shear force from the free end to mid-span          {fine['shear_force'] / 1e3:.3f} kN/m")
-print(f"  coating force at mid-span                                    {abs(fine['coat_force']) / 1e3:.3f} kN/m"
-      f"   difference {100 * (fine['shear_force'] / abs(fine['coat_force']) - 1):+.2f} %")
-
-print("\nMesh study, 20 mm plate (MPa); observed order and Richardson estimate from the three meshes")
-quantities = {
-    "peel at 0.5 mm from the end": [results[c]["peel"][0] for c in mesh_family],
-    "shear at 0.5 mm from the end": [results[c]["shear"][0] for c in mesh_family],
-    "peel at 1.0 mm from the end": [results[c]["peel"][1] for c in mesh_family],
-    "shear at 1.0 mm from the end": [results[c]["shear"][1] for c in mesh_family],
-    "mid-span, coating at interface": [results[c]["mid"][2] for c in mesh_family],
-    "mid-span, lower face": [results[c]["mid"][0] for c in mesh_family],
-}
-print(f"  {'quantity':32s} {'coarse':>9s} {'medium':>9s} {'fine':>9s} {'last change':>12s} {'order':>6s} {'Richardson':>11s}")
-for name, (f1, f2, f3) in quantities.items():
-    order = np.log(abs(f1 - f2) / abs(f2 - f3)) / np.log(1.5)
-    richardson = f3 + (f3 - f2) / (1.5 ** order - 1)
-    print(f"  {name:32s} {f1 / 1e6:9.2f} {f2 / 1e6:9.2f} {f3 / 1e6:9.2f} {100 * abs(f3 / f2 - 1):11.2f}% "
-          f"{order:6.2f} {richardson / 1e6:11.2f}")
+heights = {"lower face": 2e-6, "substrate at the interface": substrate - 2e-6, "coating at the interface": substrate + 2e-6,
+           "upper face": substrate + coating - 2e-6}
+at_mid_span = stress.evaluate([[1e-6, y, slab / 2] for y in heights.values()])[:, 0]
+print(f"{'position':28s} simulation [MPa]   bilayer [MPa]")
+for (label, y), value in zip(heights.items(), at_mid_span):
+    print(f"{label:28s} {value / 1e6:16.2f} {bilayer_stress(y) / 1e6:15.2f}")
 
 
 # ## Figure
 #
-# Left: axial stress $\sigma_{xx}$ over the whole section. Middle: peel stress
-# $\sigma_{yy}$ near the free end, concentrated at the interface corner.
-# Right: mid-span profile of $\sigma_{xx}$ against the bilayer solution, for
-# the 20 mm plate and for the 60 mm plate.
+# The axial stress near one end of the plate, the stress through the thickness at mid-span, and
+# the peel and shear stress along the interface towards the free end.
 
-result = runs[mesh_family[-1]]
-stress = result.field(plate["solid"].stress)
-mid_plane = Plane(origin=(0.0, 0.0, slab / 2), normal=(0.0, 0.0, 1.0))
-heights = np.r_[np.linspace(tiny, h_sub - tiny, 21), np.linspace(h_sub + tiny, height - tiny, 21)]
-theory_y = np.r_[np.linspace(0.0, h_sub, 50), np.linspace(h_sub, height, 50)]
-theory = np.r_[sigma_xx_bilayer(theory_y[:50], False), sigma_xx_bilayer(theory_y[50:], True)]
-fig = plots.figure(1, 3, size=(16, 4.8))
-plots.section(stress, plane=mid_plane, component=lambda s, p: s[:, 0] / 1e6, colormap="diverging", limits=(-120, 120),
-              subdivisions=3, label="sigma_xx [MPa]", title="Axial stress sigma_xx in the section", ax=fig[0])
-plots.section(stress, plane=mid_plane, component=lambda s, p: s[:, 1] / 1e6, colormap="diverging", limits=(-100, 100),
-              subdivisions=3, label="sigma_yy [MPa]", title="Peel stress near the free end",
-              xlimits=(0.0, 3e-3), ylimits=(7e-3, 12e-3), ax=fig[1])
-plots.line(points={"OneSimulation, 20 mm plate":
-                   (evaluate_stress(plate, result, [[length / 2, y, slab / 2] for y in heights])[:, 0] / 1e6, heights * 1e3),
-                   "OneSimulation, 60 mm plate":
-                   (evaluate_stress(long_plate, long_result, [[1.5 * length, y, slab / 2] for y in heights])[:, 0] / 1e6, heights * 1e3)},
-           reference={"bilayer (Timoshenko)": (theory / 1e6, theory_y * 1e3)}, hlines={"interface": h_sub * 1e3},
-           xlabel="sigma_xx [MPa]", ylabel="y [mm]", title="Mid-span stress profile", ax=fig[2])
+megapascal = lambda s, position: s[:, 0] / 1e6
+y = np.linspace(1e-6, substrate + coating - 1e-6, 121)
+through = stress.evaluate(np.column_stack((np.full_like(y, 1e-6), y, np.full_like(y, slab / 2))))[:, 0]
+distance = np.geomspace(1e-4, 0.01, 80)
+interface = stress.evaluate(np.column_stack((half_length - distance, np.full_like(distance, substrate - 2e-6), np.full_like(distance, slab / 2))))
+
+fig = plots.figure(1, 3, size=(17, 5))
+plots.section(stress, plane=Plane(origin=(0, 0, slab / 2), normal=(0, 0, 1)), component=megapascal, colormap="diverging",
+              limits=(-110, 110), subdivisions=3, label="σ_xx [MPa]", title="Axial stress near the free end",
+              xlimits=(0.01, 0.03), xlabel="x from mid-span [m]", ylabel="y [m]", ax=fig[0])
+plots.line(points={"simulation": (through[::4] / 1e6, 1e3 * y[::4])}, reference={"bilayer solution": (bilayer_stress(y) / 1e6, 1e3 * y)},
+           hlines={"interface": 1e3 * substrate}, xlabel="σ_xx at mid-span [MPa]", ylabel="height [mm]",
+           title="Stress through the thickness", legend="lower right", ax=fig[1])
+plots.line(1e3 * distance, {"peel stress σ_yy": interface[:, 1] / 1e6, "shear stress σ_xy": interface[:, 3] / 1e6},
+           scale="logx", xlabel="distance from the free end [mm]", ylabel="stress at the interface [MPa]",
+           title="Stress concentration at the free edge", ax=fig[2])
 plots.show()
 
 
 # ## Going further
 #
-# Vary the plate length between the two cases above to see how quickly the
-# end disturbance decays toward the mid-span, or vary the coating thickness to
-# see how the peel stress at the free end grows. The original process adds a
-# third layer, a carrier bonded at $150\,^\circ$C and cooled with the plate to
-# room temperature; it can be added as a second load step whose thermal strain
-# in the carrier starts from the bonding temperature.
+# Make the coating thinner and the stress in it approaches the film limit
+# $E_c'(1+\nu)\,\Delta\alpha\,\Delta T$; add a compliant interlayer and watch the edge stresses
+# drop.

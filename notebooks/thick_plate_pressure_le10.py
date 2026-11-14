@@ -39,7 +39,7 @@ from onesim.visualization import theme, plots
 
 theme.set()
 
-hole, outer_edge, thickness, band = (2.0, 1.0), (3.25, 2.75), 0.6, 0.015
+hole, outer_edge, thickness = (2.0, 1.0), (3.25, 2.75), 0.6
 steel = IsotropicSolid(density=7850.0, specific_heat_capacity=470.0, thermal_conductivity=50.0,
                        youngs_modulus=210e9, poisson_ratio=0.30, thermal_expansion_coefficient=1.2e-5)
 
@@ -47,8 +47,8 @@ steel = IsotropicSolid(density=7850.0, specific_heat_capacity=470.0, thermal_con
 # ## Geometry and mesh
 #
 # The quarter ring is one block: `plate_map` takes the unit cube onto it, blending the two
-# ellipses. The cells are graded towards the hole and towards point D. A thin band of two cells
-# around the mid-height of the outer face carries the vertical support.
+# ellipses. The cells are graded towards the hole and towards point D, with a node layer at
+# mid-height for the line support.
 
 def plate_map(xi, eta, zeta):
     """Point of the plate for the block coordinates: xi across the ring, eta around, zeta through."""
@@ -65,25 +65,23 @@ def face_name(point, normal):
         return "symmetry_y" if abs(y) < 1e-9 else "symmetry_x"
     if abs(np.hypot(x / hole[0], y / hole[1]) - 1) < abs(np.hypot(x / outer_edge[0], y / outer_edge[1]) - 1):
         return "hole"
-    return "band" if abs(z) <= band * (1 + 1e-9) else "outer"
+    return "outer"
 
 
-plate = ExplicitGeometry(dimension=3, boundary_names=("top", "bottom", "symmetry_x", "symmetry_y", "hole", "outer", "band"),
+plate = ExplicitGeometry(dimension=3, boundary_names=("top", "bottom", "symmetry_x", "symmetry_y", "hole", "outer"),
                          classifier=face_name)
 faces = plate.boundaries
 
 
 def solve(n):
     """Stress field on the mesh with n cells across the ring and around it."""
-    below = (0.5 - band / thickness) * Geometric(n // 2, ratio=4.0, toward="end").reference()
-    above = 0.5 + band / thickness + (0.5 - band / thickness) * TwoSided(n // 2 + 1, 3.0).reference()
-    block = VolumeBlock(plate_map, Geometric(n, ratio=4.0).reference(), Geometric(n, ratio=3.0).reference(),
-                        np.r_[below, 0.5, above])
+    through = np.r_[0.5 * Geometric(n // 2, ratio=4.0, toward="end").reference(), 0.5 + 0.5 * TwoSided(n // 2 + 1, 3.0).reference()[1:]]
+    block = VolumeBlock(plate_map, Geometric(n, ratio=4.0).reference(), Geometric(n, ratio=3.0).reference(), through)
     mesh = merge_volume_blocks([block], plate, order=2)
     model = LinearElasticity(domain=plate.domain(), material=steel)
     problem = Problem(name="NAFEMS LE10", geometry=plate, physics=(model,), boundary_conditions=(
-        FixedDisplacementComponents(boundary=faces.outer, physics=model, components=("x", "y")),
-        FixedDisplacementComponents(boundary=faces.band, physics=model, components=("x", "y", "z")),
+        FixedDisplacementComponents(boundary=faces.outer, physics=model, components=("x", "y", "z"),
+                                    where={"z": lambda x, y, z: abs(z) < 1e-9}),
         FixedDisplacementComponents(boundary=faces.symmetry_x, physics=model, components=("x",)),
         FixedDisplacementComponents(boundary=faces.symmetry_y, physics=model, components=("y",)),
         Pressure(boundary=faces.top, physics=model, value=1.0e6),
