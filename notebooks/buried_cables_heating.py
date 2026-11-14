@@ -81,7 +81,7 @@ from scipy.optimize import brentq
 from onesim.cad.geometry.primitives import Geometry
 from onesim.meshing.generation.backends.structured.volume.hexahedral import StructuredHexahedralMesh
 from onesim.meshing.generation.contracts.hexahedral_geometry import FACES
-from onesim.meshing.generation.contracts.polynomial.hex import HEX27_REFERENCE, QuadraticHexahedralGeometry
+from onesim.meshing.generation.contracts.polynomial.elements.hex import HEX27_REFERENCE, QuadraticHexahedralGeometry
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import SparseDirect

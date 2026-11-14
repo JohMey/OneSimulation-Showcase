@@ -80,31 +80,9 @@ air-domain-size study.
 # LU residual would suffer.
 
 from dataclasses import dataclass, replace
-from importlib.metadata import version
 import time
 from collections import defaultdict
-
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 from scipy.spatial import cKDTree
 
 from onesim.cad.geometry.backends.occt.provider import OcctCadProvider
@@ -132,23 +110,24 @@ from onesim.physics.magnetostatics import (
 )
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.problem_definition.values.declarations.immutable_values import FrozenMap
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 start_time = time.perf_counter()
 
 
 # ## Parameters
 
-a = 0.125                  # m, sphere radius of the 1000:1 scale model (real sphere: 0.125 mm)
-B0 = 1e-3                  # T, applied uniform flux density along z
-mu_r = 4000.0              # relative permeability of the iron
+a = 0.125
+B0 = 1e-3
+mu_r = 4000.0
 mu0 = float(VacuumPermeability().evaluate())
 H0 = B0 / mu0
-R = 4 * a                  # radius of the modelled air domain
+R = 4 * a
 
-mesh_levels = (0.18, 0.126, 0.088)     # interface cell size h_s / a (refinement ratio about 1.42)
-sweep_mu_r = (2.0, 10.0, 100.0, 1000.0)   # permeability sweep (plus 4000 from the mesh study)
-study_radii = (2.0, 3.0, 4.0)          # air-domain radii R / a for the uniform-field boundary
+mesh_levels = (0.18, 0.126, 0.088)
+sweep_mu_r = (2.0, 10.0, 100.0, 1000.0)
+study_radii = (2.0, 3.0, 4.0)
 
 
 def K_factor(mur):
@@ -251,8 +230,6 @@ def build_mesh(radius, hs):
                        name="iron")
     part = cad.construct(kernel.topology_operation, TopologyOperationRequest(
         cad.reference("partition"), air.reference, iron.reference, "partition"))
-    # Name the CAD faces from their geometry: planes by their normal, the iron surface by
-    # its exact area (one eighth of 4 pi a^2), the rest is the outer sphere.
     faces, discs, surface = {name: [] for name in GROUPS}, [], None
     for face in kernel.structured_meshing_topology(part.reference).faces:
         if face.surface_type == "plane":
@@ -282,7 +259,6 @@ def build_mesh(radius, hs):
     centroid_r = np.linalg.norm(X4[C4].mean(axis=1), axis=1)
     iron_cells = solids == solids[np.argmin(centroid_r)]
 
-    # Curved 10-node mesh: project the interface mid-edge nodes onto r = a.
     carrier = native.carrier
     X10, C10 = np.array(carrier.coordinates.values), np.asarray(carrier.connectivity.entities)
     midpoint = {tuple(sorted((c[i], c[j]))): c[4 + m] for c in C10 for m, (i, j) in enumerate(TET_EDGES)}
@@ -295,7 +271,6 @@ def build_mesh(radius, hs):
     mesh10 = TetrahedralMesh(domain, replace(native, carrier=curved),
                              FrozenMap({k: tuple(v) for k, v in faces.items()}), ())
 
-    # Straight-sided mesh with the exterior facets named by their position.
     named = {name: [] for name in GROUPS}
     for facet in boundary_faces(C4, X4):
         on_plane = [i for i in range(3) if np.all(np.abs(X4[list(facet.vertices), i]) < 1e-9 * radius)]
@@ -332,8 +307,6 @@ class FacetedIronPermeability:
         r = np.linalg.norm(p)
         if r >= a or r < self.inner_radius:
             return r < a
-        # Barycentric weights of the ray direction in the nearby interface triangles; the
-        # triangle hit by the ray has all weights non-negative (largest minimum weight).
         candidates = self.tree.query(p / r, k=12)[1]
         weights = np.einsum("kij,j->ki", self.inverse[candidates], p)
         hit = weights[np.argmax(weights.min(axis=1))]
@@ -395,7 +368,7 @@ def solve_scalar_potential(mesh, mur, far_field="exact"):
                       boundary_conditions=conditions)
     result = Simulation(problem=problem, mesh=mesh["mesh10"], numerics=Numerics(
         spatial=FiniteElement(element=Lagrange(order=2)), linear_solver=SparseDirect())).solve_stationary()
-    H = result.field(model.electric_field)          # H = -grad(psi)
+    H = result.field(model.electric_field)
 
     def B(points):
         p = np.atleast_2d(points)
@@ -419,7 +392,7 @@ def solve_scalar_potential(mesh, mur, far_field="exact"):
 #   shell $1.1a\le r\le 2a$ (all angles), where the dipole part of the field is strongest.
 
 GAUSS = np.full((4, 4), 0.1381966011250105) + np.eye(4) * (0.5854101966249685 - 0.1381966011250105)
-offset = 1e-6 * a                       # keeps sample points strictly inside the octant
+offset = 1e-6 * a
 phi_ring = (np.arange(400) + 0.5) * (np.pi / 2) / 400
 equator = np.column_stack((a * (1 - 1e-6) * np.cos(phi_ring), a * (1 - 1e-6) * np.sin(phi_ring),
                            np.full_like(phi_ring, offset)))
@@ -444,7 +417,7 @@ def observables(mesh, run, dipole=True):
     Bz = run["B"](np.einsum("qv,nvd->nqd", GAUSS, corners).reshape(-1, 3))[:, 2].reshape(-1, 4)
     run["B_mean"] = np.sum(volumes * Bz.mean(axis=1)) / volumes.sum()
     if dipole:
-        if "A" in run:       # Stokes: flux = circulation of A (x 4 for the full section)
+        if "A" in run:
             A = run["A"](equator)
             run["flux"] = 4 * np.mean(-A[:, 0] * np.sin(phi_ring) + A[:, 1] * np.cos(phi_ring)) * (np.pi / 2) * a
         else:
@@ -565,86 +538,49 @@ print(f"Total run time: {time.perf_counter() - start_time:.0f} s")
 # Right: mesh convergence of the mid-plane flux, the mean interior field and the dipole
 # factor, and the air-domain-size study.
 
-n_grid = 181
-g = np.linspace(0.0, 2.5, n_grid) * a
-GX, GZ = np.meshgrid(g, g)
-pts = np.column_stack((np.maximum(GX.ravel(), offset), np.full(GX.size, offset), np.maximum(GZ.ravel(), offset)))
-B_map = np.linalg.norm(final["A"]["B"](pts), axis=1).reshape(GX.shape)
-flux = (pts[:, 0] * final["A"]["A"](pts)[:, 1]).reshape(GX.shape)       # rho * A_phi on y = 0
-full = lambda F: np.block([[F[::-1, ::-1], F[::-1, 1:]], [F[1:, ::-1], F[1:, 1:]]])
-X_full = np.concatenate((-g[::-1], g[1:])) / a
-B_full, flux_full = full(B_map), full(flux)
-
-fig = plt.figure(figsize=(17, 9.4), constrained_layout=True)
-layout = fig.add_gridspec(2, 3, width_ratios=(1.35, 1, 1))
-ax = fig.add_subplot(layout[:, 0])
-image = ax.contourf(X_full, X_full, 1e3 * B_full, levels=np.linspace(0, 3.2, 65), cmap=FIELD_CMAP, extend="max")
-ax.contour(X_full, X_full, flux_full, levels=B0 / 2 * (np.arange(0.25, 2.6, 0.25) * a) ** 2,
-           colors=INK, linewidths=0.8)
-ax.add_patch(plt.Circle((0, 0), 1.0, fill=False, color=CREAM, lw=1.4, ls="--"))
-ax.set_aspect("equal")
-ax.set(xlabel="x / a", ylabel="z / a  (applied field along +z)",
-       title=f"|B| and field lines in the meridian plane (mu_r = {mu_r:.0f}, B0 = 1 mT)")
-fig.colorbar(image, ax=ax, label="|B| / mT", shrink=0.8, ticks=np.arange(0, 3.3, 0.5))
-
-ax = fig.add_subplot(layout[0, 1])
+g = np.linspace(0.0, 2.5, 181) * a
+GX, GZ = np.meshgrid(g, g, indexing="ij")
+map_points = np.column_stack((np.maximum(GX.ravel(), offset), np.full(GX.size, offset), np.maximum(GZ.ravel(), offset)))
+B_quarter = np.linalg.norm(final["A"]["B"](map_points), axis=1).reshape(GX.shape)
+mirrored = lambda F: np.block([[F[::-1, ::-1], F[::-1, 1:]], [F[1:, ::-1], F[1:, 1:]]])
 r_plot = np.linspace(0.0, 3.9, 400) * a
-for label, direction, colour in (("axis", 2, COPPER), ("equator", 0, GREEN)):
+exact_lines, computed = {}, {}
+for label, direction in (("axis", 2), ("equator", 0)):
     line = np.full((len(r_plot), 3), offset)
     line[:, direction] = np.maximum(r_plot, offset)
-    ax.plot(r_plot / a, 1e3 * B_exact(line, mu_r)[:, 2], color=colour, lw=1.6, label=f"exact, {label}")
     marks = np.full((22, 3), offset)
     marks[:, direction] = np.linspace(0.05, 3.85, 22) * a
-    ax.plot(marks[:, direction] / a, 1e3 * final["A"]["B"](marks)[:, 2], "o", ms=5, mfc="none", color=colour,
-            label=f"vector potential, {label}")
-    ax.plot(marks[:, direction] / a, 1e3 * final["psi"]["B"](marks)[:, 2], "x", ms=5, color=colour,
-            label=f"scalar potential, {label}")
-ax.axvline(1.0, color="#8B9A8D", lw=0.8, ls=":")
-ax.set(xlabel="distance from the centre r / a", ylabel="B_z / mT", title="Field along the axis and the equator")
-ax.grid(alpha=0.3)
-ax.legend(fontsize=7.5, ncol=2)
-
-ax = fig.add_subplot(layout[1, 1])
-mur_line = np.logspace(0, 4, 200)
-ax.semilogx(mur_line, B_inside_exact(mur_line) / B0, color=INK, lw=1.4, label="exact 3 mu_r / (mu_r + 2)")
-murs = np.array(sorted(sweep))
-ax.semilogx(murs, [sweep[m] / B0 for m in murs], "o", color=COPPER, ms=7, mfc="none",
-            label="vector potential (coarsest mesh)")
-ax.semilogx([mu_r], [final["psi"]["B_mean"] / B0], "x", color=GREEN, ms=9, label="scalar potential (finest mesh)")
-ax.axhline(3.0, color="#8B9A8D", lw=0.8, ls=":")
-ax.set(xlabel="relative permeability mu_r", ylabel="B_in / B0", title="Field-concentration factor")
-ax.grid(alpha=0.3, which="both")
-ax.legend(fontsize=8)
-
-ax = fig.add_subplot(layout[0, 2])
+    exact_lines[f"exact, {label}"] = (r_plot / a, 1e3 * B_exact(line, mu_r)[:, 2])
+    computed[f"vector potential, {label}"] = (marks[:, direction] / a, 1e3 * final["A"]["B"](marks)[:, 2])
+    computed[f"scalar potential, {label}"] = (marks[:, direction] / a, 1e3 * final["psi"]["B"](marks)[:, 2])
+mur_line, murs = np.logspace(0, 4, 200), np.array(sorted(sweep))
 cells = np.array([mesh["cells"] for mesh, _ in study])
-for name, colour in (("A", COPPER), ("psi", GREEN)):
-    for (key, ref, label), marker, style in zip(quantities, ("o", "s", "^"), ("-", ":", "--")):
-        ax.loglog(cells, [abs(runs[name][key] / ref - 1) for _, runs in study], marker + style, color=colour,
-                  mfc="none" if key == "K" else colour, label=f"{label}, {labels[name]}")
-ax.set(xlabel="tetrahedra (octant)", ylabel="|relative deviation from exact|", title="Mesh convergence")
-ax.grid(alpha=0.3, which="both")
-ax.legend(fontsize=7, ncol=1)
-
-ax = fig.add_subplot(layout[1, 2])
-inv_R = np.linspace(0.0, 0.52, 100)
-radius_line = a / np.maximum(inv_R, 1e-9)
-ax.plot(inv_R, 100 * (B_inside_truncated(mu_r, radius_line, "A") / B_ref - 1), color=COPPER, lw=1.2,
-        label="closed form, A prescribed")
-ax.plot(inv_R, 100 * (B_inside_truncated(mu_r, radius_line, "psi") / B_ref - 1), color=GREEN, lw=1.2,
-        label="closed form, psi prescribed")
-ax.plot([1 / f for f, _, _ in truncation], [100 * (b / B_ref - 1) for _, b, _ in truncation], "o", color=COPPER,
-        mfc="none", ms=7, label="vector potential, uniform far field")
-ax.plot([1 / f for f, _, _ in truncation], [100 * (b / B_ref - 1) for _, _, b in truncation], "s", color=GREEN,
-        mfc="none", ms=7, label="scalar potential, uniform far field")
-ax.plot([a / R] * 2, [100 * (study[0][1][n]["B_mean"] / B_ref - 1) for n in ("A", "psi")], "*", color=INK, ms=10,
-        label="exact dipole far field (R = 4a)")
-ax.axhline(0.0, color="#8B9A8D", lw=0.8)
-ax.set(xlabel="a / R  (air-domain radius R)", ylabel="interior field deviation / %",
-       title="Air-domain size with a uniform far field")
-ax.grid(alpha=0.3)
-ax.legend(fontsize=7.5)
-plt.show()
+inv_R = np.linspace(1e-3, 0.52, 100)
+fig = plots.figure(layout=[["map", "map", "lines", "study"], ["map", "map", "sweep", "domain"]], size=(17, 9.4))
+plots.heatmap(np.r_[-g[:0:-1], g] / a, np.r_[-g[:0:-1], g] / a, 1e3 * mirrored(B_quarter), limits=(0, 3.2), contours=12,
+              label="|B| [mT]", xlabel="x / a", ylabel="z / a (applied field along +z)",
+              title=f"|B| in the meridian plane (mu_r = {mu_r:.0f}, B0 = 1 mT)", ax=fig["map"])
+plots.line(points=computed, reference=exact_lines, vlines={"sphere surface": 1.0},
+           colors={f"{kind}, {label}": index for index, label in enumerate(("axis", "equator"))
+                   for kind in ("exact", "vector potential", "scalar potential")},
+           xlabel="distance from the centre r / a", ylabel="B_z [mT]", title="Field along the axis and the equator", ax=fig["lines"])
+plots.line(mur_line, {"exact 3 mu_r / (mu_r + 2)": B_inside_exact(mur_line) / B0},
+           points={"vector potential (coarsest mesh)": (murs, [sweep[m] / B0 for m in murs]),
+                   "scalar potential (finest mesh)": ([mu_r], [final["psi"]["B_mean"] / B0])},
+           hlines=3.0, scale="logx", xlabel="relative permeability mu_r", ylabel="B_in / B0",
+           title="Field-concentration factor", ax=fig["sweep"])
+plots.line(cells, {f"{label}, {labels[name]}": [abs(runs[name][key] / ref - 1) for _, runs in study]
+                   for name in ("A", "psi") for key, ref, label in quantities},
+           markers=True, scale="loglog", xlabel="tetrahedra (octant)", ylabel="|relative deviation from exact|",
+           title="Mesh convergence", ax=fig["study"])
+plots.line(inv_R, {"closed form, A prescribed": 100 * (B_inside_truncated(mu_r, a / inv_R, "A") / B_ref - 1),
+                   "closed form, psi prescribed": 100 * (B_inside_truncated(mu_r, a / inv_R, "psi") / B_ref - 1)},
+           points={"vector potential, uniform far field": ([1 / f for f, _, _ in truncation], [100 * (b / B_ref - 1) for _, b, _ in truncation]),
+                   "scalar potential, uniform far field": ([1 / f for f, _, _ in truncation], [100 * (b / B_ref - 1) for _, _, b in truncation]),
+                   "exact dipole far field (R = 4a)": ([a / R] * 2, [100 * (study[0][1][n]["B_mean"] / B_ref - 1) for n in ("A", "psi")])},
+           hlines=0.0, xlabel="a / R (air-domain radius R)", ylabel="interior field deviation [%]",
+           title="Air-domain size with a uniform far field", ax=fig["domain"])
+plots.show()
 
 
 # ## Going further

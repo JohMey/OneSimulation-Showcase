@@ -46,67 +46,37 @@ results, with a mesh study, mass conservation and the comparison with the 2D cav
 # two-dimensional benchmark of U. Ghia, K. N. Ghia, C. T. Shin, *J. Comput. Phys.* 48, 387-411
 # (1982), Table I, which shows the end-wall effect directly.
 
-from dataclasses import dataclass, replace
-from hashlib import sha256
-from importlib.metadata import version
 import gc
 import time
-
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
-from matplotlib.colors import Normalize, TwoSlopeNorm
 from scipy.interpolate import RegularGridInterpolator
-from scipy.optimize import brentq, minimize_scalar
+from scipy.optimize import minimize_scalar
 
 from onesim.cad.d3 import Box
 from onesim.materials import NewtonianFluid
-from onesim.meshing import StructuredHexahedralMesher, StructuredTetrahedralMesher
-from onesim.meshing.generation.backends.structured.volume.hexahedral import StructuredHexahedralMesh
-from onesim.meshing.generation.backends.structured.volume.tetrahedral import StructuredTetrahedralMesh
-from onesim.meshing.generation.contracts.hexahedral_geometry import trilinear_hexahedral_geometry
-from onesim.meshing.meshes.models.geometry.discretization_data import CoordinateSet
-from onesim.meshing.meshes.models.topology.topology import Topology
-from onesim.numerics.discretization.geometry.carriers.kernels.simplex.tetrahedral import tetrahedral_geometry
-from onesim.simulation.problem_definition.values.artifacts.artifact_reference import ArtifactReference
+from onesim.meshing import StructuredHexahedralMesher, StructuredTetrahedralMesher, Tanh
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, TaylorHood
 from onesim.numerics.linear import SparseDirect
 from onesim.numerics.nonlinear import Newton
-from onesim.physics.hydrodynamics import FixedVelocity, IncompressibleNavierStokes, NoSlipWall, WallShear
+from onesim.physics.hydrodynamics import FixedVelocity, FreeSlipLaw, IncompressibleNavierStokes, NoSlipWall, WallShear
+from onesim.results.comparisons import convergence
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.field_constraints import MeanValue
-from onesim.simulation.initial_conditions.values import InitialValue
+from onesim.simulation.initial_conditions import InitialValue
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
 
-L = 1.0                    # m, cube side
-U_lid = 1.0                # m/s, lid speed
-rho = 1.0                  # kg/m^3
+L = 1.0
+U_lid = 1.0
+rho = 1.0
 reynolds_numbers = (100.0, 400.0)
-levels = (8, 11, 14)       # cells per cube side (the half cube has half as many across z)
-grading = 1.2              # tanh stretching parameter (0 = uniform)
+levels = (8, 11, 14)
+grading = 1.2
 print(f"cube side {L} m, lid speed {U_lid} m/s, Re = {reynolds_numbers}")
 
 # 3D reference values (mid-plane z = L/2): u_min on the vertical centreline and its height,
@@ -117,7 +87,6 @@ reference_3d = {
     400.0: {"Oueslati et al. 2011": (-0.22979, 0.22433, -0.37685, 0.87127),
             "Ding et al. 2006": (-0.231, 0.24, -0.371, 0.88)},
 }
-# 2D cavity, Ghia et al. (1982), Table I: u on the vertical centreline
 ghia_y = np.array([1.0, 0.9766, 0.9688, 0.9609, 0.9531, 0.8516, 0.7344, 0.6172, 0.5, 0.4531, 0.2813,
                    0.1719, 0.1016, 0.0703, 0.0625, 0.0547, 0.0])
 ghia_u = {
@@ -126,14 +95,13 @@ ghia_u = {
     400.0: np.array([1.0, 0.75837, 0.68439, 0.61756, 0.55892, 0.29093, 0.16256, 0.02135, -0.11477,
                      -0.17119, -0.32726, -0.24299, -0.14612, -0.10338, -0.09266, -0.08186, 0.0]),
 }
-# 2D cavity, Ghia et al. (1982), Table II: extremum of v on the horizontal centreline
 ghia_vmin = {100.0: (-0.24533, 0.8047), 400.0: (-0.44993, 0.8594)}
 
 
 # ## Geometry and mesh
 #
 # The computational box is the half cube $[0,L]\times[0,L]\times[0,L/2]$. The structured mesher
-# produces a uniform grid, which is then stretched with
+# grades its grid with the hyperbolic-tangent clustering (`Tanh`)
 # $s\mapsto\tfrac12\left[1+\tanh(\beta(2s-1))/\tanh\beta\right]$ in $x$ and $y$ (clustering at
 # both walls) and with the half of that map in $z$ (clustering at the end wall $z=0$, the widest
 # cells at the mid-plane).
@@ -155,38 +123,9 @@ def stretch(s, beta=grading):
     return 0.5 * (1 + np.tanh(beta * (2 * s - 1)) / np.tanh(beta))
 
 
-def graded(points):
-    p = np.array(points, dtype=float)
-    p[:, 0] = stretch(p[:, 0] / L) * L
-    p[:, 1] = stretch(p[:, 1] / L) * L
-    p[:, 2] = stretch(p[:, 2] / L) * L      # z in [0, L/2]: half of the symmetric map
-    return p
-
-
-class GradedHexMesh(StructuredHexahedralMesh):
-    """Structured hexahedra moved onto the graded tensor grid (topology and face groups unchanged)."""
-
-    def __init__(self, geometry, cells):
-        super().__init__(geometry, cells)
-        data = trilinear_hexahedral_geometry(graded(self.coordinates), self.cells)
-        self.coordinates, self.cell_volumes = data.coordinates, data.volumes
-        self.mesh_id = "graded-" + self.mesh_id + sha256(self.coordinates.tobytes()).hexdigest()[:16]
-        self._carrier = self._build_carrier()
-
-
-class GradedTetMesh(StructuredTetrahedralMesh):
-    """Kuhn tetrahedra (six per hexahedron) moved onto the same graded tensor grid."""
-
-    def __init__(self, geometry, cells, periodic_pairs=()):
-        super().__init__(geometry, cells, periodic_pairs)
-        data = tetrahedral_geometry(graded(self.coordinates), self.cells)
-        self.coordinates, self.cell_volumes = data.coordinates, data.volumes
-        self.mesh_id = "graded-" + self.mesh_id + sha256(self.coordinates.tobytes()).hexdigest()[:16]
-        self._carrier = replace(
-            self._carrier, carrier_id=self.mesh_id,
-            topology=Topology(3, self.cell_count, "cell", self.mesh_id),
-            coordinates=CoordinateSet(tuple(map(tuple, self.coordinates)), unit="m"),
-            measures=tuple(self.cell_volumes), source_mesh=ArtifactReference(self.mesh_id, "1"))
+def cavity_grading(n):
+    """Cells clustered at both walls in x and y (tanh), at the end wall z = 0 in the half depth."""
+    return Tanh(n, grading), Tanh(n, grading), Tanh(n // 2, grading, toward="start")
 
 
 box = Box(length=L, width=L, height=L / 2)
@@ -198,21 +137,12 @@ for n in levels:
 
 # ## Model
 
-@dataclass(frozen=True)
-class FreeSlip:
-    """Wall-shear law with zero tangential traction: together with WallShear a symmetry plane."""
-
-    def traction_and_slope(self, speed, distance, density, viscosity):
-        zero = np.zeros_like(np.asarray(speed, dtype=float))
-        return zero, zero
-
-
 def solve(n, reynolds, element="hex", start=None):
     begin = time.perf_counter()
     if element == "hex":
-        mesh = StructuredHexahedralMesher(cells=(n, n, n // 2), mesh_factory=GradedHexMesh).generate(box)
+        mesh = StructuredHexahedralMesher(cells=(n, n, n // 2), grading=cavity_grading(n)).generate(box)
     else:
-        mesh = StructuredTetrahedralMesher(cells=(n, n, n // 2), mesh_factory=GradedTetMesh).generate(box)
+        mesh = StructuredTetrahedralMesher(cells=(n, n, n // 2), grading=cavity_grading(n)).generate(box)
     edge_cell = stretch(1.0 / n) * L
 
     def lid(x, y, z):
@@ -227,7 +157,7 @@ def solve(n, reynolds, element="hex", start=None):
         boundary_conditions=(
             FixedVelocity(boundary=b.y_max, physics=model, value=lid),
             NoSlipWall(boundary=b.x_min | b.x_max | b.y_min | b.z_min, physics=model),
-            WallShear(boundary=b.z_max, physics=model, law=FreeSlip()),
+            WallShear(boundary=b.z_max, physics=model, law=FreeSlipLaw()),
         ),
         constraints=(MeanValue(model.pressure, 0.0),),
         initial_conditions=(InitialValue(model.velocity, (0.0, 0.0, 0.0)),),
@@ -271,7 +201,6 @@ def centreline_values(run):
     v_min = minimize_scalar(lambda x: velocity_at(run, [x, L / 2, L / 2])[0, 1],
                             bounds=(ys[max(k - 2, 0)], ys[min(k + 2, 400)]), method="bounded",
                             options={"xatol": 1e-6})
-    # net flux through x = L/2 over the half section (y in [0, L], z in [0, L/2])
     gp, gw = np.polynomial.legendre.leggauss(4)
     gp, gw = (gp + 1) / 2, gw / 2
     yb = stretch(np.linspace(0, 1, run["n"] + 1)) * L
@@ -369,13 +298,8 @@ h = 1.0 / np.array(levels, float)
 
 
 def richardson(values):
-    f1, f2, f3 = values
-    ratio = (f1 - f2) / (f2 - f3)
-    try:
-        p = brentq(lambda q: (h[0]**q - h[1]**q) / (h[1]**q - h[2]**q) - ratio, 0.3, 12.0)
-    except ValueError:
-        return np.nan, np.nan
-    return p, f3 + (f3 - f2) / ((h[1] / h[2]) ** p - 1)
+    estimate = convergence(values, h)
+    return (estimate.order, estimate.extrapolated) if estimate.order is not None else (np.nan, np.nan)
 
 
 print("\nMesh study, Re = 100 (Q2/Q1 hexahedra, " + ", ".join(f"{n}" for n in levels) + " cells per side)")
@@ -422,122 +346,51 @@ for reynolds in reynolds_numbers:
 final = runs[400.0][-1]
 n_s = 41
 gx = stretch(np.linspace(0, 1, n_s)) * L
-gz = stretch(np.linspace(0, 1, 2 * n_s - 1)) * L           # full cube, mirrored from the half
-GX, GY, GZ = np.meshgrid(gx, gx, gz[: n_s], indexing="ij")
-half_field = velocity_at(final, np.column_stack((GX.ravel(), GY.ravel(), np.minimum(GZ.ravel(), L / 2))))
-half_field = half_field.reshape(GX.shape + (3,))
+gz = stretch(np.linspace(0, 1, 2 * n_s - 1)) * L
+GX, GY, GZ = np.meshgrid(gx, gx, gz[:n_s], indexing="ij")
+half_field = velocity_at(final, np.column_stack((GX.ravel(), GY.ravel(), np.minimum(GZ.ravel(), L / 2)))).reshape(GX.shape + (3,))
 mirror = half_field[:, :, -2::-1].copy()
 mirror[..., 2] *= -1
-full_field = np.concatenate((half_field, mirror), axis=2)
-interp = RegularGridInterpolator((gx, gx, gz), full_field, bounds_error=False, fill_value=0.0)
-speed = np.linalg.norm(full_field, axis=3)
-
-
-def streamline(seed, t_end, dt=0.02):
-    path = [np.asarray(seed, float)]
-    for _ in range(int(t_end / dt)):
-        p = path[-1]
-        k1 = interp(p)[0]
-        k2 = interp(p + 0.5 * dt * k1)[0]
-        k3 = interp(p + 0.5 * dt * k2)[0]
-        k4 = interp(p + dt * k3)[0]
-        path.append(np.clip(p + dt * (k1 + 2 * k2 + 2 * k3 + k4) / 6, 0.0, L))
-    return np.array(path)
-
-
-fig = plt.figure(figsize=(18, 10.5), constrained_layout=True)
-grid = fig.add_gridspec(2, 3, height_ratios=(1.05, 0.9))
-norm = Normalize(0, U_lid)
-
-ax = fig.add_subplot(grid[0, 0], projection="3d")
-ax.computed_zorder = False
-k_mid = n_s - 1
-Xm, Ym = np.meshgrid(gx, gx, indexing="ij")
-ax.plot_surface(Xm, np.full_like(Xm, L / 2), Ym, facecolors=FIELD_CMAP(norm(speed[:, :, k_mid])),
-                rstride=1, cstride=1, shade=False, alpha=0.55, linewidth=0, zorder=1)
-for seed, colour in (((0.62, 0.62, 0.04), COPPER), ((0.55, 0.70, 0.08), COPPER), ((0.62, 0.62, 0.96), GREEN),
-                     ((0.55, 0.70, 0.92), GREEN)):
-    path = streamline(seed, t_end=45.0)
-    ax.plot(path[:, 0], path[:, 2], path[:, 1], color=colour, lw=0.9, zorder=5)
-for a in (0, L):
-    for b in (0, L):
-        ax.plot([0, L], [a, a], [b, b], color=INK, lw=0.6, zorder=6)
-        ax.plot([a, a], [0, L], [b, b], color=INK, lw=0.6, zorder=6)
-        ax.plot([a, a], [b, b], [0, L], color=INK, lw=0.6, zorder=6)
-ax.plot([0, L], [L / 2, L / 2], [L, L], color=COPPER, lw=2.5, zorder=7)
-ax.text(0.05, L / 2, 1.08 * L, "lid  ->", color=COPPER, fontsize=9)
-ax.set_zlabel("y / m", labelpad=2)
-ax.set(xlabel="x / m", ylabel="z / m", xlim=(0, L), ylim=(0, L), zlim=(0, L),
-       title="Re = 400: speed on the mid-plane z = L/2 and streamlines\nspiralling from the end walls towards the mid-plane")
-ax.view_init(elev=22, azim=-50)
-ax.set_box_aspect((1, 1, 1))
-
-ax = fig.add_subplot(grid[0, 1])
-Xg, Yg = np.meshgrid(gx, gx, indexing="ij")
-filled = ax.contourf(Xg, Yg, speed[:, :, k_mid], levels=np.linspace(0, U_lid, 41), cmap=FIELD_CMAP, extend="max")
+interp = RegularGridInterpolator((gx, gx, gz), np.concatenate((half_field, mirror), axis=2), bounds_error=False, fill_value=0.0)
 ue = np.linspace(0, L, 161)
-UI = interp(np.stack(np.meshgrid(ue, ue, [L / 2], indexing="ij"), axis=-1).reshape(-1, 3)).reshape(161, 161, 3)
-ax.streamplot(ue, ue, UI[:, :, 0].T, UI[:, :, 1].T, density=1.8, color=INK, linewidth=0.55, arrowsize=0.6)
-ax.set_aspect("equal")
-ax.set(xlim=(0, L), ylim=(0, L), xlabel="x / m", ylabel="y / m", title="Re = 400: mid-plane z = L/2, speed and streamlines")
-fig.colorbar(filled, ax=ax, label="|u| / U", shrink=0.85, format="%.1f")
-
-ax = fig.add_subplot(grid[0, 2])
+mid = interp(np.stack(np.meshgrid(ue, ue, [L / 2], indexing="ij"), axis=-1).reshape(-1, 3)).reshape(161, 161, 3)
 cross = interp(np.stack(np.meshgrid([L / 2], ue, ue, indexing="ij"), axis=-1).reshape(-1, 3)).reshape(161, 161, 3)
-limit = np.abs(cross[:, :, 0]).max()
-filled = ax.contourf(ue, ue, cross[:, :, 0], levels=np.linspace(-limit, limit, 41), cmap=DIVERGING_CMAP,
-                     norm=TwoSlopeNorm(0.0, -limit, limit))
-ax.streamplot(ue, ue, cross[:, :, 2], cross[:, :, 1], density=2.2, color=INK, linewidth=0.5, arrowsize=0.6)
-ax.set_aspect("equal")
-ax.set(xlim=(0, L), ylim=(0, L), xlabel="z / m (end walls at z = 0 and z = L)", ylabel="y / m",
-       title="Re = 400: cross-section x = L/2, u (colour) and secondary flow (w, v)")
-fig.colorbar(filled, ax=ax, label="u / U", shrink=0.85, format="%.2f")
-
-ax = fig.add_subplot(grid[1, 0])
-for reynolds, colour in zip(reynolds_numbers, (GREEN, COPPER)):
+u_curves, u_points, v_curves, v_points, study, study_points = {}, {}, {}, {}, {}, {}
+for reynolds in reynolds_numbers:
     r = runs[reynolds][-1]
-    ax.plot(r["u_line"], r["ys"], "-", color=colour, lw=1.8, label=f"3D cube, Re = {reynolds:.0f} (Q2/Q1)")
-    ax.plot(ghia_u[reynolds], ghia_y, "o", mfc="none", color=colour, ms=5, label=f"2D cavity, Ghia et al., Re = {reynolds:.0f}")
-    for (name, ref), marker in zip(reference_3d[reynolds].items(), ("*", "X")):
-        ax.plot(ref[0], ref[1], marker, color=INK, ms=10 if marker == "*" else 7,
-                label=f"3D: {name}" if reynolds == 100.0 else None)
-ax.plot(tet["u_line"], tet["ys"], "--", color="#8B9A8D", lw=1.2, label=f"3D, Re = 100, P2/P1 tetrahedra ({levels[1]} cells/side)")
-ax.axvline(0, color="#999", lw=0.8)
-ax.set(xlabel="u / U on the vertical centreline (x = L/2, z = L/2)", ylabel="y / L",
-       title="Horizontal velocity on the vertical centreline")
-ax.grid(alpha=0.3)
-ax.legend(fontsize=7.5, loc="center right")
-
-ax = fig.add_subplot(grid[1, 1])
-for reynolds, colour in zip(reynolds_numbers, (GREEN, COPPER)):
-    r = runs[reynolds][-1]
-    ax.plot(r["ys"], r["v_line"], "-", color=colour, lw=1.8, label=f"3D cube, Re = {reynolds:.0f}")
-    ax.plot(*ghia_vmin[reynolds][::-1], "o", mfc="none", color=colour, ms=7, label=f"2D cavity minimum, Re = {reynolds:.0f}")
-    for (name, ref), marker in zip(reference_3d[reynolds].items(), ("*", "X")):
-        ax.plot(ref[3], ref[2], marker, color=INK, ms=10 if marker == "*" else 7,
-                label=f"3D: {name}" if reynolds == 100.0 else None)
-ax.axhline(0, color="#999", lw=0.8)
-ax.set(xlabel="x / L", ylabel="v / U on the horizontal centreline (y = L/2, z = L/2)",
-       title="Vertical velocity on the horizontal centreline")
-ax.grid(alpha=0.3)
-ax.legend(fontsize=7.5, loc="lower left")
-
-ax = fig.add_subplot(grid[1, 2])
-for key, index, marker, name in (("u_min", 0, "o", "u_min"), ("v_min", 2, "s", "v_min")):
-    for reynolds, colour in zip(reynolds_numbers, (GREEN, COPPER)):
-        ref = reference_3d[reynolds]["Oueslati et al. 2011"][index]
-        ns = [r["n"] for r in runs[reynolds]]
-        ax.plot(1.0 / np.array(ns), [r[key] / ref for r in runs[reynolds]], marker + ("-" if key == "u_min" else "--"),
-                color=colour, mfc="none" if key == "v_min" else colour, label=f"{name}, Re = {reynolds:.0f}")
-        ding = reference_3d[reynolds]["Ding et al. 2006"][index] / ref
-        ax.plot([0.0], [ding], marker, color=colour, ms=9, mfc="none", mew=0.8, alpha=0.6)
-ax.axhline(1.0, color=INK, lw=0.8, ls=":")
-ax.set_xticks([0.0] + [1.0 / n for n in levels], ["Ding\n(41^3)"] + [f"1/{n}" for n in levels])
-ax.set(xlim=(-0.012, 0.135), xlabel="cell size (1 / cells per side)", ylabel="value / value of Oueslati et al. (2011)",
-       title="Mesh convergence of the centreline extrema")
-ax.grid(alpha=0.3)
-ax.legend(fontsize=7.5, ncol=2)
-plt.show()
+    u_curves[f"3D cube, Re = {reynolds:.0f} (Q2/Q1)"] = (r["u_line"], r["ys"])
+    v_curves[f"3D cube, Re = {reynolds:.0f}"] = (r["ys"], r["v_line"])
+    u_points[f"2D cavity, Ghia et al., Re = {reynolds:.0f}"] = (ghia_u[reynolds], ghia_y)
+    v_points[f"2D cavity minimum, Re = {reynolds:.0f}"] = ([ghia_vmin[reynolds][1]], [ghia_vmin[reynolds][0]])
+    for name, ref in reference_3d[reynolds].items():
+        u_points[f"3D: {name}, Re = {reynolds:.0f}"] = ([ref[0]], [ref[1]])
+        v_points[f"3D: {name}, Re = {reynolds:.0f}"] = ([ref[3]], [ref[2]])
+    for key, index in (("u_min", 0), ("v_min", 2)):
+        published = reference_3d[reynolds]["Oueslati et al. 2011"][index]
+        study[f"{key}, Re = {reynolds:.0f}"] = (1.0 / np.array([run["n"] for run in runs[reynolds]]),
+                                              [run[key] / published for run in runs[reynolds]])
+        study_points[f"{key}, Re = {reynolds:.0f}"] = ([0.0], [reference_3d[reynolds]["Ding et al. 2006"][index] / published])
+u_curves[f"3D, Re = 100, P2/P1 tetrahedra ({levels[1]} cells/side)"] = (tet["u_line"], tet["ys"])
+fig = plots.figure(layout=[["speed"] * 3 + ["flow"] * 3 + ["cross"] * 3 + ["secondary"] * 3,
+                           ["u"] * 4 + ["v"] * 4 + ["study"] * 4], size=(18, 10.5))
+plots.heatmap(ue, ue, np.linalg.norm(mid, axis=2), limits=(0, U_lid), label="|u| / U", xlabel="x [m]", ylabel="y [m]",
+              title="Re = 400: speed on the mid-plane z = L/2", ax=fig["speed"])
+plots.streamlines(ue, ue, mid[:, :, 0], mid[:, :, 1], density=1.8, label="|u| / U", xlabel="x [m]", ylabel="y [m]",
+                  title="Re = 400: streamlines on the mid-plane", ax=fig["flow"])
+plots.heatmap(ue, ue, cross[:, :, 0].T, colormap="diverging", label="u / U", xlabel="z [m] (end walls at z = 0 and z = L)",
+              ylabel="y [m]", title="Re = 400: u on the cross-section x = L/2", ax=fig["cross"])
+plots.streamlines(ue, ue, cross[:, :, 2].T, cross[:, :, 1].T, density=2.2, label="speed / U", xlabel="z [m]", ylabel="y [m]",
+                  title="Re = 400: secondary flow (w, v) on x = L/2", ax=fig["secondary"])
+plots.line(y=u_curves, points=u_points, styles={f"3D, Re = 100, P2/P1 tetrahedra ({levels[1]} cells/side)": "dashed"},
+           vlines=0.0, xlabel="u / U on the vertical centreline (x = L/2, z = L/2)", ylabel="y / L",
+           title="Horizontal velocity on the vertical centreline", legend="center right", ax=fig["u"])
+plots.line(y=v_curves, points=v_points, hlines=0.0, xlabel="x / L",
+           ylabel="v / U on the horizontal centreline (y = L/2, z = L/2)",
+           title="Vertical velocity on the horizontal centreline", legend="lower left", ax=fig["v"])
+plots.line(y=study, points=study_points, hlines=1.0, markers=True, xlimits=(-0.012, 0.135),
+           xlabel="cell size (1 / cells per side); open markers at 0: Ding et al. 2006 (41³)",
+           ylabel="value / value of Oueslati et al. (2011)", title="Mesh convergence of the centreline extrema", ax=fig["study"])
+plots.show()
 
 
 # ## Going further

@@ -96,7 +96,7 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from scipy.optimize import brentq
 
 from onesim.meshing.generation.contracts.hexahedral_geometry import FACES
-from onesim.meshing.generation.contracts.polynomial.hex import HEX27_REFERENCE, QuadraticHexahedralGeometry
+from onesim.meshing.generation.contracts.polynomial.elements.hex import HEX27_REFERENCE, QuadraticHexahedralGeometry
 from onesim.physics.solid_mechanics import SmallStrainSolid
 
 print("OneSimulation:", version("onesimulation"))

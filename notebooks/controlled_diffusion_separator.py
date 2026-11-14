@@ -96,67 +96,48 @@ three-level mesh study and a comparison with quadratic elements.
 # * Mass balances of water and solute through the four arms, and a three-level mesh study
 #   with observed order and Richardson estimate.
 
-from dataclasses import dataclass
-from importlib.metadata import version
 import time
-
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
-from matplotlib.tri import Triangulation
 from scipy.linalg import eigh
 
-from onesim.cad.geometry.primitives import Geometry
+from onesim.cad.d2 import Plane
 from onesim.materials import IsotropicSolid, NewtonianFluid
-from onesim.meshing import UnstructuredSimplexMesh
+from onesim.meshing import Block, Geometric, arc, extrude, line, merge_blocks, rectangle_block
 from onesim.numerics import Numerics
-from onesim.numerics.discretization.geometry.carriers.kernels.simplex.tetrahedral import boundary_faces
 from onesim.numerics.fem import FiniteElement, GalerkinAdvection, Lagrange, TaylorHood
 from onesim.numerics.linear import SparseDirect
 from onesim.numerics.nonlinear import Newton
 from onesim.physics.heat_transfer import ConvectiveHeatTransfer, FixedTemperature, HeatFlux
-from onesim.physics.hydrodynamics import FixedVelocity, FlowTraction, IncompressibleNavierStokes, NoSlipWall, WallShear
+from onesim.physics.hydrodynamics import (
+    FixedVelocity, FlowTraction, FreeSlipLaw, IncompressibleNavierStokes, NoSlipWall, WallShear,
+)
+from onesim.results.comparisons import convergence
+from onesim.results.derived import derived_field
+from onesim.results.integration import integrate_plane, mean_value
 from onesim.simulation import Problem, Simulation
-from onesim.simulation.initial_conditions.values import InitialValue
+from onesim.simulation.initial_conditions import InitialValue
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
 
 UM = 1e-6
-W = 10 * UM                  # width of one stream, of every arm, and of each half of the contact zone
-H = 20 * UM                  # channel depth (the half depth H/2 is computed)
-L_ARM = 40 * UM              # straight part of each arm
-R_IN, R_OUT = 10 * UM, 20 * UM          # radii of the quarter bends
-X0, X1 = 20 * UM, 120 * UM              # start and end of the contact zone
+W = 10 * UM
+H = 20 * UM
+L_ARM = 40 * UM
+R_IN, R_OUT = 10 * UM, 20 * UM
+X0, X1 = 20 * UM, 120 * UM
 L_CONTACT = X1 - X0
-Q_in = 15e-15                # m^3/s (15 pl/s) through each inlet, full depth
-u_in = Q_in / (W * H)        # mean inlet velocity
-rho, mu = 1000.0, 1.0e-3     # water
-c0 = 1.0                     # mol/m^3, solute concentration of stream A
-diffusivities = (1e-10, 5e-11, 1e-11)    # m^2/s
+Q_in = 15e-15
+u_in = Q_in / (W * H)
+rho, mu = 1000.0, 1.0e-3
+c0 = 1.0
+diffusivities = (1e-10, 5e-11, 1e-11)
 c_B_published = {1e-10: 0.492, 5e-11: 0.448, 1e-11: 0.235}
-p_in_published = 2.29        # Pa, maximum pressure inferred from the published contour levels (0.08 ... 2.18 Pa)
-levels = (1, 2, 3)           # cells across one stream on the three meshes
+p_in_published = 2.29
+levels = (1, 2, 3)
 
 print(f"mean inlet velocity {u_in*1e3:.4f} mm/s, Re = rho u W / mu = {rho*u_in*W/mu:.1e}")
 for D in diffusivities:
@@ -182,7 +163,7 @@ def duct_resistance(a, b, terms=200):
     return 12 * mu / (a * b**3 * shape)
 
 
-path_arm = 2 * (L_ARM + np.pi / 2 * (R_IN + R_OUT) / 2)     # inlet arm + outlet arm, bends at centre line
+path_arm = 2 * (L_ARM + np.pi / 2 * (R_IN + R_OUT) / 2)
 p_in_estimate = Q_in * duct_resistance(H, W) * path_arm + 2 * Q_in * duct_resistance(2 * W, H) * L_CONTACT
 print(f"inlet pressure from the duct resistances: {p_in_estimate:.3f} Pa (arms {path_arm/UM:.1f} um, contact zone "
       f"{L_CONTACT/UM:.0f} um)")
@@ -192,123 +173,44 @@ print(f"inlet pressure from the duct resistances: {p_in_estimate:.3f} Pa (arms {
 #
 # Only the lower half of the depth, $0\le z\le H/2$, is computed; the mid-plane $z=H/2$ is
 # the symmetry plane of the original model. The H-shaped section is covered by
-# structured quadrilateral blocks: the straight arms, the four quarter-annulus bends
-# (exact circular arcs at the nodes) and the two halves of the contact zone. All blocks
-# share their node rows, so the mesh is conforming, and the cells across each stream are
-# graded towards the interface (first cell one third of the last) where the
-# concentration gradient is steepest. The section is extruded over the half depth with
-# layers graded towards the bottom wall, and every prism is split into three tetrahedra
-# by a conforming diagonal rule (Dompierre et al., Proc. 8th Int. Meshing Roundtable,
-# 1999). With cubic elements, $n=3$ cells across a stream give 9 nodal intervals across
+# quadrilateral blocks: the straight arms, the four quarter-annulus bends (exact circular
+# arcs) and the two halves of the contact zone. `merge_blocks` joins them into one
+# conforming section mesh, and the cells across each stream are graded towards the
+# interface (first cell one third of the last) where the concentration gradient is
+# steepest. The quadrilaterals are split into triangles and `extrude` sweeps the section
+# over the half depth with layers graded towards the bottom wall, splitting every prism
+# into three tetrahedra. With cubic elements, $n=3$ cells across a stream give 9 nodal intervals across
 # each stream and through the half depth.
 
-def graded(n, ratio):
-    """n intervals on [0, 1], geometric, the last cell `ratio` times the first."""
-    if n == 1 or ratio == 1.0:
-        return np.linspace(0.0, 1.0, n + 1)
-    sizes = ratio ** (np.arange(n) / (n - 1))
-    return np.concatenate(([0.0], np.cumsum(sizes) / sizes.sum()))
-
-
 def section_blocks(nw):
-    """Structured blocks X[i, j] of the section; j runs across a stream from the interface side."""
+    """Planar blocks of the H-shaped section; the second block direction runs across a stream."""
     n_arm, n_bend, n_contact = 2 * nw, int(round(1.6 * nw)), 5 * nw
-    across = graded(nw, 3.0)
+    across = Geometric(nw, ratio=3.0)
+    nodes = across.reference()
     blocks = []
-    for sy in (+1, -1):                                  # stream B (y > 0) and stream A (y < 0)
-        for xc, sx in ((X0, -1), (X1, +1)):              # left (inlet) and right (outlet) side
-            radius = R_OUT + (R_IN - R_OUT) * across
+    for sy, stream in ((+1, "b"), (-1, "a")):
+        for xc, sx, kind in ((X0, -1, "inlet"), (X1, +1, "outlet")):
+            centre = (xc, sy * R_OUT)
             theta0 = -sy * np.pi / 2
-            theta = theta0 + sy * sx * np.pi / 2 * np.linspace(0, 1, n_bend + 1)
-            blocks.append(np.stack((xc + np.outer(np.cos(theta), radius),
-                                    sy * R_OUT + np.outer(np.sin(theta), radius)), -1))
-            ys = sy * (R_OUT + L_ARM * np.linspace(0, 1, n_arm + 1))
-            xs = xc + sx * radius
-            blocks.append(np.stack(np.broadcast_arrays(xs[None, :], ys[:, None]), -1))
-        xs = np.linspace(X0, X1, n_contact + 1)
-        blocks.append(np.stack(np.broadcast_arrays(xs[:, None], sy * W * across[None, :]), -1))
+            theta1 = theta0 + sy * sx * np.pi / 2
+            at = lambda r, th: (centre[0] + r * np.cos(th), centre[1] + r * np.sin(th))
+            blocks.append(Block(arc(centre, R_OUT, theta0, theta1), line(at(R_OUT, theta1), at(R_IN, theta1)),
+                                arc(centre, R_IN, theta0, theta1), line(at(R_OUT, theta0), at(R_IN, theta0)),
+                                cells=(n_bend, nw), grading=(None, across)))
+            xs = np.sort(xc + sx * (R_OUT + (R_IN - R_OUT) * nodes))
+            ys = np.sort(sy * (R_OUT + L_ARM * np.linspace(0.0, 1.0, n_arm + 1)))
+            end = f"{kind}_{stream}"
+            blocks.append(rectangle_block((xs[0], ys[0]), xs[-1] - xs[0], ys[-1] - ys[0], (nw, n_arm),
+                                          grading=(xs, ys), names=(end if sy < 0 else None, None, end if sy > 0 else None, None)))
+        ys = np.sort(sy * W * nodes)
+        blocks.append(rectangle_block((X0, ys[0]), L_CONTACT, ys[-1] - ys[0], (n_contact, nw), grading=(None, ys)))
     return blocks
 
 
-def refine(X, m):
-    """Bilinear subdivision of every quadrilateral of a block into m x m (for plotting)."""
-    s, t = np.arange((X.shape[0] - 1) * m + 1) / m, np.arange((X.shape[1] - 1) * m + 1) / m
-    i0, j0 = np.minimum(s.astype(int), X.shape[0] - 2), np.minimum(t.astype(int), X.shape[1] - 2)
-    a, b = (s - i0)[:, None, None], (t - j0)[None, :, None]
-    I, J = i0[:, None], j0[None, :]
-    return (1 - a) * (1 - b) * X[I, J] + a * (1 - b) * X[I + 1, J] + (1 - a) * b * X[I, J + 1] + a * b * X[I + 1, J + 1]
-
-
-def section(nw, m=1):
-    points, index, quads = [], {}, []
-    for X in section_blocks(nw):
-        X = refine(X, m)
-        ids = np.empty(X.shape[:2], dtype=int)
-        for i, j in np.ndindex(*X.shape[:2]):
-            key = (round(X[i, j, 0] / 1e-11), round(X[i, j, 1] / 1e-11))
-            if key not in index:
-                index[key] = len(points)
-                points.append(X[i, j])
-            ids[i, j] = index[key]
-        for i, j in np.ndindex(X.shape[0] - 1, X.shape[1] - 1):
-            quads.append((ids[i, j], ids[i + 1, j], ids[i + 1, j + 1], ids[i, j + 1]))
-    return np.array(points), np.array(quads)
-
-
-PRISM_ROTATIONS = np.array([[0, 1, 2, 3, 4, 5], [1, 2, 0, 4, 5, 3], [2, 0, 1, 5, 3, 4],
-                            [3, 5, 4, 0, 2, 1], [4, 3, 5, 1, 0, 2], [5, 4, 3, 2, 1, 0]])
-
-
-def split_prism(vertices):
-    v = np.asarray(vertices)[PRISM_ROTATIONS[int(np.argmin(vertices))]]
-    if min(v[1], v[5]) < min(v[2], v[4]):
-        return [(v[0], v[1], v[2], v[5]), (v[0], v[1], v[5], v[4]), (v[0], v[4], v[5], v[3])]
-    return [(v[0], v[1], v[2], v[4]), (v[0], v[4], v[2], v[5]), (v[0], v[4], v[5], v[3])]
-
-
-@dataclass(frozen=True, eq=False, kw_only=True)
-class HalfHCell(Geometry):
-    """Lower half (0 <= z <= H/2) of the H-shaped separator."""
-
-    dimension = 3
-
-    def boundary_groups(self):
-        names = ("inlet_a", "inlet_b", "outlet_a", "outlet_b", "walls", "mid_plane")
-        return {**{name: (name,) for name in names}, "all": names}
-
-
 def build_mesh(nw):
-    sec, quads = section(nw)
-    triangles = []
-    for a, b, c, d in quads:
-        if np.linalg.norm(sec[a] - sec[c]) <= np.linalg.norm(sec[b] - sec[d]):
-            triangles += [(a, b, c), (a, c, d)]
-        else:
-            triangles += [(a, b, d), (b, c, d)]
-    zs = H / 2 * graded(nw, 2.0)
-    ns = len(sec)
-    coordinates = np.column_stack((np.tile(sec[:, 0], nw + 1), np.tile(sec[:, 1], nw + 1), np.repeat(zs, ns)))
-    cells = np.array([tet for k in range(nw) for a, b, c in triangles
-                      for tet in split_prism((a + k * ns, b + k * ns, c + k * ns,
-                                              a + (k + 1) * ns, b + (k + 1) * ns, c + (k + 1) * ns))])
-    p = coordinates[cells]
-    signed = np.einsum("ij,ij->i", p[:, 1] - p[:, 0], np.cross(p[:, 2] - p[:, 0], p[:, 3] - p[:, 0]))
-    cells[signed < 0] = cells[signed < 0][:, [0, 2, 1, 3]]
-    geometry = HalfHCell()
-    groups = {name: [] for name in geometry.boundary_groups()["all"]}
-    y_end = R_OUT + L_ARM
-    for face in boundary_faces(cells, coordinates):
-        v = np.asarray(face.vertices)
-        P = coordinates[v]
-        if np.all(np.abs(P[:, 2] - H / 2) < 1e-12):
-            name = "mid_plane"
-        elif np.all(np.abs(np.abs(P[:, 1]) - y_end) < 1e-12):
-            name = ("inlet_" if P[:, 0].mean() < 70 * UM else "outlet_") + ("b" if P[0, 1] > 0 else "a")
-        else:
-            name = "walls"
-        groups[name].append(tuple(v))
-    mesh = UnstructuredSimplexMesh(geometry=geometry, coordinates=coordinates, cells=cells, boundary_facets=groups)
-    return geometry, mesh
+    section = merge_blocks(section_blocks(nw), unnamed="walls").triangulated()
+    mesh = extrude(section, H / 2, Geometric(nw, ratio=2.0), names=("walls", "mid_plane"))
+    return mesh.geometry, mesh
 
 
 # ## Model
@@ -331,14 +233,6 @@ def no_traction(x, y, z):
     return np.zeros((len(np.asarray(x)), 3))
 
 
-class ShearFree:
-    """Tangential traction law of a symmetry plane: no shear stress at any slip speed."""
-
-    def traction_and_slope(self, speed, distance, density, viscosity):
-        speed = np.asarray(speed, float)
-        return np.zeros_like(speed), np.zeros_like(speed)
-
-
 def solve_flow(geometry, mesh, order):
     model = IncompressibleNavierStokes(domain=geometry.domain(), material=fluid)
     b = geometry.boundaries
@@ -348,7 +242,7 @@ def solve_flow(geometry, mesh, order):
             FixedVelocity(boundary=b.inlet_a | b.inlet_b, physics=model, value=inlet_velocity),
             FlowTraction(boundary=b.outlet_a | b.outlet_b, physics=model, value=no_traction),
             NoSlipWall(boundary=b.walls, physics=model),
-            WallShear(boundary=b.mid_plane, physics=model, law=ShearFree()),
+            WallShear(boundary=b.mid_plane, physics=model, law=FreeSlipLaw()),
         ),
         initial_conditions=(InitialValue(model.velocity, (0.0, 0.0, 0.0)),),
     )
@@ -380,29 +274,21 @@ def solve_solute(geometry, mesh, velocity, D, order):
     return Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_stationary().field(model.temperature)
 
 
-# Gauss quadrature over a cross-section of an arm or of the contact zone (half depth)
-GP, GW = np.polynomial.legendre.leggauss(6)
-
-
-def rectangle(axis, value, span, n=16):
-    edges = np.linspace(*span, n + 1)
-    a = (edges[:-1, None] + np.diff(edges)[:, None] * (GP + 1) / 2).ravel()
-    wa = (np.diff(edges)[:, None] * GW / 2).ravel()
-    ez = np.linspace(0, H / 2, n + 1)
-    z = (ez[:-1, None] + np.diff(ez)[:, None] * (GP + 1) / 2).ravel()
-    wz = (np.diff(ez)[:, None] * GW / 2).ravel()
-    A, Z = np.meshgrid(a, z, indexing="ij")
-    P = np.column_stack((np.full(A.size, value), A.ravel(), Z.ravel()) if axis == "x"
-                        else (A.ravel(), np.full(A.size, value), Z.ravel()))
-    return P, np.outer(wa, wz).ravel(), (0 if axis == "x" else 1)
-
-
 def plane_flux(velocity, concentration, axis, value, span):
     """Volume flow, solute flow and area-averaged concentration through a cross-section (full depth)."""
-    P, w, component = rectangle(axis, value, span)
-    u = np.asarray(velocity.evaluate(P))[:, component]
-    c = np.ones(len(P)) if concentration is None else np.asarray(concentration.evaluate(P)).ravel()
-    return 2 * np.sum(w * u), 2 * np.sum(w * u * c), np.sum(w * c) / np.sum(w)
+    component = 0 if axis == "x" else 1
+    normal = np.eye(3)[component]
+    plane = Plane(origin=tuple(value * normal), normal=tuple(normal))
+    other = 1 - component
+    within = lambda p: (p[:, other] >= span[0] - 1e-12) & (p[:, other] <= span[1] + 1e-12)
+    volume_flow = 2 * float(np.asarray(integrate_plane(velocity, plane, component=component, within=within,
+                                                       subdivisions=4).value))
+    if concentration is None:
+        return volume_flow, volume_flow, 1.0
+    carried = derived_field(velocity, lambda u, p: u[:, component] * np.asarray(concentration.evaluate(p)).ravel(),
+                            name="solute_flux", unit="mol/m^2/s")
+    solute_flow = 2 * float(np.asarray(integrate_plane(carried, plane, within=within, subdivisions=4).value))
+    return volume_flow, solute_flow, mean_value(concentration, plane=plane, within=within, subdivisions=4)
 
 
 ARMS = {"inlet A": (-40 * UM, (0, W)), "inlet B": (40 * UM, (0, W)),
@@ -451,14 +337,14 @@ print(f"quadratic contrast on mesh n = {fine['nw']}: {dofs2} flow unknowns (P2/P
 
 def graetz_reference(P=100, Q=12):
     a, hz = 2 * W, H / 2
-    edges = np.linspace(0, a, 9)                          # panel edge at the interface s = W
+    edges = np.linspace(0, a, 9)
     gs, ws = np.polynomial.legendre.leggauss(30)
     S = (edges[:-1, None] + np.diff(edges)[:, None] * (gs + 1) / 2).ravel()
     WS = (np.diff(edges)[:, None] * ws / 2).ravel()
     gz, wz = np.polynomial.legendre.leggauss(60)
     Z, WZ = hz * (gz + 1) / 2, hz * wz / 2
     SS, ZZ = np.meshgrid(S, Z, indexing="ij")
-    u = duct_velocity(SS, ZZ, a, H, u_in)                # mean velocity in the contact zone = u_in
+    u = duct_velocity(SS, ZZ, a, H, u_in)
     p, q = np.arange(P), np.arange(Q)
     basis = np.einsum("ip,jq->ijpq", np.cos(np.pi * np.outer(S, p) / a),
                       np.cos(np.pi * np.outer(Z, q) / hz)).reshape(len(S), len(Z), P * Q)
@@ -563,15 +449,8 @@ for run in runs:
 
 
 def richardson(values, hs):
-    f1, f2, f3 = values
-    ratio = (f1 - f2) / (f2 - f3)
-    if ratio <= 0:
-        return np.nan, np.nan
-    lo, hi = 0.2, 12.0
-    for _ in range(200):
-        p = 0.5 * (lo + hi)
-        lo, hi = (lo, p) if (hs[0] ** p - hs[1] ** p) / (hs[1] ** p - hs[2] ** p) > ratio else (p, hi)
-    return p, f3 + (f3 - f2) * hs[2] ** p / (hs[1] ** p - hs[2] ** p)
+    estimate = convergence(values, hs)
+    return (estimate.order, estimate.extrapolated) if estimate.order is not None else (np.nan, np.nan)
 
 
 hs = np.array([1.0 / run["nw"] for run in runs])
@@ -607,106 +486,54 @@ print(f"P2/P1 + P2 on mesh n = {fine['nw']}: u_max contact {centre_velocity(v2, 
 # contact zone against the Graetz-type reference, the outlet-B concentration against the
 # published design curve, and the mesh study.
 
-fig = plt.figure(figsize=(17, 15.5), layout="constrained")
-top, middle, bottom = fig.subfigures(3, 1, height_ratios=(1.15, 0.6, 1.0))
-axes_top, axes_middle, axes_bottom = top.subplots(1, 3), middle.subplots(1, 5), bottom.subplots(1, 4)
-sec, quads = section(fine["nw"], m=3)
-tri = Triangulation(sec[:, 0] / UM, sec[:, 1] / UM, np.concatenate((quads[:, [0, 1, 2]], quads[:, [0, 2, 3]])))
-z_mid = H / 2 - 1e-10
-plane = np.column_stack((sec, np.full(len(sec), z_mid)))
-
-ax = axes_top[0]
-speed = np.linalg.norm(np.asarray(fine["velocity"].evaluate(plane)), axis=1) * 1e3
-shade = ax.tricontourf(tri, speed, levels=np.linspace(0, speed.max(), 31), cmap=FIELD_CMAP)
-ax.tricontour(tri, speed, levels=np.linspace(0.02, 0.14, 7), colors=INK, linewidths=0.5)
-ax.set_aspect("equal")
-ax.set(xlabel="x [um]", ylabel="y [um]", title="|u| on the mid-depth plane (P3/P2)")
-ax.text(5, -66, "inlet A", ha="center", fontsize=8)
-ax.text(5, 63, "inlet B", ha="center", fontsize=8)
-ax.text(135, -66, "outlet A", ha="center", fontsize=8)
-ax.text(135, 63, "outlet B", ha="center", fontsize=8)
-ax.set_ylim(-70, 68)
-top.colorbar(shade, ax=ax, shrink=0.7, pad=0.02, label="|u| [mm/s]", format="%.2f")
-
-levels_c = np.linspace(0, c0, 41)
-for ax, D in zip(axes_top[1:], (1e-11, 1e-10)):
-    values = np.asarray(fine["solute"][D].evaluate(plane)).ravel()
-    shade = ax.tricontourf(tri, np.clip(values, 0, c0), levels=levels_c, cmap=FIELD_CMAP, extend="both")
-    ax.tricontour(tri, values, levels=[0.1, 0.25, 0.5, 0.75, 0.9], colors=INK, linewidths=0.6)
-    ax.set_aspect("equal")
-    ax.set(xlabel="x [um]", title=f"c / c0, D = {D:.0e} m^2/s: c_B = {outlet[D]['cup']:.3f} mol/m^3")
-    for x_cut in (25, 45, 70, 95, 118):
-        ax.plot([x_cut, x_cut], [-10, 10], color=CREAM, lw=0.8, ls="--")
-    ax.set_ylim(-70, 68)
-    top.colorbar(shade, ax=ax, shrink=0.7, pad=0.02, label="c / c0", ticks=np.linspace(0, 1, 6))
-
-ys = np.linspace(-W + 1e-9, W - 1e-9, 81)
-zs = np.linspace(1e-9, H / 2 - 1e-9, 21)
-Yc, Zc = np.meshgrid(ys, zs, indexing="ij")
-for i, (ax, x_cut) in enumerate(zip(axes_middle, (25, 45, 70, 95, 118))):
-    P = np.column_stack((np.full(Yc.size, x_cut * UM), Yc.ravel(), Zc.ravel()))
-    C = np.asarray(fine["solute"][1e-11].evaluate(P)).reshape(Yc.shape)
-    Yf = np.concatenate((Yc, Yc[:, ::-1]), axis=1) / UM
-    Zf = np.concatenate((Zc, H - Zc[:, ::-1]), axis=1) / UM
-    Cf = np.concatenate((C, C[:, ::-1]), axis=1)
-    ax.contourf(Yf, Zf, np.clip(Cf, 0, c0), levels=levels_c, cmap=FIELD_CMAP, extend="both")
-    ax.contour(Yf, Zf, Cf, levels=[0.1, 0.25, 0.5, 0.75, 0.9], colors=INK, linewidths=0.6)
-    ax.set_aspect("equal")
-    ax.set(xlabel="y [um]", title=f"D = 1e-11, x = {x_cut} um")
-    if i == 0:
-        ax.set_ylabel("z [um]")
-
-ax = axes_bottom[0]
+b_fine = fine["geometry"].boundaries
+cuts = (25, 45, 70, 95, 118)
+clipped = lambda c, p: np.clip(c, 0, c0)
 y_line = np.linspace(-W + 1e-9, W - 1e-9, 121)
 z_line = np.linspace(1e-9, H / 2 - 1e-9, 61)
 u_y = np.asarray(fine["velocity"].evaluate(np.column_stack((np.full(121, 70 * UM), y_line, np.full(121, H / 2 - 1e-9)))))[:, 0]
 u_z = np.asarray(fine["velocity"].evaluate(np.column_stack((np.full(61, 70 * UM), np.zeros(61), z_line))))[:, 0]
-ax.plot(y_line / UM, duct_velocity(y_line + W, H / 2, 2 * W, H, u_in) * 1e3, color=GREEN, lw=1.5, label="exact, across (z = H/2)")
-ax.plot(y_line[::6] / UM, u_y[::6] * 1e3, "o", color=GREEN, ms=4, label="P3/P2 FEM")
-ax.plot((z_line - H / 2) / UM, duct_velocity(W, z_line, 2 * W, H, u_in) * 1e3, color=COPPER, lw=1.5,
-        label="exact, through depth (y = 0)")
-ax.plot((z_line[::3] - H / 2) / UM, u_z[::3] * 1e3, "s", color=COPPER, ms=4, mfc="none", label="P3/P2 FEM")
-ax.set(xlabel="y, or z - H/2 [um]", ylabel="u_x [mm/s]", title="Velocity at x = 70 um vs exact duct flow")
-ax.legend(fontsize=7.5, loc="lower center")
-ax.grid(alpha=0.3)
-
-ax = axes_bottom[1]
-for D, colour in zip(diffusivities, (COPPER, "#5F9175", GREEN)):
-    for z_probe, style in ((H / 2 - 1e-9, "-"), (2 * UM, "--")):
-        c_line = np.asarray(fine["solute"][D].evaluate(np.column_stack((np.full(121, X1 - 1e-9), y_line, np.full(121, z_probe))))).ravel()
-        ax.plot(y_line / UM, graetz_concentration(D, y_line, np.full(121, z_probe)), style, color=colour, lw=1.4)
-        ax.plot(y_line[::8] / UM, c_line[::8], "o" if style == "-" else "s", color=colour, ms=3.5, mfc="none")
-    ax.plot([], [], "-", color=colour, label=f"D = {D:.0e}")
-ax.plot([], [], "o", color=INK, mfc="none", label="FEM, z = H/2")
-ax.plot([], [], "s", color=INK, mfc="none", label="FEM, z = 2 um")
-ax.plot([], [], "-", color=INK, label="Graetz, z = H/2")
-ax.plot([], [], "--", color=INK, label="Graetz, z = 2 um")
-ax.set(xlabel="y [um]", ylabel="c / c0", title="c at the end of the contact zone vs Graetz")
-ax.legend(fontsize=7, ncol=2, loc="upper right")
-ax.grid(alpha=0.3)
-
-ax = axes_bottom[2]
+graetz_fem, graetz_exact = {}, {}
+for D in diffusivities:
+    for z_probe, name in ((H / 2 - 1e-9, "z = H/2"), (2 * UM, "z = 2 µm")):
+        points = np.column_stack((np.full(121, X1 - 1e-9), y_line, np.full(121, z_probe)))
+        graetz_fem[f"D = {D:.0e}, {name}"] = (y_line[::8] / UM, np.asarray(fine["solute"][D].evaluate(points)).ravel()[::8])
+        graetz_exact[f"D = {D:.0e}, {name}"] = (y_line / UM, graetz_concentration(D, y_line, np.full(121, z_probe)))
 D_line = np.geomspace(5e-12, 2e-10, 120)
-ax.semilogx(D_line, [graetz_fraction(D) for D in D_line], color=GREEN, lw=1.6, label="Graetz-type reference")
-ax.semilogx(list(c_B_published), list(c_B_published.values()), "s", color=INK, mfc="none", ms=9, label="published benchmark")
-ax.semilogx(list(outlet), [o["cup"] for o in outlet.values()], "o", color=COPPER, ms=7, label="3D FEM, mixing-cup")
-ax.semilogx(list(outlet), [o["area"] for o in outlet.values()], "^", color="#A85539", ms=6, mfc="none", label="3D FEM, area average")
-ax.axhline(0.5, color="#8B9A8D", lw=0.8, ls=":")
-ax.set(xlabel="diffusivity D [m^2/s]", ylabel="c at outlet B [mol/m^3]", title="Separation: outlet-B concentration", ylim=(0, 0.55))
-ax.legend(fontsize=7.5, loc="lower right")
-ax.grid(alpha=0.3, which="both")
-
-ax = axes_bottom[3]
-ns_ = [r["nw"] for r in runs]
-ax.plot(ns_, [r["c_B_low"] for r in runs], "o-", color=COPPER, label="P3, D = 1e-11")
-ax.plot([fine["nw"]], [m_b2[1] / m_b2[0]], "s", color=INK, mfc="none", ms=8, label="P2, D = 1e-11")
-ax.axhline(c_B_published[1e-11], color=INK, lw=1.0, ls="--", label="published")
-ax.axhline(graetz_fraction(1e-11), color=GREEN, lw=1.2, label="Graetz-type reference")
-ax.set(xlabel="cells across one stream", ylabel="c_B [mol/m^3]", title="Mesh study")
-ax.set_xticks(ns_)
-ax.legend(fontsize=7.5)
-ax.grid(alpha=0.3)
-plt.show()
+fig = plots.figure(layout=[["speed"] * 20 + ["slow"] * 20 + ["fast"] * 20,
+                           [f"cut {x}" for x in cuts for _ in range(12)],
+                           ["duct"] * 15 + ["graetz"] * 15 + ["outlet"] * 15 + ["mesh"] * 15], size=(17, 15.5))
+plots.surface(fine["velocity"], boundary=b_fine.mid_plane, component=lambda u, p: 1e3 * np.linalg.norm(u, axis=1),
+              contours=7, subdivisions=3, label="|u| [mm/s]", title="|u| on the mid-depth plane (P3/P2)",
+              ylimits=(-70 * UM, 68 * UM), ax=fig["speed"])
+for panel, D in (("slow", 1e-11), ("fast", 1e-10)):
+    plots.surface(fine["solute"][D], boundary=b_fine.mid_plane, component=clipped, limits=(0.0, c0), contours=9,
+                  subdivisions=3, label="c / c0", ylimits=(-70 * UM, 68 * UM), ax=fig[panel],
+                  title=f"c / c0, D = {D:.0e} m²/s: c_B = {outlet[D]['cup']:.3f} mol/m³")
+for x_cut in cuts:
+    plots.section(fine["solute"][1e-11], plane=Plane(origin=(x_cut * UM, 0.0, 0.0), normal=(1.0, 0.0, 0.0)),
+                  component=clipped, symmetry={"planes": [((0, 0, 1), (0, 0, H / 2))]}, limits=(0.0, c0), contours=9,
+                  subdivisions=3, colorbar=False, title=f"D = 1e-11, x = {x_cut} µm", xlimits=(-W, W), ylimits=(0.0, H),
+                  ax=fig[f"cut {x_cut}"])
+plots.line(points={"across (z = H/2)": (y_line[::6] / UM, u_y[::6] * 1e3),
+                   "through depth (y = 0)": ((z_line[::3] - H / 2) / UM, u_z[::3] * 1e3)},
+           reference={"across (z = H/2)": (y_line / UM, duct_velocity(y_line + W, H / 2, 2 * W, H, u_in) * 1e3),
+                      "through depth (y = 0)": ((z_line - H / 2) / UM, duct_velocity(W, z_line, 2 * W, H, u_in) * 1e3)},
+           xlabel="y, or z - H/2 [µm]", ylabel="u_x [mm/s]", legend="lower center",
+           title="Velocity at x = 70 µm: FEM (markers), exact duct flow (dashed)", ax=fig["duct"])
+plots.line(points=graetz_fem, reference=graetz_exact, xlabel="y [µm]", ylabel="c / c0", legend="upper right",
+           title="c at the end of the contact zone: FEM (markers), Graetz (dashed)", ax=fig["graetz"])
+plots.line(D_line, {"Graetz-type reference": [graetz_fraction(D) for D in D_line]},
+           points={"published benchmark": (list(c_B_published), list(c_B_published.values())),
+                   "3D FEM, mixing-cup": (list(outlet), [o["cup"] for o in outlet.values()]),
+                   "3D FEM, area average": (list(outlet), [o["area"] for o in outlet.values()])},
+           hlines=0.5, scale="logx", ylimits=(0, 0.55), xlabel="diffusivity D [m²/s]", ylabel="c at outlet B [mol/m³]",
+           title="Separation: outlet-B concentration", legend="lower right", ax=fig["outlet"])
+plots.line([r["nw"] for r in runs], {"P3, D = 1e-11": [r["c_B_low"] for r in runs]},
+           points={"P2, D = 1e-11": ([fine["nw"]], [m_b2[1] / m_b2[0]])},
+           hlines={"published": c_B_published[1e-11], "Graetz-type reference": graetz_fraction(1e-11)}, markers=True,
+           xlabel="cells across one stream", ylabel="c_B [mol/m³]", title="Mesh study", ax=fig["mesh"])
+plots.show()
 
 
 # ## Going further

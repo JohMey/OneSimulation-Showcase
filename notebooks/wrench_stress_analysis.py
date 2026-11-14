@@ -101,7 +101,7 @@ from onesim.materials import IsotropicSolid
 from onesim.meshing import UnstructuredSimplexMesh
 from onesim.meshing.generation.backends.cad.in_memory_cad import (
     NativeConstructionRegistry, build_file_free_mesher, default_native_constructions)
-from onesim.meshing.generation.contracts.polynomial.tetrahedron import QuadraticTetrahedralGeometry
+from onesim.meshing.generation.contracts.polynomial.elements.tetrahedron import QuadraticTetrahedralGeometry
 from onesim.meshing.generation.contracts.requests import (
     HighOrderMeshControl, MeshGenerationRequest, MeshRefinement, MeshRefinementSupport, SpatialMeshControl)
 from onesim.meshing.generation.operations.geometry.model_mesh import CadMeshingService

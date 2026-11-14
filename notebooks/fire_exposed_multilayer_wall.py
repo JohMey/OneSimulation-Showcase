@@ -75,49 +75,26 @@ series solution, the global energy balance and mesh and time-step studies.
 # (iv) A three-level mesh study (observed order, Richardson estimate) and a time-tolerance
 # study.
 
-from dataclasses import dataclass, replace
-from hashlib import sha256
-from importlib.metadata import version
+from dataclasses import replace
 import time
-
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 import numpy as np
-from scipy.optimize import brentq
 from scipy.sparse import diags
 from scipy.sparse.linalg import splu
 
-from onesim.cad.geometry.primitives import Geometry
+from onesim.cad.d3 import Box, Regrouped
 from onesim.materials import IsotropicSolid
-from onesim.meshing.generation.backends.structured.volume.hexahedral import StructuredHexahedralMesh
-from onesim.meshing.generation.contracts.hexahedral_geometry import FACES, affine_hexahedral_geometry
+from onesim.meshing import Geometric, Piecewise, StructuredHexahedralMesher, Uniform
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import SparseDirect
 from onesim.numerics.time import AdaptiveTimeStep
-from onesim.numerics.time.methods.backends.generic.state_algebra import variable_bdf_coefficients
+from onesim.numerics.time import variable_bdf_coefficients
 from onesim.physics.heat_transfer import ConvectiveHeatFlux, HeatConduction, HeatFlux
-from onesim.simulation import Problem, Simulation
+from onesim.results.comparisons import convergence
+from onesim.simulation import Problem, Simulation, regionwise
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -126,18 +103,17 @@ print("OneSimulation:", version("onesimulation"))
 # $c_p=1000$ J/(kg K). Steel: $\rho=7850$ kg/m³, $c_p(T)$ and $k(T)$ from EN 1993-1-2,
 # Sec. 3.4.1 (below 20 °C, outside the range of the standard, the 20 °C values are used).
 
-side = 0.201                 # m, outer side of the section
-d = 0.0005                   # m, steel sheet thickness
-a = side / 2                 # m, half side (quarter model)
-dz = 0.002                   # m, thickness of the extrusion layer
+side = 0.201
+d = 0.0005
+a = side / 2
+dz = 0.002
 k_fill, rho_fill, cp_fill = 0.05, 50.0, 1000.0
 rho_steel = 7850.0
 h_gas, emissivity, sigma = 10.0, 0.8, 5.670374419e-8
-T0 = 273.15                  # K, initial temperature (0 degC)
-T_gas = 1273.15              # K, gas temperature (1000 degC)
-t_end = 180 * 60.0           # s
+T0 = 273.15
+T_gas = 1273.15
+t_end = 180 * 60.0
 report_minutes = np.array([30, 60, 90, 120, 150, 180])
-# reference temperature at the centre (degC), DIN EN 1991-1-2/NA, validation example 3
 reference_degC = np.array([340.5, 717.1, 881.6, 950.6, 979.3, 991.7])
 alpha_fill = k_fill / (rho_fill * cp_fill)
 print(f"filling diffusivity {alpha_fill:.1e} m^2/s, diffusion time (side/2)^2/alpha = "
@@ -171,7 +147,6 @@ def _cp_antiderivative(c):
         650 * c)
 
 
-# integration constants that make the enthalpy continuous at 600, 735 and 900 degC
 _breaks = np.array([600.0, 735.0, 900.0])
 _jumps = np.array([float(_cp_antiderivative(np.array(b - 1e-9)) - _cp_antiderivative(np.array(b + 1e-9)))
                    for b in _breaks])
@@ -206,72 +181,27 @@ def gas_flux(T):
 
 # ## Geometry and mesh
 #
-# The quarter section $[0,a]^2$ is covered by a tensor-product block mesh: $n_s$ elements
+# The quarter section $[0,a]^2$ is a box with three boundary groups (exposed faces, symmetry
+# planes, layer faces). The structured hexahedral mesher covers it with $n_s$ elements
 # across the steel sheet, then $n_f$ elements in the filling whose size grows
 # geometrically from the sheet (first filling element as wide as a sheet element) to the
-# symmetry plane. The same spacing is used in $x$ and $y$, one element layer in $z$. The
-# eight-node hexahedra are handed to OneSimulation as a native hexahedral mesh with three
-# named boundary groups; the Q2 space adds the mid-edge, mid-face and centre nodes.
+# symmetry plane: a piecewise grading, the same in $x$ and $y$, one element layer in $z$.
+# The Q2 space adds the mid-edge, mid-face and centre nodes.
 
-@dataclass(frozen=True, eq=False, kw_only=True)
-class QuarterSection(Geometry):
-    """Quarter of the clad section, extruded by one layer."""
-
-    dimension = 3
-
-    def boundary_groups(self):
-        names = ("exposed", "symmetry", "layer_faces")
-        return {**{name: (name,) for name in names}, "all": names}
+section = Regrouped(source=Box(length=a, width=a, height=dz), groups={
+    "exposed": ("x_min", "y_min"), "symmetry": ("x_max", "y_max"), "layer_faces": ("z_min", "z_max")})
 
 
-class SectionMesh(StructuredHexahedralMesh):
-    """Hex8 tensor-product mesh of the quarter section with named boundary faces."""
-
-    def __init__(self, geometry, xs, zs):
-        self.geometry = geometry
-        X, Y, Z = np.meshgrid(xs, xs, zs, indexing="ij")
-        coordinates = np.column_stack((X.ravel(), Y.ravel(), Z.ravel()))
-        index = np.arange(X.size).reshape(X.shape)
-        corners = ((0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0), (0, 0, 1), (1, 0, 1), (1, 1, 1), (0, 1, 1))
-        cells = [[index[i + p, j + q, k + r] for p, q, r in corners]
-                 for i in range(len(xs) - 1) for j in range(len(xs) - 1) for k in range(len(zs) - 1)]
-        data = affine_hexahedral_geometry(coordinates, np.array(cells))
-        self.coordinates, self.cells, self.cell_volumes = data.coordinates, data.cells, data.volumes
-        self.cell_count = len(self.cells)
-        self.shape = (len(xs) - 1, len(xs) - 1, len(zs) - 1)
-        self.mesh_id = "clad-section:" + sha256(self.coordinates.tobytes() + self.cells.tobytes()).hexdigest()
-        owners = {}
-        for cell in self.cells:
-            for face in FACES:
-                owners.setdefault(tuple(sorted(cell[list(face)])), []).append(tuple(cell[list(face)]))
-        self._facets = {name: [] for name in geometry.boundary_groups()["all"]}
-        for matches in owners.values():
-            if len(matches) == 1:
-                q = self.coordinates[list(matches[0])]
-                if np.allclose(q[:, 0], 0.0) or np.allclose(q[:, 1], 0.0):
-                    name = "exposed"
-                elif np.allclose(q[:, 0], a) or np.allclose(q[:, 1], a):
-                    name = "symmetry"
-                else:
-                    name = "layer_faces"
-                self._facets[name].append(matches[0])
-        self._carrier = self._build_carrier()
-
-
-def spacing(n_s, n_f):
-    """Node coordinates 0 .. a: n_s sheet elements, n_f geometrically graded filling elements."""
-    h0 = d / n_s
-    length = a - d
-    growth = brentq(lambda r: h0 * (r**n_f - 1) / (r - 1) - length, 1.0 + 1e-9, 3.0)
-    filling = d + np.concatenate(([0.0], np.cumsum(h0 * growth ** np.arange(n_f))))
-    filling[-1] = a
-    return np.concatenate((np.linspace(0.0, d, n_s + 1)[:-1], filling)), growth
+def section_mesh(n_s, n_f):
+    """n_s uniform sheet elements, then n_f filling elements growing from the sheet width."""
+    side = Piecewise(((d, Uniform(n_s)), (a - d, Geometric(n_f, first=d / n_s))))
+    return StructuredHexahedralMesher(cells=(n_s + n_f, n_s + n_f, 1), grading=(side, side, Uniform(1))).generate(section)
 
 
 # ## Model
 #
 # The constant filling properties and the steel enter OneSimulation's `HeatConduction` as
-# position-dependent material laws; the exposed faces carry a `ConvectiveHeatFlux`, the
+# region-wise material values (the steel sheet is an L-shaped union of two boxes); the exposed faces carry a `ConvectiveHeatFlux`, the
 # symmetry planes and layer faces an explicit zero `HeatFlux`. Because the assembled
 # matrices are linear in the steel coefficients and in $h$, three assemblies with
 # different steel values and film coefficients separate the operators: the filling and
@@ -284,35 +214,19 @@ def spacing(n_s, n_f):
 # with nodal $H$, $\phi$ and gas-side flux $q=-q_\mathrm{in}$. All steel coefficients sit
 # inside elements (no element straddles the sheet surface), so the separation is exact.
 
-def in_steel(x, y):
-    return (np.asarray(x) < d) | (np.asarray(y) < d)
+steel = Box(length=d, width=a, height=dz) | Box(length=a, width=d, height=dz)
 
 
-@dataclass(frozen=True)
-class SplitConductivity:
-    steel: float
-    unit: str = "W/m/K"
-
-    def evaluate(self, *, x, y, **state):
-        return np.where(in_steel(x, y), self.steel, k_fill)
-
-
-@dataclass(frozen=True)
-class SplitCapacity:
-    """rho*c_p per unit density (density = 1 kg/m^3 below)."""
-
-    steel: float
-    unit: str = "J/kg/K"
-
-    def evaluate(self, *, x, y, **state):
-        return np.where(in_steel(x, y), self.steel, rho_fill * cp_fill)
+def material_with(k_s, c_s):
+    """Filling and steel properties; rho*c_p per unit density (density = 1 kg/m^3)."""
+    base = IsotropicSolid(density=1.0, specific_heat_capacity=1.0, thermal_conductivity=1.0,
+                          youngs_modulus=1e9, poisson_ratio=0.3, thermal_expansion_coefficient=0.0)
+    return replace(base, thermal_conductivity=regionwise(((steel, k_s),), default=k_fill, unit="W/m/K"),
+                   specific_heat_capacity=regionwise(((steel, c_s),), default=rho_fill * cp_fill, unit="J/kg/K"))
 
 
 def assemble(mesh, geometry, k_s, c_s, h):
-    base = IsotropicSolid(density=1.0, specific_heat_capacity=1.0, thermal_conductivity=1.0,
-                          youngs_modulus=1e9, poisson_ratio=0.3, thermal_expansion_coefficient=0.0)
-    material = replace(base, thermal_conductivity=SplitConductivity(k_s), specific_heat_capacity=SplitCapacity(c_s))
-    model = HeatConduction(domain=geometry.domain(), material=material, heating=0.0)
+    model = HeatConduction(domain=geometry.domain(), material=material_with(k_s, c_s), heating=0.0)
     b = geometry.boundaries
     problem = Problem(name="Fire-exposed clad section (operator assembly)", geometry=geometry, physics=(model,),
                       boundary_conditions=(
@@ -328,12 +242,12 @@ def assemble(mesh, geometry, k_s, c_s, h):
 
 def build_level(n_s, n_f):
     start = time.time()
-    geometry = QuarterSection()
-    xs, growth = spacing(n_s, n_f)
-    mesh = SectionMesh(geometry, xs, np.array([0.0, dz]))
-    K_a, M_a, nodes = assemble(mesh, geometry, 1.0, 1.0, 1.0)
-    K_b, M_b, _ = assemble(mesh, geometry, 2.0, 2.0, 1.0)
-    K_c, _, _ = assemble(mesh, geometry, 1.0, 1.0, 2.0)
+    mesh = section_mesh(n_s, n_f)
+    xs = np.unique(np.round(np.asarray(mesh.coordinates)[:, 0], 12))
+    growth = np.diff(xs)[n_s + 1] / np.diff(xs)[n_s]
+    K_a, M_a, nodes = assemble(mesh, section, 1.0, 1.0, 1.0)
+    K_b, M_b, _ = assemble(mesh, section, 2.0, 2.0, 1.0)
+    K_c, _, _ = assemble(mesh, section, 1.0, 1.0, 2.0)
     K_s, B, M_s = K_b - K_a, K_c - K_a, M_b - M_a
     K_f, M_f = K_a - K_s - B, M_a - M_s
     clean = lambda A: (A + A.T).tocsr() * 0.5
@@ -386,7 +300,7 @@ def integrate(level, rtol=2e-4, atol=0.02, max_step=60.0, keep_minutes=(5, 15, 3
         order = 1 if len(steps) == 0 else 2
         c = variable_bdf_coefficients(step, steps[::-1][: order - 1], order)
         history = sum(c[j] * energies[-j] for j in range(1, order + 1))
-        if len(states) >= 3:          # quadratic extrapolation (predictor and Newton start)
+        if len(states) >= 3:
             t_hist = np.array([times[-3], times[-2], times[-1]])
             L = [np.prod([(t + step - t_hist[m]) / (t_hist[l] - t_hist[m]) for m in range(3) if m != l])
                  for l in range(3)]
@@ -441,7 +355,7 @@ def at_minutes(run, minutes):
     return np.array([tr["centre"][np.argmin(np.abs(tr["t"] - 60.0 * m))] for m in minutes])
 
 
-levels = ((2, 16), (3, 24), (4, 32))      # (elements across the sheet, graded filling elements)
+levels = ((2, 16), (3, 24), (4, 32))
 built = []
 for n_s, n_f in levels:
     level = build_level(n_s, n_f)
@@ -459,7 +373,6 @@ for level in built:
     print(f"mesh {level['n']}: {run['accepted']} accepted / {run['rejected']} rejected BDF2 steps, "
           f"{run['newton']} Newton iterations ({run['seconds']:.0f} s)")
 
-# time-tolerance study on the middle mesh
 tol_runs = {2e-4: runs[1]}
 for rtol in (1e-3, 5e-5):
     tol_runs[rtol] = integrate(built[1], rtol=rtol, atol=100 * rtol)
@@ -508,7 +421,6 @@ def duhamel_centre(t_hist, Tb_hist, t_eval):
         tk, Tk = t_hist[mask], Tb_hist[mask]
         tau0, tau1 = tk[:-1], tk[1:]
         slope = np.diff(Tk) / np.diff(tk)
-        # int_{tau0}^{tau1} U(te - tau) dtau with U = 1 - sum A exp(-L (te - tau))
         decay = (np.exp(-np.outer(te - tau1, L2)) - np.exp(-np.outer(te - tau0, L2))) / L2
         out.append(T0 + np.sum(slope * ((tau1 - tau0) - decay @ A2)))
     return np.array(out)
@@ -532,23 +444,14 @@ print(f"Energy balance (quarter section, per metre): stored {fine['E_gain'] / dz
       f"absorbed {Q_in / 1e6:.5f} MJ/m, difference {100 * (fine['E_gain'] / dz / Q_in - 1):+.3f} %")
 
 
-def richardson(values, refinement):
-    f1, f2, f3 = values
-    h1, h2, h3 = 1.0 / np.asarray(refinement, float)
-    ratio = (f1 - f2) / (f2 - f3) if f2 != f3 else np.inf
-    try:
-        p = brentq(lambda p: (h1**p - h2**p) / (h2**p - h3**p) - ratio, 0.2, 12.0)
-    except ValueError:
-        return np.nan, f3
-    return p, f3 + (f3 - f2) / ((h2 / h3) ** p - 1.0)
-
-
 print("Mesh study of the centre temperature (element counts 2 : 3 : 4 per direction)")
 for m in report_minutes:
     vals = [float(at_minutes(r, [m])[0]) - 273.15 for r in runs]
-    p, ext = richardson(vals, (2, 3, 4))
+    estimate = convergence(vals, [1.0 / 2, 1.0 / 3, 1.0 / 4])
+    order = f"{estimate.order:5.2f}" if estimate.order is not None else "  n/a"
+    ext = f"{estimate.extrapolated:9.3f}" if estimate.extrapolated is not None else "      n/a"
     print(f"   t = {m:3d} min: " + "  ".join(f"{v:9.3f}" for v in vals)
-          + f" degC, order {p:5.2f}, Richardson {ext:9.3f}, change last two meshes {abs(vals[-1] - vals[-2]):.1e} K")
+          + f" degC, order {order}, Richardson {ext}, change last two meshes {abs(vals[-1] - vals[-2]):.1e} K")
 print("Time-tolerance study (middle mesh): centre temperature, largest change over the report times")
 base_vals = at_minutes(tol_runs[2e-4], report_minutes)
 for rtol, run in sorted(tol_runs.items()):
@@ -566,81 +469,39 @@ for rtol, run in sorted(tol_runs.items()):
 level, kept = fine["level"], fine["kept"]
 nodes = level["nodes"]
 layer = np.abs(nodes[:, 2]) < 1e-12
-U = np.unique(np.round(nodes[layer, 0], 12))               # Q2 node lines of the quarter
-I = np.searchsorted(U, np.round(nodes[layer, 0], 12))
-J = np.searchsorted(U, np.round(nodes[layer, 1], 12))
-
-
-def q2_weights(nodes_1d, samples):
-    """Quadratic Lagrange weights of the Q2 node lines (vertex, mid-point, vertex per element)."""
-    W = np.zeros((len(samples), len(nodes_1d)))
-    element = np.clip(np.searchsorted(nodes_1d[::2], samples, side="right") - 1, 0, len(nodes_1d) // 2 - 1)
-    for row, (s_, e) in enumerate(zip(samples, element)):
-        x = nodes_1d[2 * e:2 * e + 3]
-        for i in range(3):
-            others = [x[m] for m in range(3) if m != i]
-            W[row, 2 * e + i] = np.prod([(s_ - o) / (x[i] - o) for o in others])
-    return W
-
-
-fine_axis = np.unique(np.concatenate((np.linspace(0.0, a, 160), np.linspace(0.0, 4 * d, 12))))
-W = q2_weights(U, fine_axis)                                # Q2 interpolation onto a fine grid
-full_axis = np.concatenate((fine_axis, side - fine_axis[-2::-1])) * 1e3   # mirrored about the symmetry planes
-mirror = np.r_[np.arange(len(fine_axis)), np.arange(len(fine_axis) - 2, -1, -1)]
-fig = plt.figure(figsize=(16, 9.5), constrained_layout=True)
-grid = fig.add_gridspec(2, 4)
-for col, minute in enumerate((5, 30, 60)):
-    ax = fig.add_subplot(grid[0, col])
-    quarter = np.empty((len(U), len(U)))
-    quarter[I, J] = kept[minute][layer] - 273.15
-    V = (W @ quarter @ W.T)[np.ix_(mirror, mirror)]
-    cs = ax.contourf(full_axis, full_axis, V.T, levels=40, cmap=FIELD_CMAP)
-    ax.contour(full_axis, full_axis, V.T, levels=12, colors=CREAM, linewidths=0.4, alpha=0.8)
-    ax.set(xlabel="x / mm", ylabel="y / mm", title=f"Temperature after {minute} min", aspect="equal")
-    fig.colorbar(cs, ax=ax, shrink=0.8, label="T / degC")
-
-ax = fig.add_subplot(grid[0, 3])
+node_axis = np.unique(np.round(nodes[layer, 0], 12))
+I = np.searchsorted(node_axis, np.round(nodes[layer, 0], 12))
+J = np.searchsorted(node_axis, np.round(nodes[layer, 1], 12))
+full_axis = np.r_[node_axis, side - node_axis[-2::-1]] * 1e3
+mirror = np.r_[np.arange(len(node_axis)), np.arange(len(node_axis) - 2, -1, -1)]
 mid = layer & (np.abs(nodes[:, 1] - a) < 1e-12)
-order_x = np.argsort(nodes[mid, 0])
-for minute, color in zip((5, 15, 30, 60, 90, 180), (GREEN, "#5F9175", "#A8BC91", "#CD9561", COPPER, INK)):
-    ax.plot(nodes[mid, 0][order_x] * 1e3, kept[minute][mid][order_x] - 273.15, color=color, label=f"{minute} min")
-ax.axvline(d * 1e3, color="#9FA593", lw=0.8, ls="--")
-ax.set(xlabel="depth / mm", ylabel="T / degC", title="Mid-plane profile (y = a)")
-ax.legend(fontsize=8)
-
-ax = fig.add_subplot(grid[1, 0:2])
-ax.plot(tr["t"] / 60, tr["centre"] - 273.15, color=GREEN, lw=2, label="centre, OneSimulation (Q2, BDF2)")
-ax.plot(report_minutes, duhamel, "s", mfc="none", color=INK, ms=8, label="centre, 2D Duhamel series")
-ax.errorbar(report_minutes, reference_degC, yerr=np.minimum(5.0, 0.01 * reference_degC), fmt="o", color=COPPER,
-            capsize=4, label="reference of the standard (bars: 5 K)")
-ax.plot(tr["t"] / 60, tr["sheet_mid"] - 273.15, color="#A85539", lw=1.2, ls="--", label="steel sheet, mid-side")
-ax.axhline(T_gas - 273.15, color="#9FA593", lw=0.8, ls=":")
-ax.set(xlabel="t / min", ylabel="T / degC", title="Centre and sheet temperature", xlim=(0, 180))
-ax.legend(loc="lower right")
-
-ax = fig.add_subplot(grid[1, 2])
+along = np.argsort(nodes[mid, 0])
 early = tr["t"] <= 120
-ax.plot(tr["t"][early], tr["sheet_mid"][early] - 273.15, color=COPPER, label="sheet, mid-side")
-ax.plot(tr["t"][early], tr["sheet_corner"][early] - 273.15, color=GREEN, ls="--", label="sheet, corner")
-ax.set(xlabel="t / s", ylabel="T / degC", title="Steel sheet, first 2 minutes")
-ax.legend(loc=(0.42, 0.5), fontsize=8)
-Tc = np.linspace(273.15, 1273.15, 800)
-ax_in = ax.inset_axes([0.47, 0.1, 0.48, 0.33])
-ax_in.plot(Tc - 273.15, cp_steel(Tc), color="#8B9A8D")
-ax_in.set_xlabel("T / degC", fontsize=7)
-ax_in.set_ylabel("steel c_p / (J/(kg K))", fontsize=7)
-ax_in.tick_params(labelsize=6)
-
-ax = fig.add_subplot(grid[1, 3])
 cells = [n_s + n_f for n_s, n_f in levels]
-for m, color in zip((30, 60, 180), (GREEN, COPPER, INK)):
-    vals = np.array([float(at_minutes(r, [m])[0]) for r in runs])
-    ax.plot(cells, vals - vals[-1], "o-", color=color, label=f"t = {m} min")
-ax.set(xlabel="elements per side of the quarter", ylabel="T_centre - T_centre(finest) / K",
-       title="Mesh convergence, centre")
-ax.set_xticks(cells)
-ax.legend()
-plt.show()
+T_steel = np.linspace(273.15, 1273.15, 800)
+fig = plots.figure(layout=[["5 min"] * 2 + ["30 min"] * 2 + ["60 min"] * 2 + ["profile"] * 4,
+                           ["centre"] * 4 + ["sheet"] * 2 + ["steel"] * 2 + ["mesh"] * 2], size=(18, 9.5))
+for minute in (5, 30, 60):
+    quarter = np.empty((len(node_axis), len(node_axis)))
+    quarter[I, J] = kept[minute][layer] - 273.15
+    plots.heatmap(full_axis, full_axis, quarter[np.ix_(mirror, mirror)], contours=12, label="T [°C]", xlabel="x [mm]",
+                  ylabel="y [mm]", title=f"Temperature after {minute} min", ax=fig[f"{minute} min"])
+plots.line(nodes[mid, 0][along] * 1e3, {f"{minute} min": kept[minute][mid][along] - 273.15 for minute in (5, 15, 30, 60, 90, 180)},
+           vlines={"steel sheet": d * 1e3}, xlabel="depth [mm]", ylabel="T [°C]", title="Mid-plane profile (y = a)", ax=fig["profile"])
+plots.line(tr["t"] / 60, {"centre, OneSimulation (Q2, BDF2)": tr["centre"] - 273.15, "steel sheet, mid-side": tr["sheet_mid"] - 273.15},
+           points={"centre, 2D Duhamel series": (report_minutes, duhamel),
+                   "centre, reference of the standard": (report_minutes, reference_degC)},
+           hlines={"gas temperature": T_gas - 273.15}, xlimits=(0, 180), xlabel="t [min]", ylabel="T [°C]",
+           title="Centre and sheet temperature", legend="lower right", ax=fig["centre"])
+plots.line(tr["t"][early], {"sheet, mid-side": tr["sheet_mid"][early] - 273.15, "sheet, corner": tr["sheet_corner"][early] - 273.15},
+           xlabel="t [s]", ylabel="T [°C]", title="Steel sheet, first 2 minutes", ax=fig["sheet"])
+plots.line(T_steel - 273.15, cp_steel(T_steel), xlabel="T [°C]", ylabel="steel c_p [J/(kg K)]",
+           title="Specific heat of the steel", ax=fig["steel"])
+plots.line(cells, {f"t = {minute} min": np.array([float(at_minutes(run, [minute])[0]) for run in runs])
+                   - float(at_minutes(runs[-1], [minute])[0]) for minute in (30, 60, 180)},
+           markers=True, xlabel="elements per side of the quarter", ylabel="T_centre - T_centre(finest) [K]",
+           title="Mesh convergence, centre", ax=fig["mesh"])
+plots.show()
 
 
 # ## Going further

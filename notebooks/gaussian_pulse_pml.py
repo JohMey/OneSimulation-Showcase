@@ -55,44 +55,22 @@ for several layer thicknesses and strengths.
 #    of images: each side of the square returns the exact free-space field of a mirror source,
 #    weighted by the continuum reflection coefficient $R(\theta)$.
 
-from importlib.metadata import version
 import time
-
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 import numpy as np
-from matplotlib.patches import Rectangle as RectanglePatch
 from scipy.special import j0, j1, roots_legendre
 
 from onesim.cad.d2 import Rectangle
-from onesim.meshing.meshes.api import cartesian
+from onesim.meshing import cartesian
 from onesim.numerics import Numerics
 from onesim.numerics.time import ClassicalRungeKutta4
 from onesim.physics.acoustics import AcousticPML, LinearAcoustics, StaggeredAcousticDifference
-from onesim.results.storage.output.retention_policy import ResultRetentionPolicy
+from onesim.results import ResultRetentionPolicy
 from onesim.simulation import ExecutionOptions, Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
-from onesim.simulation.problem_definition.boundaries import ReflectingWall
+from onesim.simulation import ReflectingWall
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -112,16 +90,16 @@ print("OneSimulation:", version("onesimulation"))
 # Every run uses the Courant number $c\Delta t/\Delta x=0.25$ and stores a frame every 6 mm of
 # travel.
 
-c = 343.0                  # m/s, speed of sound
-rho = 1.204                # kg/m^3, air density
-p0 = 1.0                   # Pa, peak of the initial pulse (linear acoustics: any amplitude)
-b = 0.030                  # m, half-width at half maximum of the pulse
-beta = np.log(2.0) / b**2  # 1/m^2
-a = 0.30                   # m, half side of the physical square
+c = 343.0
+rho = 1.204
+p0 = 1.0
+b = 0.030
+beta = np.log(2.0) / b**2
+a = 0.30
 courant = 0.25
-frame_travel = 0.006       # m, c * (time between stored frames)
-layer_depth, layer_R0 = 0.060, 1e-4    # accuracy runs
-dx = b / 10                # m, grid spacing of the PML runs
+frame_travel = 0.006
+layer_depth, layer_R0 = 0.060, 1e-4
+dx = b / 10
 n_phys = int(round(a / dx))
 print(f"PML runs: grid spacing {dx * 1e3:.1f} mm, {n_phys} x {n_phys} physical cells per quarter, "
       f"time step {courant * dx / c * 1e6:.3f} us")
@@ -169,9 +147,7 @@ def run_case(spacing, cells, layer, travel):
     problem = Problem(
         name="Gaussian pulse in air", geometry=geometry, physics=(air,),
         boundary_conditions=(
-            # symmetry planes of the centred pulse
             ReflectingWall(boundary=walls.x_min | walls.y_min, physics=air),
-            # rigid backing of the absorbing layers (or the far walls of the free-space run)
             ReflectingWall(boundary=walls.x_max | walls.y_max, physics=air),
         ),
         initial_conditions=(InitialValue(air.pressure, initial_pressure),
@@ -189,7 +165,7 @@ def run_case(spacing, cells, layer, travel):
             result_retention=ResultRetentionPolicy(mode="stride", stride=keep)))
     pressure, velocity = result.field(air.pressure), result.field(air.velocity)
     centres = np.asarray(pressure.space.dof_coordinates)
-    order = np.lexsort((centres[:, 1], centres[:, 0]))       # x-major, as (ix, iy)
+    order = np.lexsort((centres[:, 1], centres[:, 0]))
     shape = (cells, cells)
     p = np.array([np.asarray(v)[order].reshape(shape) for v in pressure.history["values"]])
     u = np.array([np.asarray(v)[order].reshape(shape + (2,)) for v in velocity.history["values"]])
@@ -388,83 +364,40 @@ for label, run in runs.items():
 # profiles against the exact solution; grid convergence; reflected energy over time for the
 # thickness series; peak reflected energy against the continuum theory.
 
-fig = plt.figure(figsize=(18, 10.5), constrained_layout=True)
-outer = fig.add_gridspec(2, 1, height_ratios=(1.05, 0.9))
-top = outer[0].subgridspec(1, 4)
-bottom = outer[1].subgridspec(1, 5)
-side = main["cells"] * main["spacing"]
 edges = np.arange(main["cells"] + 1) * main["spacing"]
-full_edges = np.concatenate((-edges[::-1], edges[1:]))
-for col, ct in enumerate((0.06, 0.18, 0.30, 0.42)):
-    ax = fig.add_subplot(top[col])
+centres = np.concatenate((-(edges[:-1] + edges[1:])[::-1] / 2, (edges[:-1] + edges[1:]) / 2))
+spacings = np.array([b / r for r in (5, 10, 20)])
+thickness = [f"N={n}, R0=1e-4" for n in (10, 20, 40, 80)]
+r0_values = (1e-2, 1e-3, 1e-4, 1e-6)
+strength = [f"N=20, R0={r:.0e}".replace("e-0", "e-") for r in r0_values]
+fig = plots.figure(layout=[[f"t{i}" for i in range(4) for _ in range(5)],
+                           [name for name in ("probe", "radial", "grid", "energy", "strength") for _ in range(4)]],
+                   size=(18, 10.5))
+for i, ct in enumerate((0.06, 0.18, 0.30, 0.42)):
     k = int(np.argmin(np.abs(c * main["times"] - ct)))
     q = main["p"][k]
-    full = np.block([[q[::-1, ::-1], q[::-1, :]], [q[:, ::-1], q]])
-    limit = np.max(np.abs(full))
-    image = ax.pcolormesh(full_edges, full_edges, full.T, cmap=DIVERGING_CMAP, vmin=-limit, vmax=limit,
-                          shading="flat", rasterized=True)
-    for corner, width, height in (((-side, -side), 2 * side, side - a), ((-side, a), 2 * side, side - a),
-                                  ((-side, -a), side - a, 2 * a), ((a, -a), side - a, 2 * a)):
-        ax.add_patch(RectanglePatch(corner, width, height, color="0.55", alpha=0.25, lw=0))
-    ax.plot([-a, a, a, -a, -a], [-a, -a, a, a, -a], color="0.3", lw=0.8)
-    ax.set_aspect("equal")
-    ax.set(xlabel="x / m", ylabel="y / m" if col == 0 else None,
-           title=f"t = {main['times'][k] * 1e3:.3f} ms  (c t = {c * main['times'][k]:.2f} m)")
-    fig.colorbar(image, ax=ax, shrink=0.8, label="p / Pa")
-
-colours = (GREEN, COPPER, "#214D43", "#CD9561")
-ax = fig.add_subplot(bottom[0])
-for (name, (t_run, computed, reference)), colour in zip(probe_series.items(), colours):
-    ax.plot(t_run * 1e3, reference, color=colour, lw=1.4, label=f"exact, {name}")
-    ax.plot(t_run * 1e3, computed, "o", ms=2.6, color=colour, mfc="none")
-ax.set(xlabel="t / ms", ylabel="p / Pa", title="Probe signals (circles: OneSimulation)")
-ax.legend(fontsize=7)
-ax.grid(alpha=0.3)
-
-ax = fig.add_subplot(bottom[1])
-for (t, computed, reference), colour in zip(line_data, colours):
-    ax.plot(r_line, reference, color=colour, lw=1.4, label=f"exact, c t = {c * t:.2f} m")
-    ax.plot(r_line[::4], computed[::4], "o", ms=2.4, color=colour, mfc="none")
-ax.set(xlabel="r / m", ylabel="p / Pa", title="Radial profiles (circles: OneSimulation)")
-ax.legend(fontsize=7)
-ax.grid(alpha=0.3)
-
-ax = fig.add_subplot(bottom[2])
-spacings = np.array([b / r for r in (5, 10, 20)])
-for col, (ct, colour) in enumerate(zip((0.18, 0.27), colours)):
-    ax.loglog(spacings * 1e3, [grid_errors[r][col] for r in (5, 10, 20)], "o-", color=colour,
-              label=f"c t = {ct:.2f} m")
-ax.loglog(spacings * 1e3, grid_errors[5][0] * (spacings / spacings[0]) ** 2, ":", color=INK, lw=1.0, label="slope 2")
-ax.set_xticks(spacings * 1e3, [f"{v:g}" for v in spacings * 1e3])
-ax.minorticks_off()
-ax.set(xlabel="grid spacing / mm", ylabel="max |p - p_exact| / peak", title="Grid convergence")
-ax.legend(fontsize=7)
-ax.grid(alpha=0.3, which="both")
-
-ax = fig.add_subplot(bottom[3])
-for label, colour in zip([f"N={n}, R0=1e-4" for n in (10, 20, 40, 80)], ("#A8BC91", "#5F9175", GREEN, "#214D43")):
-    ax.semilogy(c * times, np.maximum(reflected[label], 1e-16), color=colour, lw=1.3, label=label)
-    ax.semilogy(c * image_times, image_prediction[label], "--", color=colour, lw=1.0)
-ax.plot([], [], "--", color=INK, lw=1.0, label="continuum layer (images)")
-ax.set(xlabel="c t / m", ylabel="E_r / E_0", title="Reflected energy in the square, R0 = 1e-4",
-       ylim=(1e-13, 1e-5))
-ax.legend(fontsize=7)
-ax.grid(alpha=0.3, which="both")
-
-ax = fig.add_subplot(bottom[4])
-r0_values = (1e-2, 1e-3, 1e-4, 1e-6)
-strength_labels = [f"N=20, R0={r:.0e}".replace("e-0", "e-") for r in r0_values]
-ax.loglog(r0_values, [reflected[label].max() for label in strength_labels], "o-", color=GREEN,
-          label="computed, N = 20")
-ax.loglog(r0_values, [image_prediction[label].max() for label in strength_labels], "s--", mfc="none",
-          color=INK, label="continuum layer (images)")
-for n, marker in zip((10, 40, 80), ("v", "^", "D")):
-    ax.loglog([1e-4], [reflected[f"N={n}, R0=1e-4"].max()], marker, color=COPPER, ms=6,
-              label=f"computed, N = {n}")
-ax.set(xlabel="design reflection R_0", ylabel="peak E_r / E_0", title="PML strength and thickness")
-ax.legend(fontsize=7)
-ax.grid(alpha=0.3, which="both")
-plt.show()
+    plots.heatmap(centres, centres, np.block([[q[::-1, ::-1], q[::-1, :]], [q[:, ::-1], q]]), colormap="diverging",
+                  label="p [Pa]", title=f"t = {main['times'][k] * 1e3:.3f} ms (c t = {c * main['times'][k]:.2f} m)",
+                  ax=fig[f"t{i}"])
+plots.line(points={name: (t_run * 1e3, computed) for name, (t_run, computed, _) in probe_series.items()},
+           reference={name: (t_run * 1e3, exact) for name, (t_run, _, exact) in probe_series.items()},
+           xlabel="t [ms]", ylabel="p [Pa]", title="Probe signals: OneSimulation (markers), exact (dashed)", ax=fig["probe"])
+plots.line(points={f"c t = {c * t:.2f} m": (r_line[::4], computed[::4]) for t, computed, _ in line_data},
+           reference={f"c t = {c * t:.2f} m": (r_line, exact) for t, _, exact in line_data},
+           xlabel="r [m]", ylabel="p [Pa]", title="Radial profiles: OneSimulation (markers), exact (dashed)", ax=fig["radial"])
+plots.convergence(spacings * 1e3, {f"c t = {ct:.2f} m": [grid_errors[r][col] for r in (5, 10, 20)]
+                                   for col, ct in enumerate((0.18, 0.27))},
+                  order=2, xlabel="grid spacing [mm]", ylabel="max |p - p_exact| / peak", title="Grid convergence", ax=fig["grid"])
+plots.line(y={label: (c * times, np.maximum(reflected[label], 1e-16)) for label in thickness},
+           reference={label: (c * image_times, image_prediction[label]) for label in thickness},
+           scale="logy", ylimits=(1e-13, 1e-5), xlabel="c t [m]", ylabel="E_r / E_0",
+           title="Reflected energy, R0 = 1e-4 (dashed: continuum layer)", ax=fig["energy"])
+plots.line(r0_values, {"computed, N = 20": [reflected[label].max() for label in strength]},
+           reference={"continuum layer (images)": [image_prediction[label].max() for label in strength]},
+           points={f"computed, N = {n}": ([1e-4], [reflected[f"N={n}, R0=1e-4"].max()]) for n in (10, 40, 80)},
+           markers=True, scale="loglog", xlabel="design reflection R_0", ylabel="peak E_r / E_0",
+           title="PML strength and thickness", ax=fig["strength"])
+plots.show()
 
 
 # ## Going further

@@ -92,39 +92,12 @@ basin centre, a fluid-volume balance and a mesh and time-step study.
 # fluid-volume balance of the whole section. (iv) A three-level mesh study with
 # observed order and Richardson estimate, and a time-step study.
 
-from importlib.metadata import version
-from dataclasses import dataclass
 import time
-
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 import numpy as np
-from matplotlib.tri import Triangulation
 from scipy.integrate import cumulative_trapezoid
-from scipy.optimize import brentq
 
-from onesim.cad.geometry.primitives import Geometry
-from onesim.meshing import UnstructuredSimplexMesh
+from onesim.meshing import ExplicitGeometry, Geometric, explicit_mesh, merge_blocks, rectangle_block
 from onesim.numerics import Numerics
-from onesim.numerics.discretization.geometry.carriers.kernels.simplex.triangular import triangular_geometry
 from onesim.numerics.fem import FiniteElement, Lagrange, Nitsche
 from onesim.numerics.linear import SparseDirect
 from onesim.numerics.nonlinear import Newton
@@ -132,13 +105,14 @@ from onesim.numerics.time import BDF, AdaptiveTimeStep
 from onesim.physics.geotechnics import (BiotConsolidation, BiotFixedComponent, BiotNormalTraction,
                                         GroundwaterFlow, PoreFluidFlux, PrescribedPorePressure)
 from onesim.physics.solid_mechanics import FixedDisplacement
-from onesim.results.storage.archives.models.output import Output
+from onesim.results.comparisons import convergence
+from onesim.results.storage import Output
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
-from onesim.simulation.problem_definition.boundaries.conservative import (OutwardFluxBoundary,
-                                                                          PrescribedValueBoundary)
+from onesim.simulation import OutwardFluxBoundary, PrescribedValueBoundary
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -149,20 +123,20 @@ print("OneSimulation:", version("onesimulation"))
 # the physics is unchanged) and keeps the coupled displacement-pressure matrix well
 # scaled: in SI units its entries span more than 16 orders of magnitude.
 
-rho_g = 1000.0 * 9.82          # Pa per metre of head (Leake and Hsieh use g = 9.82 m/s^2)
-day = 1.0                      # time unit
+rho_g = 1000.0 * 9.82
+day = 1.0
 year = 365.25 * day
-width, depth = 5200.0, 440.0   # m, section size
-x_step, y_step = 4000.0, -120.0  # m, edge and top of the bedrock step
+width, depth = 5200.0, 440.0
+x_step, y_step = 4000.0, -120.0
 y_conf_top, y_conf_bottom = -20.0, -40.0
-decline_rate = 6.0 / year      # m of head per day at segment E
+decline_rate = 6.0 / year
 end_time = 10 * year
 
 nu = 0.25
-E_aquifer, E_confining = 8e8 / rho_g, 8e7 / rho_g          # m of head
-K_aquifer, K_confining = 25.0, 0.01                         # m/d
-Ssk_aquifer, Ssk_confining = 1e-5, 1e-4                     # 1/m (Terzaghi method)
-S_aquifer, S_confining = 1e-6, 1e-5                         # 1/m, storage of the pore constituents
+E_aquifer, E_confining = 8e8 / rho_g, 8e7 / rho_g
+K_aquifer, K_confining = 25.0, 0.01
+Ssk_aquifer, Ssk_confining = 1e-5, 1e-4
+S_aquifer, S_confining = 1e-6, 1e-5
 
 oedometric = lambda E: E * (1 - nu) / ((1 + nu) * (1 - 2 * nu))
 Ssk_biot = {name: 1.0 / oedometric(E) for name, E in (("aquifer", E_aquifer), ("confining", E_confining))}
@@ -196,9 +170,10 @@ def head_at_outlet(time, coordinate):
 
 # ## Geometry and mesh
 #
-# The section is covered by a tensor grid of node lines that contains every layer
-# interface, the step top $y=-120$ m and the step edge $x=4000$ m; cells inside the
-# bedrock step are removed and each quadrilateral is split into two triangles. The grid
+# The section is covered by seven rectangular blocks whose node lines contain every layer
+# interface, the step top $y=-120$ m and the step edge $x=4000$ m (the bedrock step is left
+# out); `merge_blocks` joins them and every quadrilateral is split into two triangles with
+# alternating diagonals. The grid
 # is graded towards the re-entrant corner of the step, where the elastic field is
 # singular, and towards the layer interfaces; the 20 m confining unit has $4\ell$ cells
 # across. Level $\ell$ scales the number of cells in every direction.
@@ -206,64 +181,36 @@ def head_at_outlet(time, coordinate):
 
 def graded(a, b, n, ratio):
     """n cells from a to b, the last cell `ratio` times the first."""
-    sizes = ratio ** (np.arange(n) / max(n - 1, 1))
-    t = np.r_[0.0, np.cumsum(sizes)] / sizes.sum()
-    t[-1] = 1.0
-    return a + (b - a) * t
+    grading = Geometric(n, ratio=ratio) if ratio >= 1 else Geometric(n, ratio=1 / ratio, toward="end")
+    return a + (b - a) * grading.reference()
 
 
-@dataclass(frozen=True, eq=False, kw_only=True)
-class BasinSection(Geometry):
-    """Vertical basin section with the boundary segments of Leake and Hsieh."""
-
-    dimension = 2
-
-    def boundary_groups(self):
-        names = ("base", "outlet", "left_confining", "left_upper", "right_lower", "right_confining",
-                 "right_upper", "surface")
-        return {**{name: (name,) for name in names}, "all": names}
+basin = ExplicitGeometry(dimension=2, boundary_names=("base", "outlet", "left_confining", "left_upper", "right_lower",
+                                                      "right_confining", "right_upper", "surface"))
 
 
 def build_mesh(level):
-    xs = np.unique(np.r_[graded(0.0, x_step, 12 * level, 1 / 20), graded(x_step, width, 6 * level, 12)])
-    ys = np.unique(np.r_[graded(-depth, y_step, 5 * level, 1 / 6), graded(y_step, y_conf_bottom, 3 * level, 1 / 3),
-                         np.linspace(y_conf_bottom, y_conf_top, 2 * level + 1),
-                         np.linspace(y_conf_top, 0.0, level + 1)])
-    nx, ny = len(xs), len(ys)
-    ids = np.arange(nx * ny).reshape(nx, ny)
-    X, Y = np.meshgrid(xs, ys, indexing="ij")
-    coords = np.column_stack((X.ravel(), Y.ravel()))
-    triangles = []
-    for i in range(nx - 1):
-        for j in range(ny - 1):
-            if xs[i] >= x_step and ys[j + 1] <= y_step:
-                continue                                   # inside the bedrock step
-            a, b, c, d = ids[i, j], ids[i + 1, j], ids[i + 1, j + 1], ids[i, j + 1]
-            triangles += [(a, b, c), (a, c, d)] if (i + j) % 2 == 0 else [(a, b, d), (b, c, d)]
-    triangles = np.array(triangles)
-    used = np.unique(triangles)
-    renumber = np.full(len(coords), -1)
-    renumber[used] = np.arange(len(used))
-    coords, triangles = coords[used], renumber[triangles]
-
-    geometry = BasinSection()
-    data = triangular_geometry(coords, triangles)
-    groups = {name: [] for name in geometry.boundary_groups()["all"]}
-    for edge in data.face_vertices[data.face_neighbour == -1]:
-        p = coords[list(edge)]
-        y_mid = p[:, 1].mean()
-        if np.allclose(p[:, 0], 0.0):
-            name = "outlet" if y_mid < y_conf_bottom else "left_confining" if y_mid < y_conf_top else "left_upper"
-        elif np.allclose(p[:, 0], width):
-            name = ("right_lower" if y_mid < y_conf_bottom else "right_confining" if y_mid < y_conf_top
-                    else "right_upper")
-        elif np.allclose(p[:, 1], 0.0):
-            name = "surface"
-        else:
-            name = "base"
-        groups[name].append(tuple(edge))
-    mesh = UnstructuredSimplexMesh(geometry=geometry, coordinates=coords, cells=triangles, boundary_facets=groups)
-    return dict(level=level, geometry=geometry, mesh=mesh, coords=coords, triangles=triangles, xs=xs, ys=ys)
+    x_parts = (graded(0.0, x_step, 12 * level, 1 / 20), graded(x_step, width, 6 * level, 12))
+    y_parts = (graded(-depth, y_step, 5 * level, 1 / 6), graded(y_step, y_conf_bottom, 3 * level, 1 / 3),
+               np.linspace(y_conf_bottom, y_conf_top, 2 * level + 1), np.linspace(y_conf_top, 0.0, level + 1))
+    left = ("outlet", "outlet", "left_confining", "left_upper")
+    right = (None, "right_lower", "right_confining", "right_upper")
+    blocks = []
+    for i, xs in enumerate(x_parts):
+        for j, ys in enumerate(y_parts):
+            if i == 1 and j == 0:
+                continue
+            names = ("base" if j == 0 or (i == 1 and j == 1) else None,
+                     right[j] if i == 1 else ("base" if j == 0 else None),
+                     "surface" if j == 3 else None,
+                     left[j] if i == 0 else None)
+            blocks.append(rectangle_block((xs[0], ys[0]), xs[-1] - xs[0], ys[-1] - ys[0], (len(xs) - 1, len(ys) - 1),
+                                          grading=(xs, ys), names=names))
+    section = merge_blocks(blocks).triangulated("alternating")
+    mesh = explicit_mesh(basin, section.coordinates, section.cells, boundary=section.edges)
+    xs, ys = np.unique(np.r_[x_parts]), np.unique(np.r_[y_parts])
+    return dict(level=level, geometry=basin, mesh=mesh, coords=np.asarray(section.coordinates),
+                triangles=np.asarray(section.cells), xs=xs, ys=ys)
 
 
 # ## Model
@@ -296,19 +243,19 @@ def biot_run(data, maximum=1.0 * year):
         domain=g.domain(), kinematics="plane_strain", elastic_stiffness=plane_strain_stiffness,
         biot_coefficient=1.0, fluid_viscosity=1.0,
         specific_storage=layered(S_aquifer, S_confining),
-        permeability=layered(K_aquifer, K_confining))   # mobility kappa/mu in m^2/(day m of head) = K
+        permeability=layered(K_aquifer, K_confining))
     rollers = b.outlet | b.left_confining | b.left_upper | b.right_lower | b.right_confining | b.right_upper
     problem = Problem(
         name="Biot method, bedrock step", geometry=g, physics=(model,),
         boundary_conditions=(
-            FixedDisplacement(physics=model, boundary=b.base, value=(0.0, 0.0)),        # A
-            BiotFixedComponent(physics=model, boundary=rollers, component="x"),         # B, C, E
-            BiotNormalTraction(physics=model, boundary=b.surface, value=0.0),           # D
-            PrescribedPorePressure(physics=model, boundary=b.outlet, value=head_at_outlet),             # E
+            FixedDisplacement(physics=model, boundary=b.base, value=(0.0, 0.0)),
+            BiotFixedComponent(physics=model, boundary=rollers, component="x"),
+            BiotNormalTraction(physics=model, boundary=b.surface, value=0.0),
+            PrescribedPorePressure(physics=model, boundary=b.outlet, value=head_at_outlet),
             PrescribedPorePressure(physics=model, boundary=b.left_upper | b.right_upper | b.surface,
-                                   value=0.0),                                                          # C, D
+                                   value=0.0),
             PoreFluidFlux(physics=model, boundary=b.base | b.left_confining | b.right_lower | b.right_confining,
-                          flux=0.0),                                                                    # A, B
+                          flux=0.0),
         ),
         initial_conditions=(InitialValue(model.fluid_content, 0.0),))
     numerics = Numerics(**numerics_template, nonlinear_solver=Newton(
@@ -328,11 +275,11 @@ def terzaghi_run(data, maximum=1.0 * year):
     problem = Problem(
         name="Terzaghi method, bedrock step", geometry=g, physics=(model,),
         boundary_conditions=(
-            PrescribedValueBoundary(physics=model, boundary=b.outlet, value=head_at_outlet),               # E
+            PrescribedValueBoundary(physics=model, boundary=b.outlet, value=head_at_outlet),
             PrescribedValueBoundary(physics=model, boundary=b.left_upper | b.right_upper | b.surface,
-                                    value=lambda time, coordinate: [0.0]),                                 # C, D
+                                    value=lambda time, coordinate: [0.0]),
             OutwardFluxBoundary(physics=model, boundary=b.base | b.left_confining | b.right_lower | b.right_confining,
-                                flux=lambda interior, time, normal, coordinate: [0.0], jacobian=((0,),)),  # A, B
+                                flux=lambda interior, time, normal, coordinate: [0.0], jacobian=((0,),)),
         ),
         initial_conditions=(InitialValue(model.head, 0.0),))
     numerics = Numerics(**numerics_template, nonlinear_solver=Newton(
@@ -430,7 +377,7 @@ print(f"    Biot, maximum horizontal surface strain above the step: {strain_up.m
 # per cent to the storage of the confining unit. Agreement to about 2 % of the boundary
 # head decline $\beta t$ is expected, improving as the drawdown spreads.
 S_total_conf = S_confining + Ssk_biot["confining"]
-c_v = K_confining / S_total_conf                   # m^2/day
+c_v = K_confining / S_total_conf
 b_conf = y_conf_top - y_conf_bottom
 
 
@@ -485,7 +432,7 @@ def boundary_inflow(run, data, t):
         p0, p1 = coords[edges[:, 0]], coords[edges[:, 1]]
         length = np.linalg.norm(p1 - p0, axis=1)
         pts = (p0[:, None] + gauss[None, :, None] * (p1 - p0)[:, None]).reshape(-1, 2)
-        pts = pts - 1e-6 * np.asarray(normal)                       # just inside the section
+        pts = pts - 1e-6 * np.asarray(normal)
         q = at(run, run["model"].darcy_flux, pts, t).reshape(len(edges), 3, 2)
         flux_n = q @ np.asarray(normal)
         total[names[0]] = -float(np.sum(length * (flux_n @ gauss_w)))
@@ -512,14 +459,8 @@ print(f"    fluid content change {stored:.2f} m^2 vs time integral of boundary i
 
 
 def richardson(values, levels):
-    f1, f2, f3 = values
-    h1, h2, h3 = 1.0 / np.asarray(levels, float)
-    ratio = (f1 - f2) / (f2 - f3) if f2 != f3 else np.inf
-    try:
-        p = brentq(lambda p: (h1**p - h2**p) / (h2**p - h3**p) - ratio, 0.2, 10.0)
-    except ValueError:
-        return np.nan, f3
-    return p, f3 + (f3 - f2) / ((h2 / h3) ** p - 1.0)
+    estimate = convergence(values, 1.0 / np.asarray(levels, float))
+    return (estimate.order, estimate.extrapolated) if estimate.order is not None else (np.nan, values[-1])
 
 
 def key_quantities(run):
@@ -570,110 +511,43 @@ for target in (0.7, 1.4, 2.9):
 coords, triangles = data["coords"], data["triangles"]
 edges = np.sort(np.vstack((triangles[:, [0, 1]], triangles[:, [1, 2]], triangles[:, [2, 0]])), axis=1)
 unique_edges, edge_index = np.unique(edges, axis=0, return_inverse=True)
-edge_index = edge_index.reshape(3, -1).T + len(coords)
+ab, bc, ca = (edge_index.reshape(3, -1).T + len(coords)).T
+corner_a, corner_b, corner_c = triangles.T
 plot_points = np.vstack((coords, 0.5 * (coords[unique_edges[:, 0]] + coords[unique_edges[:, 1]])))
-a, b, c = triangles.T
-ab, bc, ca = edge_index.T
-fine_triangles = np.vstack((np.column_stack((a, ab, ca)), np.column_stack((ab, b, bc)),
-                            np.column_stack((ca, bc, c)), np.column_stack((ab, bc, ca))))
-section = Triangulation(plot_points[:, 0], plot_points[:, 1], fine_triangles)   # P2 nodes, 4 sub-triangles each
+fine_triangles = np.vstack((np.column_stack((corner_a, ab, ca)), np.column_stack((ab, corner_b, bc)),
+                            np.column_stack((ca, bc, corner_c)), np.column_stack((ab, bc, ca))))
 owner = np.empty(len(plot_points), dtype=int)
 owner[fine_triangles.ravel()] = np.repeat(np.arange(len(fine_triangles)), 3)
 inside = plot_points + 1e-6 * (plot_points[fine_triangles].mean(axis=1)[owner] - plot_points)
-
 snapshots = [nearest_time(biot, years * year) for years in (2, 5, 10)]
-heads = [at(biot, model.pore_pressure, inside, t) for t in snapshots]
-settlements = [-at(biot, model.displacement, inside, t)[:, 1] for t in snapshots]
-head_T = at(terzaghi, terzaghi["model"].head, inside, T)
-grid_x = np.linspace(1.0, width - 1.0, 261)
-columns = terzaghi_columns(grid_x, T)
-
-fig = plt.figure(figsize=(18, 11.5), constrained_layout=True)
-layout = fig.add_gridspec(3, 12, height_ratios=(0.8, 0.8, 1.25))
-ty = np.linspace(-depth, 0.0, 221)
-TX, TY = np.meshgrid(grid_x, ty, indexing="ij")
-TU = np.array([np.interp(ty, ys, -uy, left=np.nan) for ys, uy in columns])   # Terzaghi settlement, 10 years
-TU[(TX > x_step) & (TY < y_step)] = np.nan
-
-
-def section_axes(ax, title):
-    ax.add_patch(plt.Rectangle((x_step, -depth), width - x_step, depth + y_step, facecolor="#D5D7C8",
-                               edgecolor=INK, lw=0.6, hatch="//"))
-    ax.axhline(y_conf_top, color=INK, lw=0.4, ls=":")
-    ax.axhline(y_conf_bottom, color=INK, lw=0.4, ls=":")
-    ax.set_aspect(5.0)
-    ax.set(xlim=(0, width), ylim=(-depth, 0), title=title, xlabel="x / m", ylabel="y / m")
-
-
+grid_x, xs_line = np.linspace(1.0, width - 1.0, 261), np.linspace(1.0, width - 1.0, 521)
+x_down, fine_zeta = np.linspace(2500.0, x_step, 301), np.linspace(0.0, b_conf, 201)
+frame = dict(triangles=fine_triangles, aspect=5.0, xlimits=(0, width), ylimits=(-depth, 0), xlabel="x [m]", ylabel="y [m]")
+fig = plots.figure(layout=[[f"head {k}" for k in range(3) for _ in range(4)], [f"settlement {k}" for k in range(3) for _ in range(4)],
+                           [name for name in ("surface", "strain", "confining", "study") for _ in range(3)]], size=(18, 11.5))
 for k, t in enumerate(snapshots):
-    ax = fig.add_subplot(layout[0, 4 * k:4 * k + 4])
-    levels_h = np.linspace(heads[k].min(), 0.0, 25)
-    filled = ax.tricontourf(section, heads[k], levels=levels_h, cmap=FIELD_CMAP)
-    ax.tricontour(section, heads[k], levels=levels_h[::3], colors=INK, linewidths=0.4)
-    if k == 2:
-        ax.tricontour(section, head_T, levels=levels_h[::3], colors=COPPER, linewidths=1.0, linestyles="--")
-    section_axes(ax, f"Head change, t = {t / year:.0f} yr" + (" (dashed: Terzaghi method)" if k == 2 else ""))
-    fig.colorbar(filled, ax=ax, label="head change / m", shrink=0.7, format="%.0f")
-for k, t in enumerate(snapshots):
-    ax = fig.add_subplot(layout[1, 4 * k:4 * k + 4])
-    levels_u = np.linspace(0.0, settlements[k].max(), 25)
-    lines_u = np.linspace(0.0, settlements[k].max(), 9)[1:-1]
-    filled = ax.tricontourf(section, settlements[k], levels=levels_u, cmap=FIELD_CMAP, extend="min")
-    ax.tricontour(section, settlements[k], levels=lines_u, colors=INK, linewidths=0.5)
-    if k == 2:
-        ax.contour(TX, TY, TU, levels=lines_u, colors=COPPER, linewidths=1.0, linestyles="--")
-    section_axes(ax, f"Settlement (Biot), t = {t / year:.0f} yr" + (" (dashed: Terzaghi)" if k == 2 else ""))
-    fig.colorbar(filled, ax=ax, label="settlement / m", shrink=0.7, format="%.2f")
-
-ax = fig.add_subplot(layout[2, 0:3])
-xs_line = np.linspace(1.0, width - 1.0, 521)
-for t, style in zip(snapshots, (":", "--", "-")):
-    ax.plot(xs_line, -at(biot, model.displacement, np.column_stack((xs_line, np.full_like(xs_line, -0.01))), t)[:, 1],
-            color=GREEN, ls=style, lw=1.5, label=f"Biot surface, {t / year:.0f} yr")
-ax.plot(grid_x, [-uy[-1] for ys, uy in columns], color=COPPER, lw=1.4, ls="--", label="Terzaghi method, 10 yr")
-ax.plot([x_step - 40], [0.10], "o", color=INK, ms=7, mfc="none", label="published Biot, 10 yr")
-ax.plot([x_step + 40, x_step - 40], [0.08, 0.18], "_", color=INK, ms=16, mew=2)
-ax.annotate("published < 0.08 m", (x_step + 40, 0.08), xytext=(4250, 0.11), fontsize=7,
-            arrowprops=dict(arrowstyle="-", color=INK, lw=0.6))
-ax.annotate("published Terzaghi > 0.18 m", (x_step - 40, 0.18), xytext=(2400, 0.13), fontsize=7,
-            arrowprops=dict(arrowstyle="-", color=INK, lw=0.6))
-ax.axvline(x_step, color="0.5", lw=0.6, ls=":")
-ax.invert_yaxis()
-ax.set(xlabel="x / m", ylabel="settlement / m", title="Land-surface settlement")
-ax.legend(fontsize=7)
-ax.grid(alpha=0.3)
-
-ax = fig.add_subplot(layout[2, 3:6])
-for t, style in zip(snapshots, (":", "--", "-")):
-    ax.plot(x_up[1:-1], 1e4 * surface_strain(biot, t, x_up)[1:-1], color=GREEN, ls=style, label=f"{t / year:.0f} yr")
-x_down = np.linspace(2500.0, x_step, 301)
-ax.plot(x_down[1:-1], 1e4 * surface_strain(biot, T, x_down)[1:-1], color=GREEN)
-ax.axhline(1.0, color=COPPER, lw=1.0, ls="--", label="published: tension > 1e-4")
-ax.axvline(x_step, color="0.5", lw=0.6, ls=":")
-ax.set(xlabel="x / m", ylabel="horizontal strain / 1e-4", title="Horizontal strain at the land surface (Biot)")
-ax.legend(fontsize=8)
-ax.grid(alpha=0.3)
-
-ax = fig.add_subplot(layout[2, 6:9])
-fine_zeta = np.linspace(0.0, b_conf, 201)
-for (t, (h_num, h_ref)), color in zip(early.items(), (GREEN, COPPER, "#5F9175", "#A85539")):
-    ax.plot(-decline_rate * ramp_consolidation(fine_zeta, t), fine_zeta, color=color, lw=1.4)
-    ax.plot(h_num, zeta, "o", color=color, ms=3, label=f"t = {t:.2f} d")
-ax.invert_yaxis()
-ax.set(xlabel="head change / m", ylabel="depth below top of confining unit / m",
-       title="Confining unit at x = 0: Terzaghi series (lines)")
-ax.legend(fontsize=8)
-ax.grid(alpha=0.3)
-
-ax = fig.add_subplot(layout[2, 9:12])
-for name, marker in zip(list(study[levels[0]])[:3], ("o", "s", "^")):
-    values = np.array([study[level][name] for level in levels])
-    ax.plot(levels, 100 * (values / values[-1] - 1), marker + "-", label=name.split(" / ")[0])
-ax.set_xticks(levels)
-ax.set(xlabel="mesh level", ylabel="deviation from finest mesh / %", title="Mesh study (10 years)")
-ax.legend(fontsize=7)
-ax.grid(alpha=0.3)
-plt.show()
+    plots.heatmap(*plot_points.T, at(biot, model.pore_pressure, inside, t), contours=8, label="head change [m]",
+                  title=f"Head change, t = {t / year:.0f} yr", ax=fig[f"head {k}"], **frame)
+    plots.heatmap(*plot_points.T, -at(biot, model.displacement, inside, t)[:, 1], contours=7, label="settlement [m]",
+                  title=f"Settlement (Biot), t = {t / year:.0f} yr", ax=fig[f"settlement {k}"], **frame)
+plots.line(y={f"Biot surface, {t / year:.0f} yr":
+              (xs_line, -at(biot, model.displacement, np.column_stack((xs_line, np.full_like(xs_line, -0.01))), t)[:, 1])
+              for t in snapshots},
+           reference={"Terzaghi method, 10 yr": (grid_x, [-uy[-1] for _, uy in terzaghi_columns(grid_x, T)])},
+           points={"published Biot, 10 yr": ([x_step - 40], [0.10])}, vlines={"step in the bedrock": x_step},
+           xlabel="x [m]", ylabel="settlement [m]", title="Land-surface settlement", ax=fig["surface"])
+plots.line(y={**{f"{t / year:.0f} yr": (x_up[1:-1], 1e4 * surface_strain(biot, t, x_up)[1:-1]) for t in snapshots},
+              "10 yr, upslope of the step": (x_down[1:-1], 1e4 * surface_strain(biot, T, x_down)[1:-1])},
+           hlines={"published: tension > 1e-4": 1.0}, vlines=x_step, xlabel="x [m]", ylabel="horizontal strain [1e-4]",
+           title="Horizontal strain at the land surface (Biot)", ax=fig["strain"])
+plots.line(points={f"t = {t:.2f} d": (h_num, zeta) for t, (h_num, _) in early.items()},
+           reference={f"t = {t:.2f} d": (-decline_rate * ramp_consolidation(fine_zeta, t), fine_zeta) for t in early},
+           xlabel="head change [m]", ylabel="depth below top of confining unit [m]",
+           title="Confining unit at x = 0: FEM (markers), Terzaghi series (dashed)", ax=fig["confining"])
+plots.line(levels, {name.split(" / ")[0]: 100 * (np.array([study[level][name] for level in levels]) / study[levels[-1]][name] - 1)
+                    for name in list(study[levels[0]])[:3]},
+           markers=True, xlabel="mesh level", ylabel="deviation from finest mesh [%]", title="Mesh study (10 years)", ax=fig["study"])
+plots.show()
 
 
 # ## Going further

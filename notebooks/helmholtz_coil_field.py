@@ -74,57 +74,33 @@ uniformity condition, a three-level mesh study and an air-domain-size study.
 # study ($a=2.5R$ against $a=5R$).
 
 from dataclasses import dataclass
-from importlib.metadata import version
 import time
-
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
-from matplotlib.patches import Rectangle
 from numpy.polynomial import legendre
-from scipy.optimize import brentq
 from scipy.spatial import Delaunay
 from scipy.special import ellipe, ellipk
 
-from onesim.cad.geometry.primitives import Geometry
 from onesim.materials import VacuumPermeability
-from onesim.meshing import UnstructuredSimplexMesh
+from onesim.meshing import ExplicitGeometry, explicit_mesh, revolve
 from onesim.numerics import Numerics
-from onesim.numerics.discretization.geometry.carriers.kernels.simplex.tetrahedral import boundary_faces
 from onesim.numerics.fem import FiniteElement, Nedelec
 from onesim.numerics.linear import SparseDirect
 from onesim.physics.magnetostatics import (
     CoulombGauge, MagneticFieldBoundary, MagneticInsulation, MagneticVectorPotential, Magnetostatics,
 )
+from onesim.results.comparisons import convergence
 from onesim.simulation import Problem, Simulation
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
 
-R = 0.4                 # m, mean coil radius
-w = 0.05                # m, side of the square winding cross-section
-turns, current = 10, 0.25e-3   # turns per coil, A per turn
-a_main, a_small = 2.0, 1.0     # m, radius of the air sphere (5R) and of the tight one (2.5R)
+R = 0.4
+w = 0.05
+turns, current = 10, 0.25e-3
+a_main, a_small = 2.0, 1.0
 mu0 = float(VacuumPermeability().evaluate())
 B0 = 0.8**1.5 * mu0 * turns * current / R
 print(f"thin-loop centre field (4/5)^(3/2) mu0 N I / R = {B0 * 1e9:.4f} nT")
@@ -216,7 +192,7 @@ def polygon_windings(n_phi, n_gauss=8):
     for centre in (-R / 2, R / 2):
         for xi, wi in zip(x, wq):
             for eta, wj in zip(x, wq):
-                vertex_radius = (R + 0.5 * w * xi)          # vertices lie on the round coil radius
+                vertex_radius = (R + 0.5 * w * xi)
                 z = centre + 0.5 * w * eta
                 ring = np.column_stack((vertex_radius * np.cos(corners), vertex_radius * np.sin(corners),
                                         np.full_like(corners, z)))
@@ -243,10 +219,10 @@ for a, c in sphere.items():
 # winding, $1.6h_0$ in the centre region and $2h_0$ at the edge of the grid. Its lines run along
 # the four sides of the winding square, so every triangle lies either inside or outside the
 # winding. The second part is a set of quarter-circle rings outside the grid, whose spacing
-# grows linearly with the radius up to the sphere. The triangles are swept around the axis in $n_\varphi$ steps over $90^\circ$, each
-# prism is split into three tetrahedra by a conforming vertex-ordering rule (Dompierre et
-# al., Proc. 8th Int. Meshing Roundtable, 1999), and the prisms that touch the axis
-# degenerate into pyramids and tetrahedra, of which only the non-degenerate cells are kept.
+# grows linearly with the radius up to the sphere. `revolve` sweeps the triangles around the
+# axis in $n_\varphi$ steps over $90^\circ$ and splits every prism into three tetrahedra; at
+# the axis the cells that would degenerate are left out. The faces are the mid-plane, the two
+# cut planes $y=0$, $x=0$ and the outer sphere.
 # Mesh levels are set by the nominal spacing $h_0$ near the coils, with $n_\varphi\propto1/h_0$.
 
 def graded_line(pieces):
@@ -260,7 +236,7 @@ def graded_line(pieces):
 
 
 def meridian(a, h0, growth=0.4, r_box=0.65, z_box=0.45):
-    hc, hb = 1.6 * h0, 2.0 * h0          # spacing in the centre region and at the edge of the box
+    hc, hb = 1.6 * h0, 2.0 * h0
     rg = graded_line([(0.0, 0.30, hc, h0), (0.30, R - w / 2, h0, h0), (R - w / 2, R + w / 2, h0, h0),
                       (R + w / 2, r_box, h0, hb)])
     zg = graded_line([(0.0, 0.15, hc, h0), (0.15, R / 2 - w / 2, h0, h0), (R / 2 - w / 2, R / 2 + w / 2, h0, h0),
@@ -286,63 +262,24 @@ def meridian(a, h0, growth=0.4, r_box=0.65, z_box=0.45):
     return points, triangles[np.abs(area) > 1e-14]
 
 
-PRISM_ROTATIONS = np.array([[0, 1, 2, 3, 4, 5], [1, 2, 0, 4, 5, 3], [2, 0, 1, 5, 3, 4],
-                            [3, 5, 4, 0, 2, 1], [4, 3, 5, 1, 0, 2], [5, 4, 3, 2, 1, 0]])
+def meridian_name(point, normal):
+    r, z = point[0], point[1]
+    if abs(z) < 1e-10:
+        return "midplane"
+    if abs(r) < 1e-10:
+        return "axis"
+    return "outer_sphere"
 
 
-def split_prism(vertices):
-    v = np.asarray(vertices)[PRISM_ROTATIONS[int(np.argmin(vertices))]]
-    if min(v[1], v[5]) < min(v[2], v[4]):
-        return [(v[0], v[1], v[2], v[5]), (v[0], v[1], v[5], v[4]), (v[0], v[4], v[5], v[3])]
-    return [(v[0], v[1], v[2], v[4]), (v[0], v[4], v[2], v[5]), (v[0], v[4], v[5], v[3])]
-
-
-@dataclass(frozen=True, eq=False, kw_only=True)
-class SphereOctant(Geometry):
-    """One octant of the air sphere with its four named faces."""
-
-    dimension = 3
-
-    def boundary_groups(self):
-        names = ("plane_x0", "plane_y0", "midplane", "outer_sphere")
-        return {**{name: (name,) for name in names}, "all": names}
+meridian_section = ExplicitGeometry(dimension=2, boundary_names=("midplane", "axis", "outer_sphere"),
+                                    classifier=meridian_name)
 
 
 def build_mesh(a, h0, n_phi):
-    section, triangles = meridian(a, h0)
-    on_axis = np.abs(section[:, 0]) < 1e-12
-    ids = np.full((n_phi + 1, len(section)), -1)
-    coordinates = [(0.0, 0.0, section[i, 1]) for i in np.flatnonzero(on_axis)]
-    ids[:, on_axis] = np.arange(on_axis.sum())
-    phi = np.linspace(0.0, 0.5 * np.pi, n_phi + 1)
-    off_axis = np.flatnonzero(~on_axis)
-    for k in range(n_phi + 1):
-        ids[k, off_axis] = len(coordinates) + np.arange(len(off_axis))
-        coordinates += [(section[i, 0] * np.cos(phi[k]), section[i, 0] * np.sin(phi[k]), section[i, 1]) for i in off_axis]
-    coordinates = np.array(coordinates)
-    cells = [c for k in range(n_phi) for t in triangles
-             for c in split_prism(tuple(ids[k, t]) + tuple(ids[k + 1, t])) if len(set(c)) == 4]
-    cells = np.array(cells)
-    p = coordinates[cells]
-    signed = np.einsum("ij,ij->i", p[:, 1] - p[:, 0], np.cross(p[:, 2] - p[:, 0], p[:, 3] - p[:, 0]))
-    cells, signed = cells[np.abs(signed) > 1e-18], signed[np.abs(signed) > 1e-18]
-    cells[signed < 0] = cells[signed < 0][:, [0, 2, 1, 3]]
-    geometry = SphereOctant()
-    groups = {name: [] for name in geometry.boundary_groups()["all"]}
-    for face in boundary_faces(cells, coordinates):
-        v = np.asarray(face.vertices)
-        q = coordinates[v]
-        if np.all(np.abs(q[:, 2]) < 1e-10):
-            groups["midplane"].append(tuple(v))
-        elif np.all(np.abs(q[:, 1]) < 1e-10):
-            groups["plane_y0"].append(tuple(v))
-        elif np.all(np.abs(q[:, 0]) < 1e-10):
-            groups["plane_x0"].append(tuple(v))
-        else:
-            groups["outer_sphere"].append(tuple(v))
-    mesh = UnstructuredSimplexMesh(geometry=geometry, coordinates=coordinates, cells=cells, boundary_facets=groups)
-    return dict(a=a, h0=h0, n_phi=n_phi, geometry=geometry, mesh=mesh, section=section, triangles=triangles,
-                volume=float(np.abs(signed).sum() / 6))
+    points, triangles = meridian(a, h0)
+    section = explicit_mesh(meridian_section, points, triangles)
+    mesh = revolve(section, n_phi, angle=0.5 * np.pi, names=("plane_y0", "plane_x0"))
+    return dict(a=a, h0=h0, n_phi=n_phi, geometry=mesh.geometry, mesh=mesh)
 
 
 # ## Model
@@ -372,7 +309,7 @@ class HelmholtzWindings:
         dphi = 0.5 * np.pi / self.n_phi
         phi = np.arctan2(p[:, 1], p[:, 0])
         middle = (np.clip(np.floor(phi / dphi), 0, self.n_phi - 1) + 0.5) * dphi
-        radial = np.hypot(p[:, 0], p[:, 1]) * np.cos(phi - middle)      # distance along the wedge mid-line
+        radial = np.hypot(p[:, 0], p[:, 1]) * np.cos(phi - middle)
         half = np.cos(dphi / 2)
         inside = ((radial >= (R - w / 2) * half - 1e-12) & (radial <= (R + w / 2) * half + 1e-12)
                   & (np.abs(np.abs(p[:, 2]) - R / 2) <= w / 2 + 1e-12))
@@ -514,14 +451,8 @@ for name, Bz_line in variation.items():
 
 
 def richardson(values, sizes):
-    f1, f2, f3 = values
-    h1, h2, h3 = sizes
-    ratio = (f1 - f2) / (f2 - f3)
-    try:
-        p = brentq(lambda p: (h1**p - h2**p) / (h2**p - h3**p) - ratio, 0.3, 12.0)
-    except ValueError:
-        return np.nan, np.nan
-    return p, f3 + (f3 - f2) / ((h2 / h3) ** p - 1.0)
+    estimate = convergence(values, sizes)
+    return (estimate.order, estimate.extrapolated) if estimate.order is not None else (np.nan, np.nan)
 
 
 sizes = [h0 for h0, _ in levels]
@@ -567,80 +498,37 @@ for run in (runs[1], tight):
 # FEM (colour, contour lines) and exact (dashed contour lines). Right, top: axial field for both
 # element orders, the two air-domain sizes and the exact solutions. Right, bottom: mesh study.
 
-n_r, n_z = 91, 76
-r_grid, z_grid = np.linspace(0.0, 0.9, n_r), np.linspace(0.0, 0.75, n_z)
+mirrored = lambda v: np.block([[v[::-1, ::-1], v[::-1, 1:]], [v[1:, ::-1], v[1:, 1:]]]).T
+r_grid, z_grid = np.linspace(0.0, 0.9, 91), np.linspace(0.0, 0.75, 76)
 RR, ZZ = np.meshgrid(r_grid, z_grid)
-pts = np.column_stack((RR.ravel() * np.cos(PHI), RR.ravel() * np.sin(PHI), ZZ.ravel()))
-B_map = np.asarray(final["B"].evaluate(pts))
-A_map = np.asarray(final["A"].evaluate(pts))
-Bmag = np.linalg.norm(B_map, axis=1).reshape(RR.shape)
-flux = (RR.ravel() * (-A_map[:, 0] * np.sin(PHI) + A_map[:, 1] * np.cos(PHI))).reshape(RR.shape)
-
-
-def mirrored(values):
-    full = np.concatenate((values[::-1, :], values[1:, :]), axis=0)
-    return np.concatenate((full[:, ::-1], full[:, 1:]), axis=1)
-
-
-Rf = np.concatenate((-r_grid[::-1], r_grid[1:]))
-Zf = np.concatenate((-z_grid[::-1], z_grid[1:]))
-
-fig = plt.figure(figsize=(17, 7.4), constrained_layout=True)
-grid = fig.add_gridspec(2, 3, width_ratios=(1.3, 1.1, 1.0))
-
-ax = fig.add_subplot(grid[:, 0])
-image = ax.contourf(Rf, Zf, mirrored(Bmag / B0), levels=np.linspace(0.0, 2.2, 45), cmap=FIELD_CMAP, extend="max")
-ax.contour(Rf, Zf, mirrored(flux), levels=np.linspace(0.0, flux.max(), 18)[1:], colors=CREAM, linewidths=0.8)
-for sx in (-1, 1):
-    for sz in (-1, 1):
-        ax.add_patch(Rectangle((sx * R - w / 2, sz * R / 2 - w / 2), w, w, fill=False, edgecolor=COPPER, lw=1.6))
-ax.set_aspect("equal")
-ax.set(xlabel="x / m (meridian plane)", ylabel="z / m", title="|B| / B0 and field lines (order 2, a = 5R)")
-fig.colorbar(image, ax=ax, shrink=0.75, label="|B| / B0", ticks=np.arange(0, 2.21, 0.4))
-
-ax = fig.add_subplot(grid[:, 1])
-rc, zc = np.linspace(0.0, 0.3, 61), np.linspace(0.0, 0.3, 61)
-RC, ZC = np.meshgrid(rc, zc)
+points = np.column_stack((RR.ravel() * np.cos(PHI), RR.ravel() * np.sin(PHI), ZZ.ravel()))
+Bmag = np.linalg.norm(np.asarray(final["B"].evaluate(points)), axis=1).reshape(RR.shape)
+rc = np.linspace(0.0, 0.3, 61)
+RC, ZC = np.meshgrid(rc, rc)
 Bc_r, Bc_z = sample(final, RC, ZC)
-Bx_r, Bx_z = bounded_field(RC, ZC, sphere[a_main])
-dev_fem = np.hypot(Bc_r, Bc_z) / abs(Bc_z[0, 0]) - 1
-dev_exact = np.hypot(Bx_r, Bx_z) / abs(Bx_z[0, 0]) - 1
-lim = 0.01
-rc_full, zc_full = np.concatenate((-rc[::-1], rc[1:])), np.concatenate((-zc[::-1], zc[1:]))
-image = ax.contourf(rc_full, zc_full, mirrored(dev_fem * 100), levels=np.linspace(-100 * lim, 100 * lim, 41),
-                    cmap=DIVERGING_CMAP, extend="both")
-for values, style in ((dev_fem, "solid"), (dev_exact, "dashed")):
-    ax.contour(rc_full, zc_full, mirrored(values * 100), levels=[-1.0, -0.1, 0.1, 1.0],
-               colors=INK, linewidths=1.0, linestyles=style)
-ax.set_aspect("equal")
-ax.set(xlabel="x / m", ylabel="z / m",
-       title="Uniformity |B|/|B(0)| - 1 in %\n(solid: FEM, dashed: exact; lines at 0.1 % and 1 %)")
-fig.colorbar(image, ax=ax, shrink=0.75, label="deviation / %")
-
-ax = fig.add_subplot(grid[0, 2])
-z_line = np.linspace(-0.9, 0.9, 181)
-for a, style, label in ((a_main, "-", "exact, a = 5R"), (a_small, "--", "exact, a = 2.5R")):
-    ax.plot(z_line, bounded_field(0.0 * z_line, z_line, sphere[a])[1] / B0, color=INK, ls=style, lw=1.2, label=label)
-ax.plot(z_line, free_space_field(0.0 * z_line, z_line)[1] / B0, color="#8B9A8D", ls=":", lw=1.2, label="exact, free space")
-z_pts = np.linspace(-0.85, 0.85, 35)
-ax.plot(z_pts, sample(final, 0.0, z_pts)[1] / B0, "o", ms=4, color=COPPER, mfc="none", label="FEM order 2, a = 5R")
-ax.plot(z_pts, sample(first_order, 0.0, z_pts)[1] / B0, "x", ms=4, color=GREEN, label="FEM order 1, a = 5R")
-ax.plot(z_pts, sample(tight, 0.0, z_pts)[1] / B0, "s", ms=3, color="#A85539", mfc="none", label="FEM order 2, a = 2.5R")
-ax.axvspan(-R / 2 - w / 2, -R / 2 + w / 2, color="#E4D6A0", alpha=0.5)
-ax.axvspan(R / 2 - w / 2, R / 2 + w / 2, color="#E4D6A0", alpha=0.5)
-ax.set(xlabel="z / m (on the axis)", ylabel="B_z / B0", title="Axial field")
-ax.grid(alpha=0.3)
-ax.legend(fontsize=7, loc="lower center")
-
-ax = fig.add_subplot(grid[1, 2])
-ax.loglog(sizes, rms, "o-", color=COPPER, label="discretisation: FEM vs exact meshed geometry (RMS)")
-ax.loglog(sizes, faceting, "s--", color=GREEN, label="faceting: polygonal vs round windings (RMS)")
-ax.loglog(sizes, np.abs(np.array(centre_values) / centre_ref - 1), "^-", color="#A85539", label="total, centre field")
-ax.loglog(sizes, faceting[0] * (np.array(sizes) / sizes[0]) ** 2, color="#8B9A8D", ls=":", label="slope 2")
-ax.set(xlabel="nominal mesh size h0 / m", ylabel="|dB| / B0", title="Mesh study (Nedelec order 2, a = 5R)")
-ax.grid(alpha=0.3, which="both")
-ax.legend(fontsize=7)
-plt.show()
+uniformity = (np.hypot(Bc_r, Bc_z) / abs(Bc_z[0, 0]) - 1) * 100
+z_line, z_pts = np.linspace(-0.9, 0.9, 181), np.linspace(-0.85, 0.85, 35)
+fig = plots.figure(layout=[["field", "uniformity", "axis"], ["field", "uniformity", "study"]], size=(17, 7.4))
+plots.heatmap(np.r_[-r_grid[:0:-1], r_grid], np.r_[-z_grid[:0:-1], z_grid], mirrored(Bmag / B0), limits=(0.0, 2.2),
+              contours=11, label="|B| / B0", xlabel="x [m] (meridian plane)", ylabel="z [m]",
+              title="|B| / B0 (order 2, a = 5R)", ax=fig["field"])
+plots.heatmap(np.r_[-rc[:0:-1], rc], np.r_[-rc[:0:-1], rc], mirrored(uniformity), colormap="diverging", limits=(-1.0, 1.0),
+              contours=[-1.0, -0.1, 0.1, 1.0], label="deviation [%]", xlabel="x [m]", ylabel="z [m]",
+              title="Uniformity |B| / |B(0)| - 1 (lines at 0.1 % and 1 %)", ax=fig["uniformity"])
+plots.line(z_pts, points={"FEM order 2, a = 5R": sample(final, 0.0, z_pts)[1] / B0,
+                          "FEM order 1, a = 5R": sample(first_order, 0.0, z_pts)[1] / B0,
+                          "FEM order 2, a = 2.5R": sample(tight, 0.0, z_pts)[1] / B0},
+           reference={"exact, a = 5R": (z_line, bounded_field(0.0 * z_line, z_line, sphere[a_main])[1] / B0),
+                      "exact, a = 2.5R": (z_line, bounded_field(0.0 * z_line, z_line, sphere[a_small])[1] / B0),
+                      "exact, free space": (z_line, free_space_field(0.0 * z_line, z_line)[1] / B0)},
+           vlines={"winding centres": -R / 2, "": R / 2}, xlabel="z [m] (on the axis)", ylabel="B_z / B0",
+           title="Axial field", legend="lower center", ax=fig["axis"])
+plots.line(sizes, {"discretisation: FEM vs exact meshed geometry (RMS)": rms,
+                   "faceting: polygonal vs round windings (RMS)": faceting,
+                   "total, centre field": np.abs(np.array(centre_values) / centre_ref - 1)},
+           slope=2, markers=True, scale="loglog", xlabel="nominal mesh size h0 [m]", ylabel="|dB| / B0",
+           title="Mesh study (Nedelec order 2, a = 5R)", ax=fig["study"])
+plots.show()
 
 
 # ## Going further

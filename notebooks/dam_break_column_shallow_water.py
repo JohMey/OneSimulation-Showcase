@@ -93,9 +93,8 @@ from scipy.optimize import brentq
 
 from onesim.physics.hydrodynamics import (CompressibleBoundaryPatch, CompressibleFaceFiniteVolume,
                                           ImpermeableCompressibleWall, UnstructuredCompressibleGeometry)
-from onesim.physics.hydrodynamics.incompressible.numerics.operators.equations.navier_stokes.compressible_navier_stokes import (
-    CompressibleNavierStokesSolver,
-)
+from onesim.numerics.time.methods.kernels.registry import create_time_integrator
+from onesim.physics.hydrodynamics import CompressibleFlowDiscretization, CompressibleNavierStokesSolver
 
 print("OneSimulation:", version("onesimulation"))
 
@@ -337,9 +336,10 @@ def make_solver(grid, second_order=True, cfl=0.45):
         geometry_factory=grid["geometry"], boundaries={"tank": wall, "column": wall}, numerical_flux=hll_flux,
         reconstruction=muscl if second_order else None, stability=cfl_step(cfl, grid["h_min"]), cfl=0.5)
     return CompressibleNavierStokesSolver(
-        dimension=2, viscosity=0.0, thermal_conductivity=0.0, density=1.0, pressure=1.0, final_time=0.01,
-        time_step=1.0, equation_of_state=HydrostaticClosure(), spatial_balance_factory=balance,
-        cell_geometry=grid["cells"], spatial_carrier=grid["geometry"].carrier, time_method="ssprk3")
+        mesh=grid["cells"], spatial=CompressibleFlowDiscretization(derivatives=None, balance=balance),
+        time_integrator=create_time_integrator("ssprk3"),
+        viscosity=0.0, thermal_conductivity=0.0, density=1.0, pressure=1.0, final_time=0.01,
+        time_step=1.0, equation_of_state=HydrostaticClosure(), spatial_carrier=grid["geometry"].carrier)
 
 
 def initial_state(grid):

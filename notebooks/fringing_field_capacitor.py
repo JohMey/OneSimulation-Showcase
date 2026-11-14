@@ -67,64 +67,32 @@ charge routes and a three-level mesh study complete the checks.
 # shows how large the fringing contribution is. Kirchhoff's formula keeps only the leading terms
 # of an expansion in $d/a$ and ignores the plate thickness, so at $d/a=0.3$ it is a few per cent low.
 
-from dataclasses import dataclass
-from hashlib import sha256
-from importlib.metadata import version
 import time
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
-from matplotlib.colors import Normalize
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-from scipy.optimize import brentq
 from scipy.special import ellipk
 
-from onesim.cad.d3 import Cylinder
 from onesim.materials import VacuumPermittivity
-from onesim.meshing.generation.contracts.hexahedral_geometry import FACES
-from onesim.meshing.generation.contracts.polynomial.hex import HEX27_REFERENCE, QuadraticHexahedralGeometry
-from onesim.meshing.meshes.models.geometry.discretization_data import (
-    Connectivity, CoordinateSet, MappingMetadata, Support,
-)
-from onesim.meshing.meshes.models.geometry.geometry import Geometry
-from onesim.meshing.meshes.models.geometry.spatial_carrier import SpatialCarrier
-from onesim.meshing.meshes.models.topology.topology import Topology
+from onesim.meshing import ExplicitGeometry, VolumeBlock, merge_volume_blocks, region_mesh
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import SparseDirect
 from onesim.physics.electrostatics import FixedPotential, PoissonEquation, ZeroNormalElectricDisplacement
+from onesim.results.comparisons import convergence
+from onesim.results.derived import derived_field
 from onesim.simulation import Problem, Simulation
-from onesim.simulation.problem_definition.values.artifacts.artifact_reference import ArtifactReference
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
 
-a = 0.10                     # m, disc radius
-t = 0.005                    # m, disc thickness
-d = 0.03                     # m, gap between the discs
-g = d / 2                    # m, height of the lower face of the upper disc above the mid plane
-V0 = 1.0                     # V, voltage between the discs
-radii = (0.15, 0.21, 0.27, 0.33, 0.39)   # m, radii of the air sphere
+a = 0.10
+t = 0.005
+d = 0.03
+g = d / 2
+V0 = 1.0
+radii = (0.15, 0.21, 0.27, 0.33, 0.39)
 eps0 = float(VacuumPermittivity().evaluate())
 
 C_ideal = eps0 * np.pi * a**2 / d
@@ -173,11 +141,9 @@ def bem_capacitance(n, thickness=t, n_gauss=10):
     Wp = w[None, :] * length[:, None]
     A = np.array([np.sum(Wp * kernel(mid[i, 0], mid[i, 1], Qp[..., 0], Qp[..., 1]), axis=1)
                   for i in range(len(length))])
-    # self panel: u = 1/2 -+ s^3/2 clusters the points at the logarithmic singularity in the midpoint
     gs, gw = np.polynomial.legendre.leggauss(16)
     gs, gw = (gs + 1) / 2, gw / 2
     u_self, w_self = np.r_[0.5 - 0.5 * gs**3, 0.5 + 0.5 * gs**3], np.r_[1.5 * gs**2 * gw, 1.5 * gs**2 * gw]
-    # neighbouring panels: 8 sub-intervals with 16 points each
     u_near, w_near = ((np.arange(8)[:, None] + gs) / 8).ravel(), np.tile(gw / 8, 8)
     for i in range(len(length)):
         near = np.where(np.linalg.norm(mid - mid[i], axis=1) < 2.5 * np.maximum(length, length[i]))[0]
@@ -236,58 +202,25 @@ print(f"the 5 mm plate thickness adds {1e12*(C_bem-C_love):.3f} pF ({100*(C_bem/
 # groups: `terminal` (all faces of the upper disc), `midplane` ($z=0$), `symmetry` ($x=0$ and
 # $y=0$) and `outer` (the sphere).
 
-NAMES = ("outer", "symmetry", "midplane", "terminal")
-R_INNER, H_INNER = 0.125, 0.05          # m, inner cylinder of the O-grid
-CORE, RING = 0.03, 0.055                 # m, half side of the central square, end of the transition
-NODE_INDEX = np.rint(2 * HEX27_REFERENCE).astype(int)
-CENTRE_NODE = int(np.where((NODE_INDEX == 1).all(axis=1))[0][0])
+R_INNER, H_INNER = 0.125, 0.05
+CORE, RING = 0.03, 0.055
 
 
-@dataclass(frozen=True, eq=False, kw_only=True)
-class EighthSphere(Cylinder):
-    """Geometry declaration of the meshed eighth with explicitly named boundary groups."""
+def boundary_name(point, normal):
+    x, y, z = point
+    if abs(x) < 1e-9:
+        return "symmetry_x"
+    if abs(y) < 1e-9:
+        return "symmetry_y"
+    if abs(z) < 1e-9:
+        return "midplane"
+    if np.hypot(x, y) < a + 1e-6 and g - 1e-6 < z < g + t + 1e-6:
+        return "terminal"
+    return "outer"
 
-    def boundary_groups(self):
-        return {**{name: (name,) for name in NAMES}, "all": NAMES}
 
-
-class CurvedHexMesh:
-    """Unstructured mesh of 27-node hexahedra with named boundary faces."""
-
-    coordinate_unit = "m"
-    mesh_kind = "unstructured"
-    dimension = 3
-
-    def __init__(self, geometry, coordinates, cells, facets):
-        data = QuadraticHexahedralGeometry(coordinates, cells)       # checks det J > 0 in every cell
-        self.geometry, self.boundary_faces = geometry, facets
-        self.coordinates, self.cells, self.cell_volumes = data.coordinates, data.cells, data.volumes
-        self.cell_measures = self.cell_volumes
-        self.cell_count, self.node_count = len(self.cells), len(self.coordinates)
-        self.mesh_id = "curved-hex27:" + sha256(self.coordinates.tobytes() + self.cells.tobytes()).hexdigest()
-        self.reference = ArtifactReference(self.mesh_id, "1")
-        self._carrier = SpatialCarrier(
-            self.mesh_id, Geometry(3, geometry.geometry_id), Topology(3, self.cell_count, "cell", self.mesh_id),
-            coordinates=CoordinateSet(tuple(map(tuple, self.coordinates)), unit="m"),
-            connectivity=Connectivity(tuple(map(tuple, self.cells)), "hexahedron27"),
-            supports=tuple(Support("boundary:" + name, "boundary", attributes=(("geometry_boundary", name),),
-                                   entity_connectivity=tuple(faces)) for name, faces in facets.items()),
-            measures=tuple(self.cell_volumes), mapping=MappingMetadata("cell-centered", self.cell_count),
-            source_mesh=self.reference,
-            source_geometry=ArtifactReference(geometry.geometry_id, str(geometry.revision)),
-            field_carriers=("cell", "node", "face"), mesh_kind="structured")
-
-    def facets(self, selection):
-        return tuple(sorted({face for name in selection.members for face in self.boundary_faces[name]}))
-
-    def region_cells(self, region):
-        return tuple(range(self.cell_count))
-
-    def to_carrier(self, *, location="cell"):
-        if location == "cell":
-            return self._carrier
-        from onesim.numerics.discretization.geometry.carriers.carrier_location import carrier_at_location
-        return carrier_at_location(self._carrier, location=location)
+capacitor = ExplicitGeometry(dimension=3, boundary_names=("outer", "symmetry_x", "symmetry_y", "midplane", "terminal"),
+                             groups={"symmetry": ("symmetry_x", "symmetry_y")}, classifier=boundary_name)
 
 
 def power_graded(x0, x1, n, fine_at):
@@ -296,10 +229,9 @@ def power_graded(x0, x1, n, fine_at):
     return x0 + (x1 - x0) * (s if fine_at == "start" else 1 - s[::-1])
 
 
-def cell_nodes(mapping, u_lo, u_hi):
-    """The 27 node coordinates of the image of the parameter box [u_lo, u_hi] under `mapping`."""
-    u_lo, u_hi = np.asarray(u_lo, float), np.asarray(u_hi, float)
-    return mapping(u_lo + NODE_INDEX / 2 * (u_hi - u_lo))
+def outside_disc(centres):
+    r = np.hypot(centres[:, 0], centres[:, 1])
+    return ~((r < a) & (centres[:, 2] > g) & (centres[:, 2] < g + t))
 
 
 def build_mesh(R, m):
@@ -308,7 +240,6 @@ def build_mesh(R, m):
     radial = np.r_[power_graded(RING, a, 2 * m, "end"), power_graded(a, R_INNER, 2 * m, "start")[1:]]
     heights = np.r_[power_graded(0, g, 2 * m, "end"), power_graded(g, g + t / 2, m, "start")[1:],
                     power_graded(g + t / 2, g + t, m, "end")[1:], power_graded(g + t, H_INNER, 2 * m, "start")[1:]]
-    # horizontal O-grid blocks (u, v) -> (x, y)
     core = lambda u, v: (CORE * u, CORE * v)
     lower = lambda u, v: ((1 - u) * CORE + u * RING * np.cos(v * quarter / 2),
                           (1 - u) * CORE * v + u * RING * np.sin(v * quarter / 2))
@@ -316,22 +247,9 @@ def build_mesh(R, m):
                           (1 - u) * CORE + u * RING * np.cos(v * quarter / 2))
     polar = lambda u, v: (u * np.cos(v), u * np.sin(v))
     unit = np.linspace(0, 1, m + 1)
-    blocks = ((core, unit, unit), (lower, unit, unit), (upper, unit, unit),
+    planes = ((core, unit, unit), (lower, unit, unit), (upper, unit, unit),
               (polar, radial, np.linspace(0, quarter, 2 * m + 1)))
-    cells = []
-    for plane, us, vs in blocks:
-        for i in range(len(us) - 1):
-            for j in range(len(vs) - 1):
-                for k in range(len(heights) - 1):
-                    def mapping(p, plane=plane):
-                        x, y = plane(p[:, 0], p[:, 1])
-                        return np.column_stack((x, y, p[:, 2]))
-                    nodes = cell_nodes(mapping, (us[i], vs[j], heights[k]), (us[i + 1], vs[j + 1], heights[k + 1]))
-                    centre = nodes[CENTRE_NODE]
-                    if np.hypot(centre[0], centre[1]) < a and g < centre[2] < g + t:
-                        continue                      # inside the metal disc
-                    cells.append(nodes)
-    # radial layers from the inner cylinder (top face and side face) out to the sphere
+    blocks = [VolumeBlock(lambda u, v, w, plane=plane: (*plane(u, v), w), us, vs, heights) for plane, us, vs in planes]
     h_first = radial[-1] - radial[-2]
     growth = 1.35
     layers = int(np.ceil(np.log(1 + (R - R_INNER) * (growth - 1) / h_first) / np.log(growth)))
@@ -339,52 +257,18 @@ def build_mesh(R, m):
     fractions = np.r_[0, np.cumsum(sizes)] / sizes.sum()
 
     def ray(base):
-        def mapping(p):
-            b = base(p[:, 0], p[:, 1])
-            return b + p[:, 2:3] * (R * b / np.linalg.norm(b, axis=1, keepdims=True) - b)
+        def mapping(u, v, w):
+            b = base(u, v)
+            length = np.sqrt(sum(c**2 for c in b))
+            return tuple(c + w * (R * c / length - c) for c in b)
         return mapping
 
-    top_faces = [(lambda u, v, plane=plane: np.column_stack((*plane(u, v), np.full_like(u, H_INNER))), us, vs)
-                 for plane, us, vs in blocks]
-    side_face = (lambda u, v: np.column_stack((R_INNER * np.cos(u), R_INNER * np.sin(u), v)),
-                 np.linspace(0, quarter, 2 * m + 1), heights)
-    for base, us, vs in top_faces + [side_face]:
-        mapping = ray(base)
-        for i in range(len(us) - 1):
-            for j in range(len(vs) - 1):
-                for k in range(layers):
-                    cells.append(cell_nodes(mapping, (us[i], vs[j], fractions[k]), (us[i + 1], vs[j + 1], fractions[k + 1])))
-    cells = np.array(cells)
-    # positive orientation: reflect the parameter v of cells with a negative Jacobian at the centre
-    e = cells[:, 1] - cells[:, 0], cells[:, 3] - cells[:, 0], cells[:, 4] - cells[:, 0]
-    negative = np.einsum("ij,ij->i", np.cross(e[0], e[1]), e[2]) < 0
-    flip = [int(np.where((NODE_INDEX == (ix, 2 - iy, iz)).all(axis=1))[0][0]) for ix, iy, iz in NODE_INDEX]
-    cells[negative] = cells[negative][:, flip]
-    # merge coincident nodes
-    points = cells.reshape(-1, 3)
-    _, first, inverse = np.unique(np.round(points / (1e-9 * R)).astype(np.int64), axis=0,
-                                  return_index=True, return_inverse=True)
-    X, T = points[first], inverse.reshape(-1, 27)
-    # name the exterior faces
-    owners = {}
-    for cell in T:
-        for face in FACES:
-            owners.setdefault(tuple(sorted(cell[list(face)])), []).append(tuple(cell[list(face)]))
-    facets = {name: [] for name in NAMES}
-    for faces in owners.values():
-        if len(faces) > 1:
-            continue
-        p = X[list(faces[0])]
-        if np.all(np.abs(p[:, 0]) < 1e-12) or np.all(np.abs(p[:, 1]) < 1e-12):
-            facets["symmetry"].append(faces[0])
-        elif np.all(np.abs(p[:, 2]) < 1e-12):
-            facets["midplane"].append(faces[0])
-        elif np.all(np.abs(np.linalg.norm(p, axis=1) - R) < 1e-9):
-            facets["outer"].append(faces[0])
-        else:
-            facets["terminal"].append(faces[0])
-    geometry = EighthSphere(radius=R, length=R, origin=(0.0, 0.0, 0.0))
-    return CurvedHexMesh(geometry, X, T, facets)
+    for plane, us, vs in planes:
+        blocks.append(VolumeBlock(ray(lambda u, v, plane=plane: (*plane(u, v), np.full_like(u, H_INNER))),
+                                  us, vs, fractions))
+    blocks.append(VolumeBlock(ray(lambda u, v: (R_INNER * np.cos(u), R_INNER * np.sin(u), v)),
+                              np.linspace(0, quarter, 2 * m + 1), heights, fractions))
+    return region_mesh(merge_volume_blocks(blocks, capacitor, order=2), outside_disc, geometry=capacitor)
 
 
 # ## Model
@@ -402,58 +286,37 @@ def build_mesh(R, m):
 # The energies and charges of the eighth are multiplied by 8 and 4 (the upper disc is a quarter
 # of the meshed charge), respectively.
 
-def lagrange_1d(x):
-    return np.stack([2 * (x - 0.5) * (x - 1), -4 * x * (x - 1), 2 * x * (x - 0.5)], -1)
-
-
-def lagrange_1d_derivative(x):
-    return np.stack([4 * x - 3, -8 * x + 4, 4 * x - 1], -1)
-
-
-def hex27_basis(n=4):
-    """Triquadratic shape functions and derivatives at n^3 Gauss points of the unit cube."""
-    gp, gw = np.polynomial.legendre.leggauss(n)
-    gp, gw = (gp + 1) / 2, gw / 2
-    P = np.array(np.meshgrid(gp, gp, gp, indexing="ij")).reshape(3, -1).T
-    weights = np.prod(np.array(np.meshgrid(gw, gw, gw, indexing="ij")).reshape(3, -1), axis=0)
-    L = [lagrange_1d(P[:, k])[:, NODE_INDEX[:, k]] for k in range(3)]
-    D = [lagrange_1d_derivative(P[:, k])[:, NODE_INDEX[:, k]] for k in range(3)]
-    N = L[0] * L[1] * L[2]
-    dN = np.stack([D[0] * L[1] * L[2], L[0] * D[1] * L[2], L[0] * L[1] * D[2]], -1)
-    return N, dN, weights
-
-
-BASIS = hex27_basis()
-
-
 def smoothstep(s):
     """C2 step from 0 to 1 on [0, 1] and its derivative (both derivatives vanish at the ends)."""
     s = np.clip(s, 0.0, 1.0)
     return s**3 * (10 - 15 * s + 6 * s**2), 30 * s**2 * (1 - s) ** 2
 
 
-def capacitance_from_field(mesh, nodal):
-    """C_W from the field energy and C_Q from the weighted charge integral (whole capacitor)."""
-    N, dN, weights = BASIS
-    X = mesh.coordinates[mesh.cells]
-    J = np.einsum("qka,ckb->cqba", dN, X)
-    grad = np.linalg.solve(np.transpose(J, (0, 1, 3, 2)), np.einsum("qka,ck->cqa", dN, nodal[mesh.cells])[..., None])[..., 0]
-    dV = np.abs(np.linalg.det(J)) * weights
-    energy = 8 * 0.5 * eps0 * np.sum(dV * np.sum(grad**2, axis=-1))
-    # weight chi = A(z) B(r) C(z): one on the upper disc, zero on z = 0 and on every sphere surface.
-    # Its ramps run between node layers of the inner cylinder (0 < z < g, a < r < 12.5 cm,
-    # g + t < z < 5 cm), so that the Gauss rule integrates it accurately.
-    P = np.einsum("qk,ckb->cqb", N, X)
-    r = np.hypot(P[..., 0], P[..., 1])
-    A, dA = smoothstep(P[..., 2] / g)
+def weight_gradient(points):
+    """Gradient of chi = A(z) B(r) C(z): one on the upper disc, zero on z = 0 and on every sphere surface.
+
+    Its ramps run between node layers of the inner cylinder (0 < z < g, a < r < 12.5 cm,
+    g + t < z < 5 cm), so that the quadrature integrates it accurately.
+    """
+    r = np.hypot(points[:, 0], points[:, 1])
+    A, dA = smoothstep(points[:, 2] / g)
     B, dB = smoothstep((r - a) / (R_INNER - a))
-    Cz, dCz = smoothstep((P[..., 2] - g - t) / (H_INNER - g - t))
+    Cz, dCz = smoothstep((points[:, 2] - g - t) / (H_INNER - g - t))
     B, dB, Cz, dCz = 1 - B, -dB / (R_INNER - a), 1 - Cz, -dCz / (H_INNER - g - t)
-    grad_chi = np.zeros_like(P)
+    grad = np.zeros_like(points)
     radial = A * dB * Cz / np.maximum(r, 1e-12)
-    grad_chi[..., 0], grad_chi[..., 1] = radial * P[..., 0], radial * P[..., 1]
-    grad_chi[..., 2] = dA / g * B * Cz + A * B * dCz
-    charge = 4 * eps0 * np.sum(dV * np.sum(grad * grad_chi, axis=-1))
+    grad[:, 0], grad[:, 1] = radial * points[:, 0], radial * points[:, 1]
+    grad[:, 2] = dA / g * B * Cz + A * B * dCz
+    return grad
+
+
+def capacitance_from_field(E):
+    """C_W from the field energy and C_Q from the weighted charge integral (whole capacitor)."""
+    energy_density = derived_field(E, lambda e, p: np.sum(e**2, axis=1), name="E_squared", unit="V^2/m^2")
+    energy = 8 * 0.5 * eps0 * float(energy_density.integrate().value)
+    weighted = derived_field(E, lambda e, p: -np.sum(e * weight_gradient(p), axis=1), name="charge_weight",
+                             unit="V/m^2")
+    charge = 4 * eps0 * float(weighted.integrate().value)
     return 2 * energy / V0**2, charge / V0
 
 
@@ -476,13 +339,12 @@ def solve(R, m, outer):
     )
     result = Simulation(problem=problem, mesh=mesh, numerics=Numerics(
         spatial=FiniteElement(element=Lagrange(order=2)), linear_solver=SparseDirect())).solve_stationary()
-    potential = result.field(model.potential)
-    nodal = np.asarray(potential.evaluate(mesh.coordinates))     # Q2 nodes = the 27 geometry nodes
-    C_W, C_Q = capacitance_from_field(mesh, nodal)
+    potential, field = result.field(model.potential), result.field(model.electric_field)
+    C_W, C_Q = capacitance_from_field(field)
     print(f"R = {100*R:2.0f} cm, {outer:10s} sphere, m = {m}: {mesh.cell_count:5d} hexahedra, "
-          f"{mesh.node_count:6d} nodes, C_W = {1e12*C_W:.5f} pF, {time.perf_counter()-start:4.0f} s")
+          f"{len(mesh.coordinates):6d} nodes, C_W = {1e12*C_W:.5f} pF, {time.perf_counter()-start:4.0f} s")
     return dict(R=R, m=m, outer=outer, C_W=C_W, C_Q=C_Q, cells=mesh.cell_count, mesh=mesh,
-                potential=potential, field=result.field(model.electric_field), nodal=nodal)
+                potential=potential, field=field)
 
 
 # ## Solve
@@ -501,13 +363,13 @@ mesh_study = [sweep[(radii[0], "floating")], solve(radii[0], 3, "floating"), sol
 # ## Comparison with the reference
 #
 # **Mesh convergence.** For a Dirichlet problem the finite-element energy can only lie above the
-# exact one, so the capacitance converges from above. With $h\propto1/m$ the observed order $p$
-# follows from $(f_1-f_2)/(f_2-f_3)=(h_1^p-h_2^p)/(h_2^p-h_3^p)$.
+# exact one, so the capacitance converges from above. With $h\propto1/m$, `convergence` gives the
+# observed order $p$ and the Richardson estimate.
 
 f = np.array([run["C_W"] for run in mesh_study])
 h = 1.0 / np.array([run["m"] for run in mesh_study], float)
-order = brentq(lambda p: (h[0]**p - h[1]**p) / (h[1]**p - h[2]**p) - (f[0] - f[1]) / (f[1] - f[2]), 0.2, 12.0)
-C_rich = f[2] + (f[2] - f[1]) / ((h[1] / h[2]) ** order - 1)
+estimate = convergence(f, h)
+order, C_rich = estimate.order, estimate.extrapolated
 error_sweep = f[0] - C_rich
 print("mesh study, R = 15 cm, floating sphere:")
 for run in mesh_study:
@@ -552,132 +414,48 @@ print(f"\nideal plate formula: {1e12*C_ideal:.4f} pF ({C_ideal/C_bem-1:+.1%});  
 # Bottom: capacitance against the sphere radius, the mesh study, and the surface charge density on
 # the upper disc from the finite elements and from the boundary-integral solution.
 
-final = sweep[(radii[-1], "floating")]
-fig = plt.figure(figsize=(17, 10.5), constrained_layout=True)
-layout = fig.add_gridspec(2, 3)
-
-# 3D view of the mesh on the cut planes and the mid plane, coloured by the potential
-ax = fig.add_subplot(layout[0, 0], projection="3d")
-small = sweep[(radii[0], "floating")]
-mesh, nodal = small["mesh"], small["nodal"]
-sub_quads = ((0, 1, 4, 3), (1, 2, 5, 4), (3, 4, 7, 6), (4, 5, 8, 7))
-norm = Normalize(0.0, V0)
-polys, colours = [], []
-for name in ("symmetry", "midplane", "terminal"):
-    for face in mesh.boundary_faces[name]:
-        cell = next(c for c in mesh.cells[np.where((mesh.cells[:, :8] == face[0]).any(axis=1))[0]]
-                    if set(face) <= set(c[:8]))
-        corners = [int(np.where(cell == v)[0][0]) for v in face]
-        ref = NODE_INDEX[corners]
-        varying = [k for k in range(3) if len(set(ref[:, k])) > 1]
-        fixed = [k for k in range(3) if k not in varying][0]
-        grid = np.zeros((3, 3), int)
-        for local in range(27):
-            if NODE_INDEX[local, fixed] == ref[0, fixed]:
-                grid[NODE_INDEX[local, varying[0]], NODE_INDEX[local, varying[1]]] = cell[local]
-        flat = grid.ravel()
-        for q in sub_quads:
-            ids = flat[list(q)]
-            polys.append(mesh.coordinates[ids] * 100)
-            colours.append("#9a9a9a" if name == "terminal" else FIELD_CMAP(norm(nodal[ids].mean())))
-ax.add_collection3d(Poly3DCollection(polys, facecolors=colours, edgecolors=(0.13, 0.24, 0.21, 0.25), linewidths=0.15))
-ax.set(xlim=(0, 15), ylim=(0, 15), zlim=(0, 15), xlabel="x / cm", ylabel="y / cm", zlabel="z / cm")
-ax.set_box_aspect((1, 1, 1))
-ax.view_init(elev=24, azim=40)
-ax.set_title("Curved hexahedra of the eighth model, R = 15 cm,\npotential on the cut planes (floating sphere)", pad=10)
-fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=FIELD_CMAP), ax=ax, shrink=0.6, label="V / V", pad=0.1)
-
-
-def section(field, r_max, z_lo, z_hi, n_r, n_z, R):
-    r, z = np.linspace(1e-6, r_max, n_r), np.linspace(z_lo, z_hi, n_z)
-    Rg, Zg = np.meshgrid(r, z)
-    margin = 3e-4
-    inside = ((np.hypot(Rg, Zg) < 0.985 * R) & (Zg > 1e-9)
-              & ~((Rg < a + margin) & (Zg > g - margin) & (Zg < g + t + margin)))
-    values = np.full(Rg.shape, np.nan)
-    pts = np.column_stack((Rg[inside] / np.sqrt(2), Rg[inside] / np.sqrt(2), Zg[inside]))
-    out = np.asarray(field.evaluate(pts))
-    values[inside] = out if out.ndim == 1 else np.linalg.norm(out, axis=1)
-    return Rg, Zg, values
-
-
-ax = fig.add_subplot(layout[0, 1])
-R_big = radii[-1]
-Rg, Zg, Vs = section(final["potential"], R_big, 0.0, R_big, 181, 181, R_big)
-levels = np.linspace(-V0 / 2, V0 / 2, 41)
-for sx in (1, -1):
-    for sz in (1, -1):
-        shown = sz * (Vs - V0 / 2)
-        ax.contourf(sx * 100 * Rg, sz * 100 * Zg, shown, levels=levels, cmap=DIVERGING_CMAP)
-        ax.contour(sx * 100 * Rg, sz * 100 * Zg, shown, levels=np.linspace(-0.45, 0.45, 19), colors=INK, linewidths=0.4)
-for sz in (1, -1):
-    ax.add_patch(plt.Rectangle((-100 * a, 100 * (g if sz > 0 else -g - t)), 200 * a, 100 * t, color="#8a8a8a", zorder=3))
-ax.add_patch(plt.Circle((0, 0), 100 * R_big, fill=False, ec=INK, lw=1.0))
-ax.set_aspect("equal")
-ax.set(xlabel="radial position / cm", ylabel="z / cm", title=f"Potential V - V0/2, R = {100*R_big:.0f} cm, floating sphere")
-fig.colorbar(plt.cm.ScalarMappable(norm=Normalize(-V0 / 2, V0 / 2), cmap=DIVERGING_CMAP), ax=ax, shrink=0.8, label="V - V0/2 / V")
-
-ax = fig.add_subplot(layout[0, 2])
-Rg, Zg, Es = section(final["field"], 0.115, 0.0, 0.035, 241, 141, R_big)
-filled = ax.contourf(100 * Rg, 100 * Zg, np.log10(Es), levels=40, cmap=FIELD_CMAP)
-mesh = final["mesh"]
-for face in mesh.boundary_faces["symmetry"]:
-    p = mesh.coordinates[list(face) + [face[0]]]
-    if np.all(np.abs(p[:, 1]) < 1e-12):                     # faces in the cut plane y = 0
-        ax.plot(100 * p[:, 0], 100 * p[:, 2], color=INK, lw=0.3, alpha=0.7)
-ax.add_patch(plt.Rectangle((0, 100 * g), 100 * a, 100 * t, color="#8a8a8a", zorder=3))
-ax.set_xlim(7.5, 11.5)
-ax.set_ylim(0.0, 3.5)
-ax.set_aspect("equal")
-ax.set(xlabel="r / cm", ylabel="z / cm", title="log10 |E| [V/m] at the plate edge, with the mesh")
-fig.colorbar(filled, ax=ax, shrink=0.8)
-
-ax = fig.add_subplot(layout[1, 0])
+final, small = sweep[(radii[-1], "floating")], sweep[(radii[0], "floating")]
+b_small, b_big = small["mesh"].geometry.boundaries, final["mesh"].geometry.boundaries
 R_cm = 100 * np.array(radii)
-ins = np.array([sweep[(R, "insulating")]["C_W"] for R in radii]) * 1e12
-flo = np.array([sweep[(R, "floating")]["C_W"] for R in radii]) * 1e12
-ax.plot(R_cm, ins, "v-", color=GREEN, label="insulating sphere, D.n = 0")
-ax.plot(R_cm, flo, "^-", color=COPPER, label="floating sphere")
-ax.plot(R_cm, (ins + flo) / 2, "s--", color="#8B9A8D", mfc="none", label="average of the two")
-ax.plot(R_cm, (ins + 2 * flo) / 3, "o-", color=INK, label="(ins + 2 flo) / 3")
-ax.axhline(1e12 * C_bem, color="#A85539", lw=1.2, ls=":", label="free space, boundary integral")
-ax.set(xlabel="radius of the air sphere R / cm", ylabel="C / pF", title="Capacitance vs size of the air domain")
-ax.legend(fontsize=8)
-ax.grid(alpha=0.3)
-
-ax = fig.add_subplot(layout[1, 1])
+insulating = np.array([sweep[(R, "insulating")]["C_W"] for R in radii]) * 1e12
+floating = np.array([sweep[(R, "floating")]["C_W"] for R in radii]) * 1e12
 cells = [run["cells"] for run in mesh_study]
-ax.semilogx(cells, 1e12 * f, "o-", color=COPPER, label="C_W, energy route")
-ax.semilogx(cells, [1e12 * run["C_Q"] for run in mesh_study], "s--", color=GREEN, mfc="none", label="C_Q, charge route")
-ax.axhline(1e12 * C_rich, color=INK, lw=1.0, ls=":", label=f"Richardson estimate (order {order:.1f})")
-ax.set(xlabel="hexahedra in the eighth model", ylabel="C / pF", title="Mesh study, R = 15 cm, floating sphere")
-ax.legend(fontsize=8)
-ax.grid(alpha=0.3, which="both")
-
-ax = fig.add_subplot(layout[1, 2])
-mid, sigma = bem_charge["mid"], bem_charge["sigma"]
 arc = np.r_[0, np.cumsum(bem_charge["length"])][:-1] + bem_charge["length"] / 2
-ax.semilogy(100 * arc, sigma * 1e9, color=INK, lw=1.4, label="boundary integral, free space")
-# finite elements: D.n just outside the disc surface, combined like the capacitance
 s_probe = np.r_[np.linspace(0.002, a - 0.001, 40), np.linspace(a + 0.001, a + t - 0.001, 4),
                 np.linspace(a + t + 0.001, 2 * a + t - 0.002, 40)]
 offset = 2e-5
 r_probe = np.where(s_probe < a, s_probe, np.where(s_probe <= a + t, a + offset, 2 * a + t - s_probe))
 z_probe = np.where(s_probe < a, g - offset, np.where(s_probe <= a + t, g + s_probe - a, g + t + offset))
 normal = np.where((s_probe < a)[:, None], [0.0, -1.0], np.where((s_probe <= a + t)[:, None], [1.0, 0.0], [0.0, 1.0]))
-pts = np.column_stack((r_probe / np.sqrt(2), r_probe / np.sqrt(2), z_probe))
+probe_points = np.column_stack((r_probe / np.sqrt(2), r_probe / np.sqrt(2), z_probe))
 normal3 = np.column_stack((normal[:, 0] / np.sqrt(2), normal[:, 0] / np.sqrt(2), normal[:, 1]))
-fem_sigma = sum(weight * eps0 * np.einsum("ij,ij->i", np.asarray(sweep[(radii[-1], outer)]["field"].evaluate(pts)), normal3)
+fem_sigma = sum(weight * eps0 * np.einsum("ij,ij->i", np.asarray(sweep[(radii[-1], outer)]["field"].evaluate(probe_points)), normal3)
                 for weight, outer in ((1 / 3, "insulating"), (2 / 3, "floating")))
-ax.semilogy(100 * s_probe, fem_sigma * 1e9, "o", color=COPPER, ms=3.5, label="FEM, R = 39 cm, (ins + 2 flo)/3")
-for edge in (a, a + t):
-    ax.axvline(100 * edge, color="#9FA593", lw=0.8, ls=":")
-ax.set_ylim(0.02, 5)
-ax.set(xlabel="position along the disc contour / cm  (lower face | rim | upper face)",
-       ylabel="surface charge density / (nC/m^2)", title="Charge on the upper disc")
-ax.legend(fontsize=8)
-ax.grid(alpha=0.3, which="both")
-plt.show()
+fig = plots.figure(2, 3, size=(17, 10.5))
+plots.surface(small["potential"], boundary=b_small.symmetry | b_small.midplane, edges=True, subdivisions=2,
+              limits=(0.0, V0), camera=plots.Camera(elevation=24, azimuth=40), label="V [V]",
+              title="Curved hexahedra of the eighth model, R = 15 cm (floating sphere)", ax=fig[0])
+plots.surface(final["potential"], boundary=b_big.symmetry_y, component=lambda V, p: V - V0 / 2,
+              symmetry={"planes": [((1, 0, 0), (0, 0, 0))]}, colormap="diverging", limits=(-V0 / 2, V0 / 2), contours=19,
+              subdivisions=2, label="V - V0/2 [V]",
+              title=f"Potential above the mid plane, R = {100 * radii[-1]:.0f} cm, floating sphere", ax=fig[1])
+plots.surface(final["field"], boundary=b_big.symmetry_y, component=lambda E, p: np.log10(np.linalg.norm(E, axis=1)),
+              edges=True, subdivisions=1, label="log10(|E| / (V/m))", title="log10 |E| at the plate edge, with the mesh",
+              xlimits=(0.075, 0.115), ylimits=(0.0, 0.035), ax=fig[2])
+plots.line(R_cm, {"insulating sphere, D.n = 0": insulating, "floating sphere": floating,
+                  "average of the two": (insulating + floating) / 2, "(ins + 2 flo) / 3": (insulating + 2 * floating) / 3},
+           hlines={"free space, boundary integral": 1e12 * C_bem}, markers=True,
+           xlabel="radius of the air sphere R [cm]", ylabel="C [pF]", title="Capacitance vs size of the air domain", ax=fig[3])
+plots.line(cells, {"C_W, energy route": 1e12 * f, "C_Q, charge route": [1e12 * run["C_Q"] for run in mesh_study]},
+           hlines=None if C_rich is None else {f"Richardson estimate (order {order:.1f})": 1e12 * C_rich},
+           markers=True, scale="logx", xlabel="hexahedra in the eighth model", ylabel="C [pF]",
+           title="Mesh study, R = 15 cm, floating sphere", ax=fig[4])
+plots.line(points={"FEM, R = 39 cm, (ins + 2 flo)/3": (100 * s_probe, fem_sigma * 1e9)},
+           reference={"boundary integral, free space": (100 * arc, bem_charge["sigma"] * 1e9)},
+           vlines={"rim": 100 * a, "": 100 * (a + t)}, scale="logy", ylimits=(0.02, 5),
+           xlabel="position along the disc contour [cm] (lower face | rim | upper face)",
+           ylabel="surface charge density [nC/m²]", title="Charge on the upper disc", ax=fig[5])
+plots.show()
 
 
 # ## Going further

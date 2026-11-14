@@ -50,33 +50,13 @@ exact inductance per unit length.
 # insulation deforms the field when the air region is too tight.
 
 from dataclasses import dataclass
-from importlib.metadata import version
 import time
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 from scipy.integrate import quad
 from scipy.spatial import Delaunay
 from scipy.special import hyp2f1
 
+from onesim.cad.d2 import Plane
 from onesim.cad.d3 import Box
 from onesim.materials import VacuumPermeability
 from onesim.meshing import UnstructuredSimplexMesh
@@ -87,20 +67,21 @@ from onesim.physics.magnetostatics import (
     CoulombGauge, MagneticInsulation, MagneticVectorPotential, Magnetostatics,
 )
 from onesim.simulation import Problem, Simulation
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
 
-wire_radius = 0.01          # m, conductor radius a
-current = 1.0               # A, total current along +z
-side = 0.20                 # m, side of the square air domain (half side = 10 radii)
-small_side = 0.04           # m, deliberately tight square (half side = 2 radii)
-mesh_levels = (32, 64, 128) # cells around the wire circumference
+wire_radius = 0.01
+current = 1.0
+side = 0.20
+small_side = 0.04
+mesh_levels = (32, 64, 128)
 mu0 = float(VacuumPermeability().evaluate())
 
-K0 = quad(lambda t: (1.0 + t**4) ** -0.5, 0.0, 1.0)[0]       # centre-to-side distance of the unit map
+K0 = quad(lambda t: (1.0 + t**4) ** -0.5, 0.0, 1.0)[0]
 
 
 def conformal_radius(s):
@@ -256,8 +237,6 @@ def solve_wire(s, n_theta):
     B_field = result.field(model.magnetic_flux_density)
     A_field = result.field(model.vector_potential)
 
-    # Energy and flux linkage per unit length; B is linear and A quadratic on each tetrahedron, so the
-    # 4-point Gauss rule integrates |B|^2 and J.A exactly.
     corners = np.asarray(mesh.coordinates)[np.asarray(mesh.cells)]
     volumes = np.abs(np.einsum("ni,ni->n", np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]),
                                corners[:, 3] - corners[:, 0])) / 6.0
@@ -329,7 +308,6 @@ for name, (x, y, r) in lines.items():
               f"{100*(B_fem[k]/B_exact[k]-1):+12.4f} %   {B_exact[k]/B_text[k]:12.4f}")
     print(f"   largest |Bz| / |B| on this line: {np.max(np.abs(Bf[:, 2]) / B_fem):.1e}")
 
-# Two-dimensionality: the field at the two slab faces must equal the mid-plane field.
 probe = np.array([[c + 2 * wire_radius, c + wire_radius, z] for z in (0.0, final["z_mid"], final["thickness"])])
 Bp = np.asarray(final["B"].evaluate(probe))
 print(f"z-variation of B at (2a, a) across the slab: {np.max(np.abs(Bp - Bp[1])) / np.linalg.norm(Bp[1]):.1e} (relative)")
@@ -349,66 +327,31 @@ for rho in np.array([0.5, 0.9, 2.0, 5.0, 9.0]) * wire_radius:
 
 # ## Figure
 
-def field_map(run, n_grid=241):
-    s = run["s"]
-    g = np.linspace(0.0, s, n_grid)
-    X, Y = np.meshgrid(g, g)
-    pts = np.column_stack((X.ravel(), Y.ravel(), np.full(X.size, run["z_mid"])))
-    pts[:, :2] = np.clip(pts[:, :2], 1e-9 * s, s * (1 - 1e-9))
-    B = np.asarray(run["B"].evaluate(pts))
-    Az = np.asarray(run["A"].evaluate(pts))[:, 2]
-    return X, Y, np.hypot(B[:, 0], B[:, 1]).reshape(X.shape), Az.reshape(X.shape)
-
-
-cream = "#fbf5eb"
-fig, axes = plt.subplots(2, 2, figsize=(12, 10.5), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-for ax in axes.ravel():
-    ax.set_facecolor("#fffaf2")
-
-for ax, run, title in ((axes[0, 0], final, "s = 20 cm (half side 10 a)"),
-                       (axes[0, 1], small, "tight box s = 4 cm (half side 2 a)")):
-    X, Y, Bmag, Az = field_map(run)
-    off = run["s"] / 2
-    im = ax.contourf(1e2 * (X - off), 1e2 * (Y - off), np.log10(1e6 * np.maximum(Bmag, 1e-9)),
-                     levels=np.linspace(-0.6, 1.35, 60), cmap=FIELD_CMAP, extend="both")
-    ax.contour(1e2 * (X - off), 1e2 * (Y - off), Az, levels=14, colors="white", linewidths=0.7)
-    ax.add_patch(plt.Circle((0, 0), 1e2 * wire_radius, fill=False, color="#7fd3c4", lw=1.2, ls="--"))
-    ax.set_aspect("equal")
-    ax.set(xlabel="x / cm", ylabel="y / cm", title=f"|B| and flux lines, {title}")
-    fig.colorbar(im, ax=ax, label="log10 (|B| / uT)", shrink=0.85, ticks=np.arange(-0.5, 1.5, 0.25))
-
-ax = axes[1, 0]
-ax.grid(alpha=0.25)
+log_field = lambda B, p: np.log10(1e6 * np.maximum(np.hypot(B[:, 0], B[:, 1]), 1e-9))
+magnitude = lambda field, points: 1e6 * np.hypot(*np.asarray(field.evaluate(points))[:, :2].T)
 r_line = np.linspace(0.02, 9.9, 300) * wire_radius
-text = np.where(r_line < wire_radius, mu0 * current * r_line / (2 * np.pi * wire_radius**2), mu0 * current / (2 * np.pi * r_line))
-ax.plot(r_line / wire_radius, 1e6 * text, color="#214D43", lw=1.2, ls=":", label="textbook law (unbounded)")
-for name, (dx, dy), colour in (("towards side", (1, 0), "#A85539"), ("towards corner", (1 / np.sqrt(2), 1 / np.sqrt(2)), "#336B57")):
-    rr = np.linspace(0.02, 9.9 if dy == 0 else 13.9, 300) * wire_radius
-    Bx, By = exact_B(c + rr * dx, c + rr * dy, side, c)
-    ax.plot(rr / wire_radius, 1e6 * np.hypot(Bx, By), color=colour, lw=1.8, label=f"exact, {name}")
-    rs = np.linspace(0.25, 9.75 if dy == 0 else 13.75, 26) * wire_radius
-    Bf = np.asarray(final["B"].evaluate(np.column_stack((c + rs * dx, c + rs * dy, np.full_like(rs, final["z_mid"])))))
-    ax.plot(rs / wire_radius, 1e6 * np.hypot(Bf[:, 0], Bf[:, 1]), "o", ms=4, color=colour, mfc="none",
-            label=f"OneSimulation, {name}")
+textbook = np.where(r_line < wire_radius, mu0 * current * r_line / (2 * np.pi * wire_radius**2), mu0 * current / (2 * np.pi * r_line))
+computed, exact = {}, {"textbook law (unbounded)": (r_line / wire_radius, 1e6 * textbook)}
+for name, (dx, dy), reach in (("towards side", (1.0, 0.0), 9.9), ("towards corner", (2**-0.5, 2**-0.5), 13.9)):
+    rr = np.linspace(0.02, reach, 300) * wire_radius
+    rs = np.linspace(0.25, reach - 0.15, 26) * wire_radius
+    exact[name] = (rr / wire_radius, 1e6 * np.hypot(*exact_B(c + rr * dx, c + rr * dy, side, c)))
+    computed[name] = (rs / wire_radius, magnitude(final["B"], np.column_stack((c + rs * dx, c + rs * dy, np.full_like(rs, final["z_mid"])))))
 rr = np.linspace(0.02, 1.98, 200) * wire_radius
-Bx, By = exact_B(small_side / 2 + rr, np.full_like(rr, small_side / 2), small_side, small_side / 2)
-ax.plot(rr / wire_radius, 1e6 * np.hypot(Bx, By), color="#6b8e23", lw=1.5, ls="--", label="exact, tight box, towards side")
-ax.axvline(1.0, color="#6b442f", lw=0.8, ls=":")
-ax.set_yscale("log")
-ax.set(xlabel="distance from the wire axis r / a", ylabel="|B| / uT", title="Field along lines from the centre")
-ax.legend(fontsize=8)
-
-ax = axes[1, 1]
-ax.grid(alpha=0.25, which="both")
+exact["tight box, towards side"] = (rr / wire_radius, 1e6 * np.hypot(*exact_B(small_side / 2 + rr, np.full_like(rr, small_side / 2), small_side, small_side / 2)))
 n_vals = np.array([run["n"] for run in runs])
-ax.loglog(n_vals, [abs(run["L_energy"] / L_ref - 1) for run in runs], "o-", color="#A85539", label="L' from field energy")
-ax.loglog(n_vals, [abs(run["L_linkage"] / L_ref - 1) for run in runs], "s--", color="#336B57", label="L' from flux linkage")
-ax.loglog(n_vals, abs(runs[0]["L_energy"] / L_ref - 1) * (n_vals[0] / n_vals) ** 2, color="grey", lw=0.8, ls=":", label="slope -2")
-ax.set(xlabel="cells around the wire circumference", ylabel="relative deviation from exact L'",
-       title=f"Mesh convergence (exact L' = {L_ref*1e9:.2f} nH/m)")
-ax.legend(fontsize=8)
-plt.show()
+fig = plots.figure(2, 2, size=(12, 10.5))
+for panel, run, title in ((fig[0], final, "s = 20 cm (half side 10 a)"), (fig[1], small, "tight box s = 4 cm (half side 2 a)")):
+    plots.section(run["B"], plane=Plane(origin=(0.0, 0.0, run["z_mid"]), normal=(0.0, 0.0, 1.0)), component=log_field,
+                  limits=(-0.6, 1.35), contours=12, subdivisions=3, label="log10(|B| / µT)", title=f"|B|, {title}", ax=panel)
+plots.line(points=computed, reference=exact, vlines={"wire surface": 1.0}, scale="logy",
+           xlabel="distance from the wire axis r / a", ylabel="|B| [µT]",
+           title="Field along lines from the centre: FEM (markers), exact (dashed)", ax=fig[2])
+plots.line(n_vals, {"L' from field energy": [abs(run["L_energy"] / L_ref - 1) for run in runs],
+                    "L' from flux linkage": [abs(run["L_linkage"] / L_ref - 1) for run in runs]},
+           slope=-2, markers=True, scale="loglog", xlabel="cells around the wire circumference",
+           ylabel="relative deviation from exact L'", title=f"Mesh convergence (exact L' = {L_ref * 1e9:.2f} nH/m)", ax=fig[3])
+plots.show()
 
 
 # ## Going further

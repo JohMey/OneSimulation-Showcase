@@ -94,7 +94,7 @@ from onesim.cad.geometry.primitives import Geometry
 from onesim.materials import NewtonianFluid
 from onesim.meshing import PeriodicPair
 from onesim.meshing.generation.backends.structured.volume.hexahedral import StructuredHexahedralMesh
-from onesim.meshing.generation.contracts.polynomial.tetrahedron import EDGES, QuadraticTetrahedralGeometry
+from onesim.meshing.generation.contracts.polynomial.elements.tetrahedron import EDGES, QuadraticTetrahedralGeometry
 from onesim.numerics import Numerics
 from onesim.numerics.discretization.geometry.carriers.kernels.simplex.tetrahedral import boundary_faces
 from onesim.numerics.fem import FiniteElement, TaylorHood

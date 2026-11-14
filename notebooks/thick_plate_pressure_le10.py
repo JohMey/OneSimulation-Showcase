@@ -84,7 +84,7 @@ from matplotlib.colors import TwoSlopeNorm
 from onesim.cad.d3 import QuadraticHexahedron
 from onesim.meshing import QuadraticHexahedralMesher
 from onesim.meshing.generation.backends.structured.volume.quadratic_hex import QuadraticHexahedralMesh
-from onesim.meshing.generation.contracts.polynomial.hex import HEX27_REFERENCE, QuadraticHexahedralGeometry
+from onesim.meshing.generation.contracts.polynomial.elements.hex import HEX27_REFERENCE, QuadraticHexahedralGeometry
 from onesim.physics.solid_mechanics import SmallStrainSolid
 
 print("OneSimulation:", version("onesimulation"))

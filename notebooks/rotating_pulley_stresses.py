@@ -50,32 +50,9 @@ mesh study and an independent cell-centred finite-volume solution of the 3D plat
 # the finite-element and finite-volume solutions.
 
 from dataclasses import dataclass
-from importlib.metadata import version
 import time
-
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 import netgen.occ as occ
 import numpy as np
-from matplotlib.tri import Triangulation
 from scipy.optimize import brentq
 from scipy.sparse import coo_matrix
 from scipy.sparse.linalg import spsolve
@@ -90,8 +67,9 @@ from onesim.numerics.linear import SparseDirect
 from onesim.physics.solid_mechanics import (BodyForce, FixedDisplacement, LinearElasticity, SmallStrainSolid,
                                             Traction, TractionFree)
 from onesim.simulation import Problem, Simulation
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -108,17 +86,17 @@ print("OneSimulation:", version("onesimulation"))
 
 mm = 1e-3
 R_out, r_bore = 125 * mm, 25 * mm
-y_inner, y_outer = 48 * mm, 100 * mm            # chords bounding a cut-out
-side_slope, side_ref = 0.265, (19.3 * mm, 56 * mm)   # cut-out side: x = x0 + slope (y - y0)
+y_inner, y_outer = 48 * mm, 100 * mm
+side_slope, side_ref = 0.265, (19.3 * mm, 56 * mm)
 r_fillet_in, r_fillet_out = 11 * mm, 16 * mm
 n_cutouts = 8
 thickness = 10 * mm
 
 E, nu, rho = 70e9, 0.33, 2700.0
 power, mu_belt, beta = 30e3, 0.3, np.radians(170.0)
-phi_slack, phi_tight = np.radians(-85.0), np.radians(85.0)   # contact arc
-speeds_shown = (1000.0, 9000.0)                              # rpm
-probe = np.array([0.019, 0.054])                             # m, on the inner fillet of the top cut-out
+phi_slack, phi_tight = np.radians(-85.0), np.radians(85.0)
+speeds_shown = (1000.0, 9000.0)
+probe = np.array([0.019, 0.054])
 
 
 def omega(rpm):
@@ -309,7 +287,7 @@ def von_mises(s):
 # case, which are recovered from the two solved speeds. Stresses are taken from the
 # quadrature points and recovered as a continuous P2 field by an $L^2$ projection.
 
-levels = (0, 1, 2)                     # number of uniform refinements of the base mesh
+levels = (0, 1, 2)
 w_lo, w_hi = omega(speeds_shown[0]), omega(speeds_shown[1])
 basis_matrix = np.array([[w_lo**2, power / w_lo], [w_hi**2, power / w_hi]])
 sweep_rpm = np.arange(1000.0, 9001.0, 250.0)
@@ -559,60 +537,32 @@ for i, rpm in enumerate(speeds_shown):
 
 space = fine["result"].space
 cells = space.cell_dofs
-sub = np.concatenate([cells[:, [0, 3, 5]], cells[:, [3, 1, 4]], cells[:, [5, 4, 2]], cells[:, [3, 4, 5]]])
-xy_nodes = space.dof_coordinates
-tri = Triangulation(xy_nodes[:, 0] / mm, xy_nodes[:, 1] / mm, sub)
-fig = plt.figure(figsize=(16, 11), constrained_layout=True)
-grid = fig.add_gridspec(2, 6, height_ratios=(1.25, 1.0))
-for i, rpm in enumerate(speeds_shown):
-    ax = fig.add_subplot(grid[0, 3 * i:3 * i + 3])
-    values = fine["vm"][i] / 1e6
-    levels_vm = np.linspace(0.0, values.max(), 41)
-    filled = ax.tricontourf(tri, values, levels=levels_vm, cmap=FIELD_CMAP)
-    ax.tricontour(tri, values, levels=levels_vm[::4], colors=INK, linewidths=0.25, alpha=0.4)
-    fig.colorbar(filled, ax=ax, shrink=0.85, label="von Mises stress / MPa", ticks=np.linspace(0, values.max(), 6).round(0))
-    arc = np.linspace(phi_slack, phi_tight, 100)
-    ax.plot(1.04 * R_out / mm * np.cos(arc), 1.04 * R_out / mm * np.sin(arc), color=INK, lw=3, alpha=0.6)
-    ax.plot(*(probe / mm), "w*", ms=10, mec=INK)
-    ax.set(aspect="equal", xlabel="x / mm", ylabel="y / mm",
-           title=f"{rpm:.0f} rpm: torque {power / omega(rpm):.0f} N m, peak {values.max():.1f} MPa")
-
-ax = fig.add_subplot(grid[1, 0:2])
-ax.plot(sweep_rpm, fine["sweep_probe"] / 1e6, "-", color=COPPER, lw=2, label="probe point, finite elements")
-ax.plot(sweep_rpm, fine["sweep_peak"] / 1e6, "--", color=GREEN, lw=1.6, label="peak over the pulley, finite elements")
-for i, rpm in enumerate(speeds_shown):
-    vm_fv = float(fv_runs[i]["vm"].evaluate(np.array([[*probe, 0.0]]))[0])
-    ax.plot(rpm, vm_fv / 1e6, "s", color="#5F9175", mfc="none", ms=8, label="probe cell, finite volumes" if i == 0 else None)
-ax.set(xlabel="rotational speed / rpm", ylabel="von Mises stress / MPa", title="Constant power: belt vs inertia")
-ax.grid(alpha=0.3)
-ax.legend(fontsize=8)
-
-ax = fig.add_subplot(grid[1, 2:4])
-ax.plot(r_line / mm, ex_st / 1e6, color=COPPER, lw=2, label="hoop, exact")
-ax.plot(r_line / mm, ex_sr / 1e6, color=GREEN, lw=2, label="radial, exact")
-ax.plot(r_line[::4] / mm, fe_st[::4] / 1e6, "o", color=COPPER, mfc="none", ms=5, label="hoop, finite elements")
-ax.plot(r_line[::4] / mm, fe_sr[::4] / 1e6, "s", color=GREEN, mfc="none", ms=5, label="radial, finite elements")
-ax.set(xlabel="radius / mm", ylabel="stress / MPa", title="Blank without cut-outs at 9000 rpm")
-ax.grid(alpha=0.3)
-ax.legend(fontsize=8)
-
-ax = fig.add_subplot(grid[1, 4:6])
+triangles = np.concatenate([cells[:, [0, 3, 5]], cells[:, [3, 1, 4]], cells[:, [5, 4, 2]], cells[:, [3, 4, 5]]])
+x_mm, y_mm = space.dof_coordinates[:, 0] / mm, space.dof_coordinates[:, 1] / mm
 dofs = [r["dofs"] for r in runs]
-for (key, idx), color, label in ((("peak", 0), COPPER, "peak von Mises, 1000 rpm"),
-                                 (("peak", 1), GREEN, "peak von Mises, 9000 rpm"),
-                                 (("probe", 0), "#CD9561", "probe von Mises, 1000 rpm"),
-                                 (("probe", 1), "#5F9175", "probe von Mises, 9000 rpm"),
-                                 (("rim_u", 1), INK, "radial rim displacement, 9000 rpm")):
-    vals = np.array(study[(key, idx)][0])
-    ax.plot(dofs, 100 * (vals / vals[-1] - 1), "o-", color=color, label=label)
-ax.set_xscale("log")
-ax.minorticks_off()
-ax.set_xticks(dofs, [f"{n:,}" for n in dofs])
-ax.set(xlabel="number of displacement unknowns", ylabel="deviation from the finest mesh / %",
-       title="Mesh study (P2, uniform refinement)")
-ax.grid(alpha=0.3)
-ax.legend(fontsize=8)
-plt.show()
+tracked = {"peak von Mises, 1000 rpm": ("peak", 0), "peak von Mises, 9000 rpm": ("peak", 1),
+           "probe von Mises, 1000 rpm": ("probe", 0), "probe von Mises, 9000 rpm": ("probe", 1),
+           "radial rim displacement, 9000 rpm": ("rim_u", 1)}
+fig = plots.figure(layout=[["low"] * 3 + ["high"] * 3, ["sweep", "sweep", "blank", "blank", "study", "study"]], size=(16, 11))
+for panel, i in (("low", 0), ("high", 1)):
+    plots.heatmap(x_mm, y_mm, fine["vm"][i] / 1e6, triangles=triangles, contours=10, label="von Mises stress [MPa]",
+                  xlabel="x [mm]", ylabel="y [mm]", ax=fig[panel],
+                  title=f"{speeds_shown[i]:.0f} rpm: torque {power / omega(speeds_shown[i]):.0f} N m, "
+                        f"peak {fine['vm'][i].max() / 1e6:.1f} MPa")
+plots.line(sweep_rpm, {"probe point, finite elements": fine["sweep_probe"] / 1e6,
+                       "peak over the pulley, finite elements": fine["sweep_peak"] / 1e6},
+           points={"probe cell, finite volumes":
+                   (speeds_shown, [float(run["vm"].evaluate(np.array([[*probe, 0.0]]))[0]) / 1e6 for run in fv_runs])},
+           xlabel="rotational speed [rpm]", ylabel="von Mises stress [MPa]", title="Constant power: belt vs inertia",
+           ax=fig["sweep"])
+plots.line(points={"hoop": (r_line[::4] / mm, fe_st[::4] / 1e6), "radial": (r_line[::4] / mm, fe_sr[::4] / 1e6)},
+           reference={"hoop": (r_line / mm, ex_st / 1e6), "radial": (r_line / mm, ex_sr / 1e6)},
+           xlabel="radius [mm]", ylabel="stress [MPa]",
+           title="Blank without cut-outs at 9000 rpm: FEM (markers), exact (dashed)", ax=fig["blank"])
+plots.line(dofs, {label: 100 * (np.array(study[key][0]) / study[key][0][-1] - 1) for label, key in tracked.items()},
+           markers=True, scale="logx", xlabel="number of displacement unknowns",
+           ylabel="deviation from the finest mesh [%]", title="Mesh study (P2, uniform refinement)", ax=fig["study"])
+plots.show()
 
 
 # ## Going further
