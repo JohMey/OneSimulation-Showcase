@@ -72,51 +72,27 @@ with the Parker, Cowan and Clark-Taylor methods to recover the thermal diffusivi
 # the exact curve. A three-level mesh study (observed order, Richardson estimate) and a study
 # of the step-size tolerance give the discretisation errors.
 
-from dataclasses import dataclass
-from importlib.metadata import version
 import time
-
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 import numpy as np
-from matplotlib import cm, colors
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from scipy.optimize import brentq
-from scipy.spatial import Delaunay
 from scipy.special import j0, j1
 
-from onesim.cad.geometry.primitives import Geometry
+from onesim.cad.d2 import Circle, Plane
 from onesim.materials import IsotropicSolid
-from onesim.meshing import UnstructuredSimplexMesh
+from onesim.meshing import Geometric, TriangularMesher, extrude
 from onesim.numerics import Numerics
-from onesim.numerics.discretization.geometry.carriers.kernels.simplex.tetrahedral import boundary_faces
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import ConjugateGradient
 from onesim.numerics.time import BDF, AdaptiveTimeStep
 from onesim.physics.heat_transfer import ConvectiveHeatFlux, HeatConduction, HeatFlux
-from onesim.results.storage.output.retention_policy import ResultRetentionPolicy
+from onesim.results import ResultRetentionPolicy
+from onesim.results.comparisons import convergence
+from onesim.results.integration import mean_value
 from onesim.simulation import ExecutionOptions, Problem, Simulation
-from onesim.simulation.initial_conditions.values import InitialValue
+from onesim.simulation.initial_conditions import InitialValue
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -129,23 +105,23 @@ print("OneSimulation:", version("onesimulation"))
 # emissivity 0.9 on all faces. The same constant properties are used in all three cases, so
 # that only the losses change.
 
-R = 6.35e-3              # m, sample radius
-L = 2.0e-3               # m, sample thickness
-k = 3.98                 # W/(m K)
-rho = 2600.0             # kg/m^3
-cp = 808.0               # J/(kg K)
-alpha = k / (rho * cp)   # m^2/s
-dT_adiabatic = 1.0       # K, final rise of a loss-free sample
-Q = rho * cp * L * dT_adiabatic          # J/m^2, absorbed flash energy
-w = 0.15e-3              # m, width of the heated layer at t = 0
-t0 = w**2 / (4 * alpha)  # s, time since the flash at t = 0
+R = 6.35e-3
+L = 2.0e-3
+k = 3.98
+rho = 2600.0
+cp = 808.0
+alpha = k / (rho * cp)
+dT_adiabatic = 1.0
+Q = rho * cp * L * dT_adiabatic
+w = 0.15e-3
+t0 = w**2 / (4 * alpha)
 h_conv, emissivity, sigma = 10.0, 0.9, 5.670374e-8
 t_half_parker = 0.1388 * L**2 / alpha
-t_end = 3.2              # s, more than ten half-rise times
+t_end = 3.2
 ambient = {"loss-free": 293.15, "room, 20 °C": 293.15, "furnace, 800 °C": 1073.15}
 h_case = {"loss-free": 0.0, **{case: h_conv + 4 * emissivity * sigma * ambient[case] ** 3
                                for case in ("room, 20 °C", "furnace, 800 °C")}}
-tolerance = 3e-4         # K, local error tolerance of the adaptive time steps (0.03 % of the rise)
+tolerance = 3e-4
 print(f"alpha = {alpha:.4e} m^2/s, Parker half-rise time {t_half_parker * 1e3:.1f} ms, "
       f"Q = {Q:.0f} J/m^2, heated layer w = {w * 1e3:.2f} mm (t0 = {t0 * 1e3:.2f} ms)")
 for case, h in h_case.items():
@@ -154,114 +130,36 @@ for case, h in h_case.items():
 
 # ## Geometry and mesh
 #
-# OneSimulation's `Cylinder` primitive has no mesher that grades towards the heated face, so
-# each disc is meshed directly: concentric rings of nodes (graded towards the rim, every
-# second ring rotated by half a spacing) are triangulated in the plane, the triangulation is
-# extruded through the thickness in layers graded towards the heated front face (several
-# quadratic elements across the heated layer $w$), and every prism is split into three
-# tetrahedra by a conforming diagonal rule (Dompierre et al., Proc. 8th Int. Meshing
-# Roundtable, 1999). The tetrahedra are handed to `UnstructuredSimplexMesh` together with the
-# named face groups front, rear and rim. (The builder can place several discs side by side in
-# one mesh; each run below uses a single disc.)
+# The disc face is triangulated by `TriangularMesher` on the exact circle, finer at the rim
+# (where the radial losses bend the field) than in the centre. `extrude` sweeps the
+# triangulation through the thickness in layers graded towards the heated front face
+# (several quadratic elements across the heated layer $w$) and splits every prism into three
+# tetrahedra by a conforming diagonal rule. The faces are named `front` ($z=0$, heated),
+# `rear` ($z=L$, where the detector looks) and the rim (`circumference`).
 
-PRISM_ROTATIONS = np.array([[0, 1, 2, 3, 4, 5], [1, 2, 0, 4, 5, 3], [2, 0, 1, 5, 3, 4],
-                            [3, 5, 4, 0, 2, 1], [4, 3, 5, 1, 0, 2], [5, 4, 3, 2, 1, 0]])
-
-
-def split_prism(vertices):
-    v = np.asarray(vertices)[PRISM_ROTATIONS[int(np.argmin(vertices))]]
-    if min(v[1], v[5]) < min(v[2], v[4]):
-        return [(v[0], v[1], v[2], v[5]), (v[0], v[1], v[5], v[4]), (v[0], v[4], v[5], v[3])]
-    return [(v[0], v[1], v[2], v[4]), (v[0], v[4], v[2], v[5]), (v[0], v[4], v[5], v[3])]
-
-
-def graded(n, ratio):
-    """n intervals on [0, 1]; last interval / first interval = ratio."""
-    growth = ratio ** (1.0 / (n - 1))
-    sizes = growth ** np.arange(n)
-    return np.concatenate(([0.0], np.cumsum(sizes) / sizes.sum()))
+levels = {"coarse": (3, 6, 7.0, 16), "medium": (4, 8, 10.0, 22), "fine": (5, 10, 14.0, 28)}
 
 
 def disc_mesh(rings, layers, ratio, rim_nodes):
-    """Vertices and tetrahedra of one disc centred on the z axis."""
-    radii = R * graded(rings, 0.4)[1:]
-    plane = [[0.0, 0.0]]
-    for i, r in enumerate(radii):
-        n = max(6, int(round(rim_nodes * r / R)))
-        phase = (np.arange(n) + 0.5 * (i % 2)) * 2 * np.pi / n
-        plane += list(np.column_stack((r * np.cos(phase), r * np.sin(phase))))
-    plane = np.array(plane)
-    triangles = Delaunay(plane).simplices
-    z = L * graded(layers, ratio)
-    n_plane = len(plane)
-    coordinates = np.column_stack((np.tile(plane[:, 0], len(z)), np.tile(plane[:, 1], len(z)),
-                                   np.repeat(z, n_plane)))
-    cells = []
-    for j in range(len(z) - 1):
-        lower, upper = j * n_plane, (j + 1) * n_plane
-        for a, b, c in triangles:
-            cells += split_prism((a + lower, b + lower, c + lower, a + upper, b + upper, c + upper))
-    return coordinates, np.array(cells), z
-
-
-@dataclass(frozen=True, eq=False, kw_only=True)
-class SampleDiscs(Geometry):
-    """Discs side by side; each has the face groups <name>_front, <name>_rear, <name>_rim."""
-
-    samples: tuple
-    dimension = 3
-
-    def boundary_groups(self):
-        names = tuple(f"{s}_{face}" for s in self.samples for face in ("front", "rear", "rim"))
-        return {**{name: (name,) for name in names}, "all": names}
-
-
-levels = {"coarse": (3, 6, 7.0, 16), "medium": (4, 8, 10.0, 22), "fine": (5, 10, 14.0, 28)}
-spacing = 2 * R + 6e-3
-
-
-def build_discs(samples):
-    """samples: list of (name, mesh level). Returns geometry, mesh and per-disc data."""
-    coordinates, cells, discs = [], [], {}
-    offset = 0
-    for i, (name, level) in enumerate(samples):
-        xyz, tets, z = disc_mesh(*levels[level])
-        xyz = xyz + np.array([i * spacing, 0.0, 0.0])
-        discs[name] = dict(level=level, x0=i * spacing, cells=tets + offset, z=z, n_cells=len(tets))
-        coordinates.append(xyz)
-        cells.append(tets + offset)
-        offset += len(xyz)
-    coordinates, cells = np.concatenate(coordinates), np.concatenate(cells)
-    p = coordinates[cells]
-    signed = np.einsum("ij,ij->i", p[:, 1] - p[:, 0], np.cross(p[:, 2] - p[:, 0], p[:, 3] - p[:, 0]))
-    cells[signed < 0] = cells[signed < 0][:, [0, 2, 1, 3]]
-    names = [name for name, _ in samples]
-    geometry = SampleDiscs(samples=tuple(names))
-    groups = {g: [] for g in geometry.boundary_groups()["all"]}
-    for face in boundary_faces(cells, coordinates):
-        v = np.asarray(face.vertices)
-        disc = names[int(round(coordinates[v[0], 0] / spacing))]
-        zf = coordinates[v, 2]
-        side = "front" if np.all(zf < 1e-12) else "rear" if np.all(zf > L - 1e-12) else "rim"
-        groups[f"{disc}_{side}"].append(tuple(v))
-    mesh =UnstructuredSimplexMesh(geometry=geometry, coordinates=coordinates, cells=cells, boundary_facets=groups)
-    return dict(geometry=geometry, mesh=mesh, coordinates=coordinates, cells=cells, groups=groups, discs=discs)
+    face = TriangularMesher(target_size=1.25 * R / rings,
+                            local_sizes={"circumference": 2 * np.pi * R / rim_nodes}).generate(Circle(radius=R))
+    return extrude(face, L, Geometric(layers, ratio=ratio), names=("front", "rear"))
 
 
 main_samples = [("furnace_coarse", "coarse"), ("furnace_medium", "medium"), ("furnace_fine", "fine"),
                 ("room_fine", "fine"), ("lossfree_fine", "fine")]
 case_of = {"furnace_coarse": "furnace, 800 °C", "furnace_medium": "furnace, 800 °C",
            "furnace_fine": "furnace, 800 °C", "room_fine": "room, 20 °C", "lossfree_fine": "loss-free"}
-disc_runs = {name: build_discs([(name, level)]) for name, level in main_samples}
-for level in levels:
-    xyz, tets, z = disc_mesh(*levels[level])
-    print(f"{level:6s} disc: {len(tets):5d} tetrahedra, {len(xyz):4d} vertices, {len(z) - 1:2d} layers, "
+meshes = {level: disc_mesh(*spec) for level, spec in levels.items()}
+for level, mesh in meshes.items():
+    z = np.unique(np.round(np.asarray(mesh.coordinates)[:, 2], 12))
+    print(f"{level:6s} disc: {mesh.cell_count:5d} tetrahedra, {len(mesh.coordinates):4d} vertices, {len(z) - 1:2d} layers, "
           f"first layer {z[1] * 1e6:.0f} um, last layer {(z[-1] - z[-2]) * 1e6:.0f} um")
 
 
 # ## Model
 #
-# One `HeatConduction` model per run; each disc gets the boundary conditions of its loss case on
+# One `HeatConduction` model per run; the disc gets the boundary conditions of its loss case on
 # its three face groups and the heated-layer initial field.
 
 material = IsotropicSolid(density=rho, specific_heat_capacity=cp, thermal_conductivity=k,
@@ -272,35 +170,25 @@ def heated_layer(z):
     return Q / (rho * cp) * 2.0 / (np.sqrt(np.pi) * w) * np.exp(-(np.asarray(z) / w) ** 2)
 
 
-def run_discs(data, step_tolerance):
-    geometry = data["geometry"]
-    names = list(data["discs"])
-    model = HeatConduction(domain=geometry.domain(), material=material, heating=0.0)
+def run_disc(name, level, step_tolerance):
+    mesh = meshes[level]
+    case = case_of[name]
+    geometry = mesh.geometry
     b = geometry.boundaries
-    conditions = []
-    for name in names:
-        case = case_of[name]
-        faces = (getattr(b, f"{name}_front") | getattr(b, f"{name}_rear") | getattr(b, f"{name}_rim"))
-        if h_case[case] > 0:
-            # front, rear and rim: convection + linearised radiation to the ambient
-            conditions.append(ConvectiveHeatFlux(boundary=faces, physics=model, heat_transfer_coefficient=h_case[case],
-                                                 ambient_temperature=ambient[case]))
-        else:
-            # loss-free sample: all faces insulated
-            conditions.append(HeatFlux(boundary=faces, physics=model, value=0.0))
-    T_inf_disc = np.array([ambient[case_of[name]] for name in names])
-
-    def initial_temperature(x, y, z):
-        disc = np.clip(np.rint(np.asarray(x) / spacing).astype(int), 0, len(names) - 1)
-        return T_inf_disc[disc] + heated_layer(z)
-
-    problem = Problem(name="Flash method", geometry=geometry, physics=(model,),
-                      boundary_conditions=tuple(conditions),
-                      initial_conditions=(InitialValue(model.temperature, initial_temperature),))
-    simulation = Simulation(problem=problem, mesh=data["mesh"], numerics=Numerics(
-        spatial=FiniteElement(element=Lagrange(order=2)), linear_solver=ConjugateGradient(relative_tolerance=1e-10, maximum_iterations=20000),
+    model = HeatConduction(domain=geometry.domain(), material=material, heating=0.0)
+    faces = b.front | b.rear | b.circumference
+    if h_case[case] > 0:
+        condition = ConvectiveHeatFlux(boundary=faces, physics=model, heat_transfer_coefficient=h_case[case],
+                                       ambient_temperature=ambient[case])
+    else:
+        condition = HeatFlux(boundary=faces, physics=model, value=0.0)
+    problem = Problem(name="Flash method", geometry=geometry, physics=(model,), boundary_conditions=(condition,),
+                      initial_conditions=(InitialValue(model.temperature,
+                                                       lambda x, y, z: ambient[case] + heated_layer(z)),))
+    simulation = Simulation(problem=problem, mesh=mesh, numerics=Numerics(
+        spatial=FiniteElement(element=Lagrange(order=2)),
+        linear_solver=ConjugateGradient(relative_tolerance=1e-10, maximum_iterations=20000),
         time_integrator=BDF(order=3)))
-    # Every accepted step is streamed to this recorder instead of being kept in the result.
     frames = {}
 
     def record(frame):
@@ -315,23 +203,22 @@ def run_discs(data, step_tolerance):
                                    relative_tolerance=0.0, absolute_tolerance=step_tolerance),
         execution_options=ExecutionOptions(checkpoint_retain_count=1, result_retention=ResultRetentionPolicy(
             mode="external_stream", stream_callback=record)))
-    space = result.field(model.temperature).space
     times = np.array(sorted(frames))
-    states = np.array([frames[t] for t in times])
-    dof_xyz = np.asarray(space.dof_coordinates)
-    rear_dofs = [int(np.argmin(np.linalg.norm(dof_xyz - np.array([data["discs"][name]["x0"], 0.0, L]), axis=1)))
-                 for name in names]
+    field = result.field(model.temperature).with_states(times, [frames[t] for t in times])
+    rear = np.array([float(field.evaluate([[0.0, 0.0, L]], time=t)[0]) for t in times]) - ambient[case]
     report = result.result_set.solver_report
-    return dict(space=space, times=times, states=states,
-                rear={name: states[:, dof] - T_inf_disc[i] for i, (name, dof) in enumerate(zip(names, rear_dofs))},
-                T_inf={name: T_inf_disc[i] for i, name in enumerate(names)}, steps=report.get("accepted_steps"),
-                rejected=report.get("rejected_steps"), seconds=time.time() - start, data=data)
+    return dict(field=field, times=times, rear=rear, T_inf=ambient[case], mesh=mesh, b=b,
+                steps=report.get("accepted_steps"), rejected=report.get("rejected_steps"), seconds=time.time() - start)
+
+
+def nearest_time(run, t):
+    return float(run["times"][int(np.argmin(np.abs(run["times"] - t)))])
 
 
 def temperature(run, points, t):
-    """Evaluate the stored quadratic field of a run at the accepted time nearest to t."""
-    k = int(np.argmin(np.abs(run["times"] - t)))
-    return np.asarray(run["space"].evaluate(run["states"][k], points)).ravel(), run["times"][k]
+    """The stored quadratic field of a run at the accepted time nearest to t."""
+    t_near = nearest_time(run, t)
+    return np.asarray(run["field"].evaluate(np.asarray(points), time=t_near)).ravel(), t_near
 
 
 # ## Solve
@@ -341,12 +228,12 @@ def temperature(run, points, t):
 
 runs = {}
 for name, level in main_samples:
-    runs[name] = run_discs(disc_runs[name], tolerance)
-    print(f"{name:15s} ({len(disc_runs[name]['cells']):5d} tetrahedra): {runs[name]['steps']} accepted / "
+    runs[name] = run_disc(name, level, tolerance)
+    print(f"{name:15s} ({meshes[level].cell_count:5d} tetrahedra): {runs[name]['steps']} accepted / "
           f"{runs[name]['rejected']} rejected steps ({runs[name]['seconds']:.0f} s)")
 step_runs = {tolerance: runs["furnace_coarse"]}
 for tol in (3e-3, 1e-3, 1e-4):
-    step_runs[tol] = run_discs(disc_runs["furnace_coarse"], tol)
+    step_runs[tol] = run_disc("furnace_coarse", "coarse", tol)
     print(f"coarse furnace disc alone, tolerance {tol * 1e3:.1f} mK: {step_runs[tol]['steps']} accepted / "
           f"{step_runs[tol]['rejected']} rejected steps ({step_runs[tol]['seconds']:.0f} s)")
 
@@ -396,12 +283,10 @@ def exact_rise(case, times, r=0.0, z=L):
     mu, phi, beta, radial, b_m = series_cache[case]
     lam = alpha * (mu[:, None] ** 2 + (beta[None, :] / R) ** 2)
     axial = (b_m * phi(z)[0])[:, None]
-    weight = axial * radial(r)[:, None, :]                         # (r, m, n)
-    decay = np.exp(-lam[None] * np.atleast_1d(times)[:, None, None])  # (t, m, n)
+    weight = axial * radial(r)[:, None, :]
+    decay = np.exp(-lam[None] * np.atleast_1d(times)[:, None, None])
     return np.einsum("rmn,tmn->tr", weight, decay).squeeze()
 
-
-# The rear-face rise at the centre, computed vs exact, over the record $t\ge 5$ ms.
 
 def half_rise(times, rise, fraction=0.5):
     peak = int(np.argmax(rise))
@@ -416,13 +301,13 @@ exact_curves = {case: exact_rise(case, dense) for case in ambient}
 
 def largest_deviation(run, name):
     keep = run["times"] >= 5e-3
-    return np.max(np.abs(run["rear"][name][keep] - exact_rise(case_of[name], run["times"][keep])))
+    return np.max(np.abs(run["rear"][keep] - exact_rise(case_of[name], run["times"][keep])))
 
 
 print("Rear-face centre: computed vs exact series")
 deviation = {}
 for name, run in runs.items():
-    case, rise, times = case_of[name], run["rear"][name], run["times"]
+    case, rise, times = case_of[name], run["rear"], run["times"]
     deviation[name] = largest_deviation(run, name)
     print(f"  {name:15s}: max rise {rise.max():.5f} K vs {exact_curves[case].max():.5f} K "
           f"({100 * (rise.max() / exact_curves[case].max() - 1):+.3f} %), t_1/2 {half_rise(times, rise) * 1e3:.2f} ms "
@@ -433,28 +318,19 @@ for name, run in runs.items():
 # the three levels.
 
 
-def richardson(values, sizes):
-    f1, f2, f3 = values
-    h1, h2, h3 = sizes
-    ratio = (f1 - f2) / (f2 - f3)
-    try:
-        p = brentq(lambda p: (h1**p - h2**p) / (h2**p - h3**p) - ratio, 0.2, 12.0)
-    except ValueError:
-        return np.nan, np.nan
-    return p, f3 + (f3 - f2) / ((h2 / h3) ** p - 1.0)
-
-
 mesh_names = ("furnace_coarse", "furnace_medium", "furnace_fine")
-sizes = [len(disc_runs[n]["cells"]) ** (-1 / 3) for n in mesh_names]
+sizes = [runs[n]["mesh"].cell_count ** (-1 / 3) for n in mesh_names]
 exact_peak = exact_curves["furnace, 800 °C"].max()
 exact_half = half_rise(dense, exact_curves["furnace, 800 °C"])
 print("Mesh study, furnace case")
 for label, values, ref in (
-        ("max rise / K", [runs[n]["rear"][n].max() for n in mesh_names], exact_peak),
-        ("t_1/2 / ms", [half_rise(runs[n]["times"], runs[n]["rear"][n]) * 1e3 for n in mesh_names], exact_half * 1e3)):
-    p, extrapolated = richardson(values, sizes)
+        ("max rise / K", [runs[n]["rear"].max() for n in mesh_names], exact_peak),
+        ("t_1/2 / ms", [half_rise(runs[n]["times"], runs[n]["rear"]) * 1e3 for n in mesh_names], exact_half * 1e3)):
+    estimate = convergence(values, sizes)
+    order = f"{estimate.order:.2f}" if estimate.order is not None else "n/a"
+    extrapolated = f"{estimate.extrapolated:.5f}" if estimate.extrapolated is not None else "n/a"
     print(f"  {label:13s} " + "  ".join(f"{v:.5f}" for v in values)
-          + f"  | order {p:.2f}, Richardson {extrapolated:.5f}, exact {ref:.5f}; change between the last two meshes "
+          + f"  | order {order}, Richardson {extrapolated}, exact {ref:.5f}; change between the last two meshes "
           f"{abs(values[2] - values[1]):.2e} ({100 * abs(values[2] / values[1] - 1):.3f} %)")
 print("  largest deviation from the series / mK: " + "  ".join(f"{deviation[n] * 1e3:.3f}" for n in mesh_names))
 
@@ -463,12 +339,12 @@ print("  largest deviation from the series / mK: " + "  ".join(f"{deviation[n] *
 # reference.
 
 print("Time-step study, coarse furnace disc")
-reference_rise = step_runs[1e-4]["rear"]["furnace_coarse"]
+reference_rise = step_runs[1e-4]["rear"]
 reference_times = step_runs[1e-4]["times"]
 time_error = {}
 for tol in (3e-3, 1e-3, 3e-4, 1e-4):
     run = step_runs[tol]
-    rise = run["rear"]["furnace_coarse"]
+    rise = run["rear"]
     shift = np.max(np.abs(np.interp(dense, run["times"], rise) - np.interp(dense, reference_times, reference_rise)))
     time_error[tol] = shift
     print(f"  tolerance {tol * 1e3:.1f} mK: {run['steps']:4d} steps, max rise {rise.max():.6f} K, "
@@ -476,164 +352,63 @@ for tol in (3e-3, 1e-3, 3e-4, 1e-4):
 
 # **Energy balance (loss-free disc).** Without losses the energy stays in the sample: the mean
 # temperature rise must equal $Q/(\rho c_p L)=1$ K at every time. The quadratic field is
-# integrated exactly over the disc with a degree-2 rule (4 points per tetrahedron).
+# averaged over the disc with the library's volume integral.
 
-coords = disc_runs["lossfree_fine"]["coordinates"]
-tets = disc_runs["lossfree_fine"]["cells"]
-times = runs["lossfree_fine"]["times"]
-p = coords[tets]
-volumes = np.abs(np.einsum("ij,ij->i", p[:, 1] - p[:, 0], np.cross(p[:, 2] - p[:, 0], p[:, 3] - p[:, 0]))) / 6
-a_q, b_q = 0.5854101966249685, 0.1381966011250105
-bary = np.array([[a_q, b_q, b_q, b_q], [b_q, a_q, b_q, b_q], [b_q, b_q, a_q, b_q], [b_q, b_q, b_q, a_q]])
-quad_points = np.einsum("qk,ckd->cqd", bary, p).reshape(-1, 3)
-for t in (times[0], times[np.argmin(np.abs(times - 0.3))], times[-1]):
-    T_q = temperature(runs["lossfree_fine"], quad_points, t)[0].reshape(-1, 4) - runs["lossfree_fine"]["T_inf"]["lossfree_fine"]
-    mean_rise = float(np.sum(T_q.mean(axis=1) * volumes) / volumes.sum())
+lossfree = runs["lossfree_fine"]
+for t in (lossfree["times"][0], nearest_time(lossfree, 0.3), lossfree["times"][-1]):
+    mean_rise = mean_value(lossfree["field"], time=t) - lossfree["T_inf"]
     print(f"  loss-free disc, t = {t * 1e3:7.1f} ms: mean rise {mean_rise:.6f} K vs {dT_adiabatic:.6f} K "
           f"({100 * (mean_rise - dT_adiabatic):+.4f} %)")
-
-# **Diffusivity recovery.** Times are counted from the flash ($t+t_0$). Parker:
-# $\alpha=0.1388\,L^2/t_{1/2}$. Cowan and Clark-Taylor both rest on Cowan's one-dimensional
-# model of a slab with equal face losses (Biot number $Y=hL/k$): Cowan matches the ratio
-# $\Delta T(10\,t_{1/2})/\Delta T(t_{1/2})$, Clark and Taylor the rise-time ratio
-# $t_{0.7}/t_{0.3}$, to find $Y$, and then $\alpha=\omega_{1/2}(Y)\,L^2/t_{1/2}$ with the
-# dimensionless half-rise time $\omega_{1/2}$ of that model. The model is evaluated exactly
-# (its eigen-series) instead of through the published polynomial fits. Both methods ignore the
-# rim losses, so a residual bias remains for a finite disc; the same analysis applied to the
-# exact series separates this method bias from the discretisation error.
-
-
-def cowan_model(Y):
-    mu, phi = axial_modes(Y / L, 120)
-    weight = phi(0.0)[0] * phi(L)[0]
-    value = lambda omega: np.exp(-np.outer(np.atleast_1d(omega), mu**2) * L**2) @ weight
-    grid = np.linspace(0.005, 1.5, 3000)
-    curve = value(grid)
-    peak = int(np.argmax(curve))
-    top = curve[peak] if peak < len(grid) - 1 else value(50.0)[0]
-    upper = grid[peak] if peak < len(grid) - 1 else 1.5
-    at = lambda f: brentq(lambda s: value(s)[0] - f * top, 0.005, upper, xtol=1e-13)
-    o3, o5, o7 = at(0.3), at(0.5), at(0.7)
-    return o5, o7 / o3, value(10 * o5)[0] / value(o5)[0]
-
-
-ideal = cowan_model(0.0)
-
-
-def recover(times_since_start, rise):
-    t = times_since_start + t0
-    t3, t5, t7 = (half_rise(t, rise, f) for f in (0.3, 0.5, 0.7))
-    ratio_ct, ratio_10 = t7 / t3, np.interp(10 * t5, t, rise) / np.interp(t5, t, rise)
-    Y_cowan = brentq(lambda Y: cowan_model(Y)[2] - ratio_10, 0.0, 3.0) if ratio_10 < ideal[2] else 0.0
-    Y_ct = brentq(lambda Y: cowan_model(Y)[1] - ratio_ct, 0.0, 3.0) if ratio_ct < ideal[1] else 0.0
-    return dict(t5=t5, parker=0.1388 * L**2 / t5, cowan=cowan_model(Y_cowan)[0] * L**2 / t5,
-                ct=cowan_model(Y_ct)[0] * L**2 / t5, Y_cowan=Y_cowan, Y_ct=Y_ct)
-
-
-print(f"Recovered diffusivity (true alpha = {alpha:.4e} m^2/s): relative deviation in %")
-print(f"  {'case':16s} {'curve':14s} {'t_1/2 / ms':>10s} {'Parker':>8s} {'Cowan':>8s} {'Clark-Taylor':>13s}   fitted Y (Cowan, CT)")
-for name in ("lossfree_fine", "room_fine", "furnace_fine"):
-    case = case_of[name]
-    for label, (t, rise) in (("OneSimulation", (runs[name]["times"], runs[name]["rear"][name])),
-                             ("exact series", (dense, exact_curves[case]))):
-        out = recover(t, rise)
-        print(f"  {case:16s} {label:14s} {out['t5'] * 1e3:10.2f} {100 * (out['parker'] / alpha - 1):+8.2f} "
-              f"{100 * (out['cowan'] / alpha - 1):+8.2f} {100 * (out['ct'] / alpha - 1):+13.2f}   "
-              f"{out['Y_cowan']:.4f}, {out['Y_ct']:.4f}  (h L/k = {h_case[case] * L / k:.4f})")
 
 
 # ## Figure
 #
-# Top: temperature over the $r$-$z$ section through the axis of the fine furnace disc (full
+# Top: temperature over the section through the axis of the fine furnace disc (full
 # diameter, thickness exaggerated three times; the flash heated the bottom face) at three
-# instants. Bottom, from left: the disc surface at the half-rise time; rear-face rise against
-# the exact series for the three cases; rear-face radial profiles of the furnace case; mesh
-# and time-step study.
+# instants. Bottom, from left: the rear face and rim at the half-rise time; rear-face rise
+# against the exact series for the three cases; rear-face radial profiles of the furnace case;
+# mesh and time-step study.
 
 fine_run = runs["furnace_fine"]
-x_fine, coords = 0.0, disc_runs["furnace_fine"]["coordinates"]
-T_inf_f = fine_run["T_inf"]["furnace_fine"]
-fig = plt.figure(figsize=(18, 10.5), constrained_layout=True)
-outer = fig.add_gridspec(2, 1, height_ratios=(0.8, 1.0))
-top = outer[0].subgridspec(1, 3)
-bottom = outer[1].subgridspec(1, 4, width_ratios=(1.1, 1.0, 1.0, 1.0))
-xr = np.linspace(-R, R, 255) * (1 - 1e-9)
-zr = np.linspace(0.0, L, 81)
-XR, ZR = np.meshgrid(xr, zr, indexing="ij")
-section_points = np.column_stack((x_fine + XR.ravel(), np.zeros(XR.size), ZR.ravel()))
-for col, t_show in enumerate((0.03, 0.15, 1.2)):
-    ax = fig.add_subplot(top[col])
-    values, t_near = temperature(fine_run, section_points, t_show)
-    values = values.reshape(XR.shape) - T_inf_f
-    low = 0.0 if values.min() < 0.05 * values.max() else values.min()
-    filled = ax.contourf(XR * 1e3, ZR * 3e3, np.clip(values, low, None), levels=np.linspace(low, values.max(), 41),
-                         cmap=FIELD_CMAP)
-    lines = values.min() + (values.max() - values.min()) * np.linspace(0.05, 0.95, 10)
-    ax.contour(XR * 1e3, ZR * 3e3, values, levels=lines, colors="w", linewidths=0.4, alpha=0.7)
-    ax.set_aspect("equal")
-    ax.set(xlabel="x through the axis / mm", ylabel="3 z / mm" if col == 0 else None,
-           title=f"Furnace case, t + t0 = {(t_near + t0) * 1e3:.0f} ms: T - T_inf on the r-z section")
-    fig.colorbar(filled, ax=ax, label="K", orientation="horizontal", shrink=0.8, pad=0.02)
-
-ax3d = fig.add_subplot(bottom[0], projection="3d")
-ax3d.set_facecolor(CREAM)
-faces = np.array(disc_runs["furnace_fine"]["groups"]["furnace_fine_rear"] + disc_runs["furnace_fine"]["groups"]["furnace_fine_rim"])
-polys = coords[faces] - np.array([x_fine, 0.0, 0.0])
-inside = polys.mean(axis=1) * np.array([1 - 1e-6, 1 - 1e-6, 1.0])
-inside[:, 2] = np.clip(inside[:, 2], 1e-9, L - 1e-9)
-face_T, t_near = temperature(fine_run, inside + np.array([x_fine, 0.0, 0.0]), t_half_parker)
-face_T = face_T - T_inf_f
-norm = colors.Normalize(vmin=face_T.min(), vmax=face_T.max())
-ax3d.add_collection3d(Poly3DCollection(polys * 1e3, facecolors=FIELD_CMAP(norm(face_T)), edgecolors="k",
-                                       linewidths=0.05))
-ax3d.set(xlim=(-R * 1e3, R * 1e3), ylim=(-R * 1e3, R * 1e3), zlim=(0, L * 1e3), xlabel="x / mm", ylabel="y / mm")
-ax3d.set_zticks([0, 1, 2])
-ax3d.set_box_aspect((2 * R, 2 * R, 2.5 * L))
-ax3d.view_init(elev=28, azim=-60)
-ax3d.set_title(f"Rear face and rim, t + t0 = {(t_near + t0) * 1e3:.0f} ms (furnace)\n"
-               f"fine mesh, {len(disc_runs['furnace_fine']['cells'])} P2 tetrahedra")
-fig.colorbar(cm.ScalarMappable(norm=norm, cmap=FIELD_CMAP), ax=ax3d, shrink=0.5, pad=0.08,
-             label="T - T_inf / K")
-
-ax = fig.add_subplot(bottom[1])
-for name, colour in zip(("lossfree_fine", "room_fine", "furnace_fine"), (GREEN, "#A8BC91", COPPER)):
-    case = case_of[name]
-    ax.plot((dense + t0) * 1e3, exact_curves[case], color=colour, lw=1.5, label=f"exact series, {case}")
-    ax.plot((runs[name]["times"] + t0) * 1e3, runs[name]["rear"][name], "o", ms=2.8, mfc="none", color=colour)
-ax.axhline(0.5, color="0.6", lw=0.8, ls=":")
-ax.set(xlabel="time since the flash / ms", ylabel="rear-face centre rise / K",
-       title="Rear-face rise (circles: OneSimulation, adaptive steps)", xlim=(0, t_end * 1e3))
-ax.legend(fontsize=8)
-ax.grid(alpha=0.3)
-
-ax = fig.add_subplot(bottom[2])
+field, b, T_inf_f = fine_run["field"], fine_run["b"], fine_run["T_inf"]
+rise_of = lambda T, p: T - T_inf_f
 r_profile = np.linspace(0.0, R, 64) * (1 - 1e-9)
-for t_show, colour in zip((0.3, 1.0, 3.0), ("#A8BC91", GREEN, "#214D43")):
-    computed, t_near = temperature(fine_run, np.column_stack((x_fine + r_profile, np.zeros_like(r_profile),
-                                                         np.full_like(r_profile, L))), t_show)
-    computed = computed - T_inf_f
-    ax.plot(r_profile * 1e3, exact_rise("furnace, 800 °C", [t_near], r=r_profile), color=colour, lw=1.5,
-            label=f"exact, t + t0 = {(t_near + t0) * 1e3:.0f} ms")
-    ax.plot(r_profile[::3] * 1e3, computed[::3], "o", ms=3.5, mfc="none", color=colour)
-ax.set(xlabel="r / mm", ylabel="rear-face rise / K", title="Rear face, furnace case: rim cooling")
-ax.legend(fontsize=8)
-ax.grid(alpha=0.3)
-
-study = bottom[3].subgridspec(2, 1, hspace=0.15)
-ax = fig.add_subplot(study[0])
-ax.loglog([len(disc_runs[n]["cells"]) for n in mesh_names], [deviation[n] * 1e3 for n in mesh_names], "o-",
-          color=GREEN, label="furnace case, tolerance 0.3 mK")
-ax.set(xlabel="tetrahedra per disc", ylabel="max deviation / mK", title="Mesh study (vs exact series)")
-ax.legend(fontsize=8)
-ax.grid(alpha=0.3, which="both")
-ax = fig.add_subplot(study[1])
-tols = (3e-3, 1e-3, 3e-4)
-ax.loglog([step_runs[t]["steps"] for t in tols], [time_error[t] * 1e3 for t in tols], "s-", color=COPPER,
-          label="tolerance 3, 1, 0.3 mK (coarse disc)")
-ax.set(xlabel="accepted time steps", ylabel="difference / mK", title="Time-step study (vs 0.1 mK run)")
-ax.legend(fontsize=8)
-ax.grid(alpha=0.3, which="both")
-plt.show()
+rear_points = np.column_stack((r_profile, np.zeros_like(r_profile), np.full_like(r_profile, L)))
+tolerances = (3e-3, 1e-3, 3e-4)
+rim_computed, rim_exact = {}, {}
+for t_show in (0.3, 1.0, 3.0):
+    computed, t_near = temperature(fine_run, rear_points, t_show)
+    label = f"t + t0 = {(t_near + t0) * 1e3:.0f} ms"
+    rim_computed[label] = (r_profile[::3] * 1e3, (computed - T_inf_f)[::3])
+    rim_exact[label] = (r_profile * 1e3, exact_rise("furnace, 800 °C", [t_near], r=r_profile))
+fig = plots.figure(layout=[["a"] * 4 + ["b"] * 4 + ["c"] * 4,
+                           ["surface"] * 3 + ["rise"] * 3 + ["rim"] * 3 + ["mesh"] * 3,
+                           ["surface"] * 3 + ["rise"] * 3 + ["rim"] * 3 + ["steps"] * 3], size=(18, 11.5))
+for panel, t_show in zip("abc", (0.03, 0.15, 1.2)):
+    t_near = nearest_time(fine_run, t_show)
+    plots.section(field, time=t_near, plane=Plane(origin=(0.0, 0.0, 0.0), normal=(0.0, 1.0, 0.0)), component=rise_of,
+                  contours=10, subdivisions=3, label="K", aspect=3.0, ax=fig[panel],
+                  title=f"Furnace case, T - T_inf, t + t0 = {(t_near + t0) * 1e3:.0f} ms")
+t_near = nearest_time(fine_run, t_half_parker)
+plots.surface(field, time=t_near, boundary=b.rear | b.circumference, component=rise_of, subdivisions=2,
+              camera=plots.Camera(elevation=28, azimuth=-60), edges=True, label="T - T_inf [K]", ax=fig["surface"],
+              title=f"Rear face and rim, t + t0 = {(t_near + t0) * 1e3:.0f} ms (furnace), "
+                    f"{fine_run['mesh'].cell_count} P2 tetrahedra")
+plots.line(points={case_of[name]: ((runs[name]["times"] + t0) * 1e3, runs[name]["rear"])
+                   for name in ("lossfree_fine", "room_fine", "furnace_fine")},
+           reference={case_of[name]: ((dense + t0) * 1e3, exact_curves[case_of[name]])
+                      for name in ("lossfree_fine", "room_fine", "furnace_fine")},
+           hlines=0.5, xlimits=(0, t_end * 1e3), xlabel="time since the flash [ms]", ylabel="rear-face centre rise [K]",
+           title="Rear-face rise: OneSimulation (markers), exact series (dashed)", ax=fig["rise"])
+plots.line(points=rim_computed, reference=rim_exact, xlabel="r [mm]", ylabel="rear-face rise [K]",
+           title="Rear face, furnace case: rim cooling", ax=fig["rim"])
+plots.convergence([runs[name]["mesh"].cell_count for name in mesh_names],
+                  {"furnace case, tolerance 0.3 mK": [deviation[name] * 1e3 for name in mesh_names]},
+                  xlabel="tetrahedra per disc", ylabel="max deviation [mK]", title="Mesh study (vs exact series)", ax=fig["mesh"])
+plots.convergence([step_runs[tol]["steps"] for tol in tolerances],
+                  {"tolerance 3, 1, 0.3 mK (coarse disc)": [time_error[tol] * 1e3 for tol in tolerances]},
+                  xlabel="accepted time steps", ylabel="difference [mK]", title="Time-step study (vs 0.1 mK run)", ax=fig["steps"])
+plots.show()
 
 
 # ## Going further

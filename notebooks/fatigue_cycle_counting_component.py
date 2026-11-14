@@ -98,8 +98,8 @@ from onesim.cad.geometry.primitives import Geometry
 from onesim.meshing import UnstructuredSimplexMesh
 from onesim.physics.solid_mechanics import SmallStrainSolid
 from onesim.physics.solid_mechanics.fatigue.models.fatigue_data import FatigueCycle, FatigueState, SNDataset
-from onesim.physics.solid_mechanics.inelasticity.models.damage_laws import DamageLaw
-from onesim.physics.solid_mechanics.inelasticity.models.damage_provider import (
+from onesim.physics.solid_mechanics.inelasticity.models.damage.damage_laws import DamageLaw
+from onesim.physics.solid_mechanics.inelasticity.models.damage.damage_provider import (
     StructuralDamageFractureFatigueProvider,
 )
 

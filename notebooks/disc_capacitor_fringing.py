@@ -53,32 +53,12 @@ the device is checked by a three-mesh convergence study and an air-domain study.
 # Nystrom discretisation, which converges to all printed digits.
 
 from dataclasses import dataclass
-from importlib.metadata import version
 import time
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 import netgen.occ as occ
+import numpy as np
 from scipy.spatial import cKDTree
 
+from onesim.cad.d2 import Plane
 from onesim.cad.d3 import Cylinder
 from onesim.materials import VacuumPermittivity
 from onesim.meshing import UnstructuredSimplexMesh
@@ -87,20 +67,21 @@ from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import SparseDirect
 from onesim.physics.electrostatics import FixedPotential, PoissonEquation, ZeroNormalElectricDisplacement
 from onesim.simulation import Problem, Simulation
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
 
-a = 0.10                     # m, disc radius
-t_plate = 0.005              # m, metal disc thickness
-d = 0.03                     # m, dielectric thickness = electrode gap
-r_lead = 0.0075              # m, lead radius
-R_air, H_air = 0.20, 0.20    # m, air cylinder of the device
-eps_r = 4.2                  # quartz glass
-V0 = 1.0                     # V, terminal potential
-z1 = 0.08                    # m, bottom of the lower disc
+a = 0.10
+t_plate = 0.005
+d = 0.03
+r_lead = 0.0075
+R_air, H_air = 0.20, 0.20
+eps_r = 4.2
+V0 = 1.0
+z1 = 0.08
 z2, z3, z4 = z1 + t_plate, z1 + t_plate + d, z1 + 2 * t_plate + d
 eps0 = float(VacuumPermittivity().evaluate())
 TOL = 1e-6
@@ -109,7 +90,7 @@ TOL = 1e-6
 # finer by a factor sqrt(2).
 device_levels = ((0.040, 0.0080, 0.0040), (0.0283, 0.00566, 0.00283), (0.020, 0.0040, 0.0020))
 benchmark_levels = ((0.0424, 0.0113, 0.00283), (0.030, 0.0080, 0.0020), (0.0212, 0.00566, 0.00141))
-R_sphere = 0.30              # m, air sphere around the benchmark disc pair (3 radii)
+R_sphere = 0.30
 
 C_ideal_device = eps0 * eps_r * np.pi * a**2 / d
 C_ideal_air = eps0 * np.pi * a**2 / d
@@ -181,7 +162,7 @@ def device_mesh(R, size, size_gap, size_edge):
         elif abs(hi.x - R) < TOL or (hi.z - lo.z < TOL and (hi.z < TOL or lo.z > H_air - TOL)):
             face.name = "outer"
         elif abs(hi.x - a) < TOL and abs(lo.z - z2) < TOL and abs(hi.z - z3) < TOL:
-            face.name = "interface"          # dielectric/air, interior
+            face.name = "interface"
         elif hi.z < H_air / 2:
             face.name = "ground"
         else:
@@ -189,7 +170,7 @@ def device_mesh(R, size, size_gap, size_edge):
     for edge in shape.edges:
         lo, hi = edge.bounding_box
         if abs(hi.x - a) < TOL and abs(hi.y - a) < TOL and hi.z - lo.z < TOL:
-            edge.maxh = size_edge              # the four quarter-circle disc rims
+            edge.maxh = size_edge
     mesh = occ.OCCGeometry(shape).GenerateMesh(maxh=size, grading=0.25)
     X, T = netgen_arrays(mesh)
     in_dielectric = np.array([mesh.GetMaterial(e.index) == "dielectric" for e in mesh.Elements3D()])
@@ -223,7 +204,7 @@ def disc_pair_mesh(R, size, size_disc, size_edge):
     X, T = netgen_arrays(occ.OCCGeometry(shape).GenerateMesh(maxh=size, grading=0.25))
     centroid_z = X[T][:, :, 2].mean(axis=1)
     blocks, n = [X], len(X)
-    for z_disc in (d / 2, -d / 2):          # open each disc into a two-sided slit
+    for z_disc in (d / 2, -d / 2):
         on_disc = np.where((np.abs(X[:, 2] - z_disc) < TOL) & (np.hypot(X[:, 0], X[:, 1]) < a * (1 - 1e-9)))[0]
         copy = np.full(n, -1)
         copy[on_disc] = n + np.arange(len(on_disc))
@@ -317,7 +298,6 @@ def solve(X, T, facets, eps_cell, R, length, origin, outer_potential=None):
     corners = X[T]
     volume = np.abs(np.einsum("ni,ni->n", np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]),
                               corners[:, 3] - corners[:, 0])) / 6.0
-    # E is linear on each tetrahedron: the 4-point rule integrates |E|^2 exactly.
     E_gauss = np.asarray(E.evaluate(np.einsum("qv,nvd->nqd", GAUSS4, corners).reshape(-1, 3))).reshape(-1, 4, 3)
     energy = 4 * 0.5 * np.sum(eps_cell * volume * (E_gauss**2).sum(axis=2).mean(axis=1))
     return E, result.field(model.potential), energy, volume
@@ -433,86 +413,27 @@ print(f"fringing (incl. leads) adds {(C_device-C_ideal_device)*1e12:.3f} pF; the
 # The potential is evaluated on the vertical section at 45 degrees inside the quarter model and shown
 # mirrored about the axis (the field is rotationally symmetric).
 
-def section(field, r_max, z_lo, z_hi, n_r, n_z, keep):
-    r = np.linspace(1e-4, r_max, n_r)
-    z = np.linspace(z_lo, z_hi, n_z)
-    Rg, Zg = np.meshgrid(r, z)
-    mask = keep(Rg, Zg)
-    values = np.full(Rg.shape, np.nan)
-    pts = np.column_stack((Rg[mask] / np.sqrt(2), Rg[mask] / np.sqrt(2), Zg[mask]))
-    out = np.asarray(field.evaluate(pts))
-    values[mask] = out if out.ndim == 1 else np.linalg.norm(out, axis=1)
-    return Rg, Zg, values
-
-
-def outside_metal(R, Z, margin=2e-4):
-    plate = (R < a + margin) & (((Z > z1 - margin) & (Z < z2 + margin)) | ((Z > z3 - margin) & (Z < z4 + margin)))
-    lead = (R < r_lead + margin) & ((Z < z1 + margin) | (Z > z4 - margin))
-    inside_box = (R < 0.995 * R_air) & (Z > 1e-6) & (Z < H_air - 1e-6)
-    return ~plate & ~lead & inside_box
-
-
-def metal_outline(ax, mirror=True):
-    for sign in ((-1, 1) if mirror else (1,)):
-        for z_lo in (z1, z3):
-            ax.add_patch(plt.Rectangle((min(0, sign * a) * 100, z_lo * 100), a * 100, t_plate * 100, color="#8a8a8a", zorder=3))
-        ax.add_patch(plt.Rectangle((min(0, sign * r_lead) * 100, 0), r_lead * 100, z1 * 100, color="#8a8a8a", zorder=3))
-        ax.add_patch(plt.Rectangle((min(0, sign * r_lead) * 100, z4 * 100), r_lead * 100, (H_air - z4) * 100, color="#8a8a8a", zorder=3))
-    ax.add_patch(plt.Rectangle((-a * 100 if mirror else 0, z2 * 100), (2 if mirror else 1) * a * 100, d * 100,
-                               fill=False, ec="#2f6f8f", lw=1.0, ls="--", zorder=3))
-
-
-cream = "#fbf5eb"
-fig, axes = plt.subplots(2, 2, figsize=(12.5, 10.5), constrained_layout=True)
-fig.patch.set_facecolor(cream)
-for ax in axes.ravel():
-    ax.set_facecolor("#fffaf2")
-
 finest = device[-1]
-Rg, Zg, Vs = section(finest["V"], R_air, 0.0, H_air, 201, 201, outside_metal)
-ax = axes[0, 0]
-Rm, Zm, Vm = np.hstack((-Rg[:, :0:-1], Rg)), np.hstack((Zg[:, :0:-1], Zg)), np.hstack((Vs[:, :0:-1], Vs))
-im = ax.contourf(100 * Rm, 100 * Zm, Vm, levels=np.linspace(0, V0, 41), cmap=DIVERGING_CMAP)
-ax.contour(100 * Rm, 100 * Zm, Vm, levels=np.linspace(0.05, 0.95, 19), colors="k", linewidths=0.5)
-metal_outline(ax)
-ax.set_aspect("equal")
-ax.set(xlabel="x / cm", ylabel="z / cm", title="Device: potential, section through the axis")
-fig.colorbar(im, ax=ax, label="V / V", shrink=0.85)
-
-ax = axes[0, 1]
-Rg, Zg, Es = section(finest["E"], 0.13, 0.065, 0.135, 261, 141, outside_metal)
-im = ax.contourf(100 * Rg, 100 * Zg, np.log10(Es), levels=50, cmap=FIELD_CMAP)
-ax.contour(100 * Rg, 100 * Zg, section(finest["V"], 0.13, 0.065, 0.135, 261, 141, outside_metal)[2],
-           levels=np.linspace(0.05, 0.95, 19), colors="w", linewidths=0.5)
-metal_outline(ax, mirror=False)
-ax.set_xlim(7, 13); ax.set_ylim(6.5, 13.5); ax.set_aspect("equal")
-ax.set(xlabel="r / cm", ylabel="z / cm", title="Fringing field at the disc rim, log10 |E| [V/m]")
-fig.colorbar(im, ax=ax, shrink=0.85)
-
-ax = axes[1, 0]
-ax.grid(alpha=0.25)
-tets = [run["tets"] for run in bench_N]
-ax.plot(tets, np.array([run["C"] for run in bench_N]) * 1e12, "v-", color="#336B57", label="FEM, outer D.n = 0 (lower bound in R)")
-ax.plot(tets, np.array([run["C"] for run in bench_D]) * 1e12, "^-", color="#A85539", label="FEM, outer V = V0/2 (upper bound in R)")
-ax.plot(tets, np.array(bench_est) * 1e12, "o-", color="#214D43", label="(C_N + 2 C_D) / 3")
-ax.axhline(C_love * 1e12, color="k", lw=1.4, label="Love's integral equation (exact)")
-ax.axhline(C_kirchhoff * 1e12, color="#6b8e23", lw=1.2, ls="--", label="Kirchhoff's formula")
-ax.set_xscale("log")
-ax.set(xlabel="tetrahedra (quarter model)", ylabel="C / pF",
-       title=f"Benchmark disc pair d/a = 0.3 (ideal plates: {C_ideal_air*1e12:.2f} pF)")
-ax.legend(fontsize=8)
-
-ax = axes[1, 1]
-ax.grid(alpha=0.25)
-tets = [run["tets"] for run in device]
-ax.plot(tets, np.array([run["C_W"] for run in device]) * 1e12, "o-", color="#A85539", label="from field energy 2W/V0^2")
-ax.plot(tets, np.array([run["C_Q"] for run in device]) * 1e12, "s--", color="#336B57", label="from electrode charge Q/V0")
-ax.plot([device_wide["tets"]], [device_wide["C_W"] * 1e12], "D", color="#6b8e23", label="air cylinder 40 cm (coarse mesh)")
-ax.set_xscale("log")
-ax.set(xlabel="tetrahedra (quarter model)", ylabel="C / pF",
-       title=f"Device: mesh convergence (ideal eps0 eps_r A/d = {C_ideal_device*1e12:.2f} pF)")
-ax.legend(fontsize=8)
-plt.show()
+cut = Plane(origin=(0.0, 1e-6, 0.0), normal=(0.0, 1.0, 0.0))
+tets_bench, tets_device = [run["tets"] for run in bench_N], [run["tets"] for run in device]
+fig = plots.figure(2, 2, size=(12.5, 10.5))
+plots.section(finest["V"], plane=cut, symmetry={"planes": [((1, 0, 0), (0, 0, 0))]}, colormap="diverging", limits=(0, V0),
+              contours=19, subdivisions=3, label="V [V]", title="Device: potential, section through the axis", ax=fig[0])
+plots.section(finest["E"], plane=cut, component=lambda E, p: np.log10(np.maximum(np.linalg.norm(E, axis=1), 1e-3)),
+              contours=12, subdivisions=3, label="log10(|E| / (V/m))", title="Fringing field at the disc rim",
+              xlimits=(0.07, 0.13), ylimits=(0.065, 0.135), ax=fig[1])
+plots.line(tets_bench, {"FEM, outer D.n = 0 (lower bound in R)": np.array([run["C"] for run in bench_N]) * 1e12,
+                        "FEM, outer V = V0/2 (upper bound in R)": np.array([run["C"] for run in bench_D]) * 1e12,
+                        "(C_N + 2 C_D) / 3": np.array(bench_est) * 1e12},
+           hlines={"Love's integral equation (exact)": C_love * 1e12, "Kirchhoff's formula": C_kirchhoff * 1e12},
+           markers=True, scale="logx", xlabel="tetrahedra (quarter model)", ylabel="C [pF]",
+           title=f"Benchmark disc pair d/a = 0.3 (ideal plates: {C_ideal_air * 1e12:.2f} pF)", ax=fig[2])
+plots.line(tets_device, {"from field energy 2W/V0²": np.array([run["C_W"] for run in device]) * 1e12,
+                         "from electrode charge Q/V0": np.array([run["C_Q"] for run in device]) * 1e12},
+           points={"air cylinder 40 cm (coarse mesh)": ([device_wide["tets"]], [device_wide["C_W"] * 1e12])},
+           markers=True, scale="logx", xlabel="tetrahedra (quarter model)", ylabel="C [pF]",
+           title=f"Device: mesh convergence (ideal eps0 eps_r A/d = {C_ideal_device * 1e12:.2f} pF)", ax=fig[3])
+plots.show()
 
 
 # ## Going further

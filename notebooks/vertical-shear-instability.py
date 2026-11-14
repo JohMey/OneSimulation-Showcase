@@ -29,7 +29,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
-from onesim.physics.hydrodynamics.geometry.execution.axisymmetric import (
+from onesim.physics.hydrodynamics.shared.geometry.execution.axisymmetric import (
     AxisymmetricFlow, FlowParameters, BoxParameters, SpatialParameters, fit_growth,
 )
 from onesim.numerics.discretization.selection.configuration.solver_configuration import Newton, Iterative
