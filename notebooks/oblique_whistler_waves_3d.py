@@ -60,7 +60,7 @@ from importlib.metadata import version
 import time
 import numpy as np
 
-from onesim.physics.magnetohydrodynamics import ResistiveMHD3DSolver
+from onesim.physics.magnetohydrodynamics import LinearMHDWaves, ResistiveMHD3DSolver
 from onesim.results import fourier_coefficient, fourier_interpolate, oscillation_fit
 from onesim.visualization import theme, plots
 
@@ -115,33 +115,16 @@ print(f"v_A = {v_A:.3f}, d_i = {d_i:.3f}, c_s = {c_s:.3f}, beta = {2*p_0/B_0**2:
 #   \dot p'=-\gamma p_0\,i\mathbf k\cdot\mathbf v,$$
 # $$\dot{\mathbf b}=i\mathbf k\times(\mathbf v\times\mathbf B_0)-\frac{\eta_H}{\rho_0}\,i\mathbf k\times\big[(i\mathbf k\times\mathbf b)\times\mathbf B_0\big].$$
 #
-# The eigenvalues of $L$ are $-i\omega$; the positive frequencies agree with the three roots of the
-# closed-form relation above (both are printed below), and the eigenvectors supply the initial
-# state of each launched mode. For the difference scheme every derivative of a Fourier mode is
-# multiplied by $i\tilde{\mathbf k}$ instead of $i\mathbf k$, so its exact discrete frequency is
-# $\omega(\tilde{\mathbf k})$ with $\tilde k_j=\sin(k_jh)/h$; the difference runs are launched with
-# the eigenvectors of $L(\tilde{\mathbf k})$ so that each excites a single discrete branch.
+# The eigenvalues of $L$ are $-i\omega$ and its eigenvectors the polarisations. OneSimulation's
+# `LinearMHDWaves` solves this eigenproblem for a uniform state; it supplies the initial state of
+# each launched mode and its frequency. The frequencies are checked below against the three roots
+# of the closed-form relation above, coded here independently of the library. For the difference
+# scheme every derivative of a Fourier mode is multiplied by $i\tilde{\mathbf k}$ instead of
+# $i\mathbf k$, so its exact discrete frequency is $\omega(\tilde{\mathbf k})$ with
+# $\tilde k_j=\sin(k_jh)/h$; the difference runs are launched with the polarisation of
+# $L(\tilde{\mathbf k})$ so that each excites a single discrete branch.
 
-def linear_operator(k):
-    """Linearised Hall-MHD operator L(k) acting on (rho', v, p', b) (reference)."""
-    ik = 1j * np.asarray(k, float)
-    K, C = np.cross(ik, np.eye(3)).T, np.cross(B0_vec, np.eye(3)).T.astype(complex)
-    L = np.zeros((8, 8), complex)
-    L[0, 1:4] = -rho_0 * ik
-    L[1:4, 4] = -ik / rho_0
-    L[1:4, 5:8] = (-np.outer(ik, B0_vec) + (ik @ B0_vec) * np.eye(3)) / rho_0
-    L[4, 1:4] = -gamma * p_0 * ik
-    L[5:8, 1:4] = -K @ C
-    L[5:8, 5:8] = (eta_H / rho_0) * K @ C @ K
-    return L
-
-
-def eigenmodes(k):
-    """Positive frequencies (ascending) and eigenvectors of L(k) (reference and initial states)."""
-    lam, vectors = np.linalg.eig(linear_operator(k))
-    omega = (1j * lam).real
-    keep = [i for i in np.argsort(omega) if omega[i] > 1e-9]
-    return omega[keep], vectors[:, keep]
+waves = LinearMHDWaves(density=rho_0, pressure=p_0, magnetic_field=B0_vec, gamma=gamma, hall_coefficient=eta_H)
 
 
 def dispersion_roots(k_abs, theta):
@@ -158,16 +141,16 @@ wavevectors = np.array([k for k, _ in modes], float)
 branches = [branch for _, branch in modes]
 k_abs = np.linalg.norm(wavevectors, axis=1)
 theta = np.arccos(np.abs(wavevectors[:, 2]) / k_abs)
-omega_exact = np.array([eigenmodes(k)[0][b] for k, b in zip(wavevectors, branches)])
+omega_exact = np.array([waves.frequency(k, b) for k, b in zip(wavevectors, branches)])
 
-print(" mode (kx,ky,kz)   |k|    theta    branch               omega (eigenvalue)   omega (closed form)")
+print(" mode (kx,ky,kz)   |k|    theta    branch               omega (library)      omega (closed form)")
 for m, (k, branch) in enumerate(modes):
     print(f" {str(k):15s} {k_abs[m]:5.3f}  {np.degrees(theta[m]):5.1f} deg  {branch_name[branch]:18s}"
           f"  {omega_exact[m]:12.7f}        {dispersion_roots(k_abs[m], theta[m])[branch]:12.7f}")
 
 
-# **Runs.** Each run starts from the uniform state plus the real parts of the fourteen eigenvectors
-# (normalised to $|\hat{\mathbf b}|=10^{-7}$), built with the solver's `conservative_state`. While
+# **Runs.** Each run starts from the uniform state plus the fourteen wave perturbations
+# (`waves.perturbation`, magnetic amplitude $10^{-7}$), converted with the solver's `conservative_state`. While
 # the solver advances the state it records, every `sample_interval`, the complex Fourier amplitude
 # of $\mathbf B$ at each launched wave vector (`fourier_coefficient`), the total energy and the
 # largest $|\nabla\cdot\mathbf B|$. The amplitude of each mode is the projection of that Fourier
@@ -193,12 +176,9 @@ for scheme, N, dt in configurations:
     h = 2 * np.pi / N
     X = np.meshgrid(*solver.axes, indexing="ij")
     k_grid = np.sin(wavevectors * h) / h if scheme == "centered_fdm" else wavevectors
-    launched = [eigenmodes(k) for k in k_grid]
-    vectors = np.array([v[:, b] / np.linalg.norm(v[5:8, b]) for (_, v), b in zip(launched, branches)])
-    waves = np.exp(1j * np.einsum("mi,i...->m...", wavevectors, np.array(X)))
-    perturbation = amplitude * np.einsum("mq,m...->q...", vectors, waves).real
-    state = solver.conservative_state(rho_0 + perturbation[0], perturbation[1:4], p_0 + perturbation[4],
-                                      [B0_vec[i] + perturbation[5 + i] for i in range(3)])
+    perturbation = sum(waves.perturbation(k, branch, X, amplitude=amplitude, discrete_wavevector=k_discrete)
+                       for k, branch, k_discrete in zip(wavevectors, branches, k_grid))
+    state = solver.conservative_state(*waves.primitive_state(perturbation))
     start = time.perf_counter()
     result = solver.run(state, observe_interval=sample_interval, observe=lambda snapshot: (
         np.array([fourier_coefficient(snapshot.magnetic_field, k, solver.axes) for k in wavevectors]),
@@ -206,13 +186,13 @@ for scheme, N, dt in configurations:
     times = np.array([t for t, _ in result.history])
     coefficients = np.array([record[0] for _, record in result.history])
     energy = np.array([record[1] for _, record in result.history])
-    polarisation = vectors[:, 5:8]
+    polarisation = np.array([waves.modes(k).polarisation(branch) for k, branch in zip(k_grid, branches)])
     signals = np.einsum("tmc,mc->tm", coefficients, polarisation.conj()) / np.sum(np.abs(polarisation) ** 2, 1)
     fits = [oscillation_fit(times, signals[:, m]) for m in range(len(modes))]
     runs[scheme, N, dt] = dict(
         N=N, h=h, dt=dt, times=times, signals=signals, coefficients=coefficients, polarisation=polarisation,
         omega=np.array([f.frequency for f in fits]), amplitude_ratio=np.array([f.amplitude_ratio for f in fits]),
-        omega_discrete=np.array([w[b] for (w, _), b in zip(launched, branches)]),
+        omega_discrete=np.array([waves.frequency(k, branch) for k, branch in zip(k_grid, branches)]),
         energy_drift=np.max(np.abs(energy / energy[0] - 1)),
         div_b=max(record[2] for _, record in result.history), final=result.magnetic_field, axes=solver.axes)
     print(f"{'spectral' if scheme == 'spectral' else 'central differences':19s} N = {N:2d}, dt = {dt:.3f}:"
@@ -305,58 +285,52 @@ fig = plots.figure(layout=[["bx", "by", "series", "series"], ["angle", "wavenumb
                    size=(16, 9.2))
 
 fine = np.linspace(0, 2 * np.pi, 160, endpoint=False)
-fig["bx"].image(fine, fine, fourier_interpolate(main["final"][0][:, :, 0], 160) / amplitude,
-                colormap="diverging", label="b / (10^-7 B_0)")
-fig["bx"].labels("x", "y", title="b_x on the plane z = 0, normal to B_0")
-fig["by"].image(fine, fine, fourier_interpolate(main["final"][1][:, 0, :], 160) / amplitude,
-                colormap="diverging", label="b / (10^-7 B_0)")
-fig["by"].labels("x", "z", title="b_y on the plane y = 0, containing B_0")
+plots.heatmap(fine, fine, fourier_interpolate(main["final"][0][:, :, 0], 160) / amplitude, colormap="diverging",
+              label="b / (10^-7 B_0)", xlabel="x", ylabel="y", title="b_x on the plane z = 0, normal to B_0",
+              ax=fig["bx"])
+plots.heatmap(fine, fine, fourier_interpolate(main["final"][1][:, 0, :], 160) / amplitude, colormap="diverging",
+              label="b / (10^-7 B_0)", xlabel="x", ylabel="z", title="b_y on the plane y = 0, containing B_0",
+              ax=fig["by"])
 
-panel = fig["series"]
 t_fine = np.linspace(0, final_time, 1200)
-for colour, (m, every) in enumerate(((6, 1), (13, 2))):
-    a = main["signals"][:, m] / main["signals"][0, m]
-    panel.reference(t_fine, np.cos(omega_exact[m] * t_fine), color=colour)
-    panel.points(main["times"][::every], a.real[::every], color=colour,
-                 label=f"k = {modes[m][0]}, {branch_name[branches[m]]}, omega = {main['omega'][m]:.4f}")
-panel.labels("time t", "Re a(t) / a(0)",
-             title="Launched-mode amplitudes (symbols) and cos(omega t) from the dispersion relation")
-panel.legend("lower left")
+shown = {m: f"k = {modes[m][0]}, {branch_name[branches[m]]}, omega = {main['omega'][m]:.4f}" for m in (6, 13)}
+plots.line(points={label: (main["times"], (main["signals"][:, m] / main["signals"][0, m]).real) for m, label in shown.items()},
+           reference={label: (t_fine, np.cos(omega_exact[m] * t_fine)) for m, label in shown.items()},
+           xlabel="time t", ylabel="Re a(t) / a(0)", legend="lower left", ax=fig["series"],
+           title="Launched-mode amplitudes (symbols) and cos(omega t) from the dispersion relation")
 
-panel = fig["angle"]
 angles = np.linspace(0.0, np.pi / 2, 181)
 roots = np.array([np.r_[np.nan, np.nan, np.nan, dispersion_roots(3.0, th)][-3:] for th in angles])
 on_shell = np.isclose(k_abs, 3.0)
-panel.line(np.degrees(angles), roots[:, 2], "fast / whistler", color=1)
-panel.line(np.degrees(angles), roots[:, 1], "ion-cyclotron / KAW", color=0)
-panel.line(np.degrees(angles), roots[:, 0], "slow", color=2)
-panel.points(np.degrees(theta[on_shell]), main["omega"][on_shell], "measured", color="ink")
-panel.labels("angle theta between k and B_0 [deg]", "omega", title="|k| = 3: frequency vs angle")
+plots.line(np.degrees(angles), {"ion-cyclotron / KAW": roots[:, 1], "fast / whistler": roots[:, 2], "slow": roots[:, 0]},
+           points={"measured": (np.degrees(theta[on_shell]), main["omega"][on_shell])}, colors={"measured": "ink"},
+           xlabel="angle theta between k and B_0 [deg]", ylabel="omega", title="|k| = 3: frequency vs angle",
+           ax=fig["angle"])
 
-panel = fig["wavenumber"]
 k_line = np.linspace(0.05, 4.6, 200)
-for degrees, style in ((0.0, "solid"), (45.0, "dashed")):
-    r = np.array([dispersion_roots(k, np.radians(degrees)) for k in k_line])
-    lower = k_line * v_A * (np.sqrt(1 + (k_line * d_i / 2) ** 2) - k_line * d_i / 2) if degrees == 0 else r[:, -2]
-    panel.line(k_line, r[:, -1], f"whistler, theta = {degrees:.0f} deg", color=1, style=style)
-    panel.line(k_line, lower, f"ion-cyclotron/KAW, theta = {degrees:.0f} deg", color=0, style=style)
+parallel = np.array([dispersion_roots(k, 0.0) for k in k_line])
+oblique = np.array([dispersion_roots(k, np.pi / 4) for k in k_line])
 on_lines = np.isclose(np.degrees(theta), 0.0) | np.isclose(np.degrees(theta), 45.0)
-panel.line(k_line, k_line * v_A, "Alfven omega = k v_A", color="ink", style="dotted")
-panel.points(k_abs[on_lines], main["omega"][on_lines], "measured", color="ink")
-panel.labels("|k|", "omega", title="Frequency vs |k| (symbols: measured)").legend("upper left")
+plots.line(k_line, {"ion-cyclotron, theta = 0 deg": k_line * v_A * (np.sqrt(1 + (k_line * d_i / 2) ** 2) - k_line * d_i / 2),
+                    "whistler, theta = 0 deg": parallel[:, -1],
+                    "ion-cyclotron/KAW, theta = 45 deg": oblique[:, -2],
+                    "whistler, theta = 45 deg": oblique[:, -1]},
+           reference={"Alfven omega = k v_A": k_line * v_A},
+           points={"measured": (k_abs[on_lines], main["omega"][on_lines])},
+           colors={"ion-cyclotron/KAW, theta = 45 deg": 0, "whistler, theta = 45 deg": 1, "measured": "ink"},
+           styles={"ion-cyclotron/KAW, theta = 45 deg": "dashdot", "whistler, theta = 45 deg": "dashdot"},
+           xlabel="|k|", ylabel="omega", title="Frequency vs |k| (symbols: measured)", legend="upper left",
+           ax=fig["wavenumber"])
 
-panel = fig["resolution"]
 hs = [run["h"] for run in fd_study]
-for m in (4, 6, 11):
-    panel.line(hs, np.abs(w[:, m] / omega_exact[m] - 1), f"central diff., k = {modes[m][0]}", markers=True)
-panel.slope(2)
-panel.line([run["h"] for run in spectral_study], [np.max(np.abs(run["omega"] / omega_exact - 1)) for run in spectral_study],
-           "spectral, all modes (max), dt = 0.008", markers=True)
-panel.scale("log", "log").labels("grid spacing h", "|omega / omega_exact - 1|", title="Resolution study")
-
-panel = fig["time step"]
-panel.line([run["dt"] for run in time_study], errors, "spectral 16^3, max over modes", markers=True).slope(4)
-panel.scale("log", "log").labels("time step dt", "|omega / omega_exact - 1|", title="Time-step study (RK4)")
+plots.convergence(
+    hs, {**{f"central diff., k = {modes[m][0]}": np.abs(w[:, m] / omega_exact[m] - 1) for m in (4, 6, 11)},
+         "spectral, all modes (max), dt = 0.008": ([run["h"] for run in spectral_study],
+                                                   [np.max(np.abs(run["omega"] / omega_exact - 1)) for run in spectral_study])},
+    order=2, xlabel="grid spacing h", ylabel="|omega / omega_exact - 1|", title="Resolution study", ax=fig["resolution"])
+plots.convergence([run["dt"] for run in time_study], {"spectral 16^3, max over modes": errors}, order=4,
+                  xlabel="time step dt", ylabel="|omega / omega_exact - 1|", title="Time-step study (RK4)",
+                  ax=fig["time step"])
 plots.show()
 
 
