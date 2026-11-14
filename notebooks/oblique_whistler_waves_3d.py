@@ -1,343 +1,142 @@
-"""OneSimulation example: oblique whistler and kinetic-Alfven-type waves in three-dimensional Hall MHD.
+"""OneSimulation example: oblique whistler waves in three-dimensional Hall MHD.
 Requires the installed, activated OneSimulation runtime.
 
-Fourteen small-amplitude Hall-MHD eigenmodes with wave vectors at angles between 0 and 90 degrees
-to the background magnetic field are launched together in a triply periodic box, so the computed
-field varies in all three directions. Their frequencies are measured from the time series of each
-launched Fourier mode and compared with the exact linear Hall-MHD dispersion relation for oblique
-propagation, together with the polarisation, the energy budget, a resolution study and a time-step
-study. The Fourier pseudo-spectral discretisation is contrasted with second-order central
-differences on the same grids.
+Six small plasma waves travel through a periodic box at different angles to the magnetic field.
+Their frequencies are measured from the simulation and compared with the exact dispersion
+relation, once with spectral and once with finite-difference derivatives.
 """
 
 
 # # Oblique whistler waves in Hall MHD
 #
-# A uniform plasma (density $\rho_0$, pressure $p_0$, adiabatic exponent $\gamma$) is threaded by
-# the uniform field $\mathbf B_0=B_0\hat{\mathbf z}$. In Hall magnetohydrodynamics the electric
-# field carries, besides the ideal part $-\mathbf v\times\mathbf B$, the Hall term
+# A uniform plasma is threaded by a magnetic field $\mathbf B_0$ along $z$. On scales below the ion
+# inertial length $d_i$ the Hall term splits the Alfvén wave into two branches: the fast
+# **whistler** wave and the slower **ion-cyclotron** wave. Their frequency depends on the angle
+# $\theta$ between the wave vector $\mathbf k$ and $\mathbf B_0$.
 #
-# $$\mathbf E_{\rm Hall}=\eta_H\,\frac{\mathbf J\times\mathbf B}{\rho},\qquad
-#   \mathbf J=\nabla\times\mathbf B\qquad(\mu_0=1),$$
-#
-# which decouples the ions from the field on scales below the ion inertial length
-# $d_i=\eta_H/\sqrt{\rho_0}$. The shear-Alfvén wave then splits into a right-hand **whistler**
-# branch whose frequency grows like $k^2$, and a left-hand **ion-cyclotron / kinetic-Alfvén-type**
-# branch. Both depend on the angle $\theta$ between the wave vector $\mathbf k$ and $\mathbf B_0$.
-#
-# **Exact reference.** Linearising the compressible, adiabatic Hall-MHD equations about the uniform
-# state gives the dispersion relation for oblique propagation (E. Hameiri, A. Ishizawa and
-# A. Ishida, *Waves in the Hall-magnetohydrodynamics model*, Phys. Plasmas 12, 072109, 2005)
-#
-# $$\left(\omega^2-k_\parallel^2v_A^2\right)\left(\omega^4-k^2(v_A^2+c_s^2)\,\omega^2+k^2k_\parallel^2v_A^2c_s^2\right)
-#   =\omega^2\,k_\parallel^2k^2\,v_A^2\,d_i^2\left(\omega^2-k^2c_s^2\right),$$
-#
-# with $k_\parallel=k\cos\theta$, the Alfvén speed $v_A=B_0/\sqrt{\rho_0}$ and the sound speed
-# $c_s=\sqrt{\gamma p_0/\rho_0}$. Its three positive roots are the slow, the ion-cyclotron /
-# kinetic-Alfvén-type and the fast / whistler branch. For $d_i=0$ it factorises into the ideal
-# Alfvén and magnetosonic waves; for $\theta=0$ it reduces to the parallel whistler
-# $\omega=kv_A[\sqrt{1+(kd_i/2)^2}+kd_i/2]$ and the ion-cyclotron wave with the minus sign; for
-# large $k$ the whistler approaches $\omega\simeq k\,k_\parallel d_i v_A$. The eigenvectors of the
-# same linear system give the polarisation of each branch.
-#
-# **Numerical method.** OneSimulation's three-dimensional resistive/Hall-MHD solver integrates the
-# eight conservative fields (density, three momenta, total energy, three magnetic components) in
-# conservative form. Two spatial discretisations of the same equations are compared on a periodic
-# collocation grid:
-#
-# * Fourier pseudo-spectral derivatives (exact for every resolved Fourier mode),
-# * second-order central finite differences, whose derivative of $e^{ikx}$ is $i\tilde k\,e^{ikx}$
-#   with the modified wavenumber $\tilde k=\sin(kh)/h$.
-#
-# Time integration is the explicit classical fourth-order Runge-Kutta method (RK4).
-#
-# **What is checked.** Frequencies of all launched modes against the exact dispersion relation;
-# polarisation; total-energy conservation and amplitude preservation of every mode; a resolution
-# study for both spatial schemes (with the modified-wavenumber prediction for the difference
-# scheme); and a time-step study with the observed order of RK4.
+# This notebook launches six such waves together in a periodic box, measures their frequencies in
+# a three-dimensional Hall-MHD simulation and compares them with theory.
 
-from importlib.metadata import version
-import time
 import numpy as np
 
 from onesim.physics.magnetohydrodynamics import LinearMHDWaves, ResistiveMHD3DSolver
-from onesim.results import fourier_coefficient, fourier_interpolate, oscillation_fit
+from onesim.results import oscillation_fit
 from onesim.visualization import theme, plots
 
 theme.set()
-print("OneSimulation:", version("onesimulation"))
 
 
-# ## Parameters
+# ## Plasma and waves
 #
-# Dimensionless units with $\mu_0=1$: $\rho_0=1$, $B_0=1$ (so $v_A=1$), $\eta_H=0.5$ (so
-# $d_i=0.5$), $\gamma=5/3$ and $c_s=0.5$ (plasma beta $2p_0/B_0^2=0.3$). The periodic box has the
-# side $2\pi$, so the admissible wave vectors are integer triples $(k_x,k_y,k_z)$.
+# Units with $\mu_0=1$: density 1, field strength 1 (Alfvén speed $v_A=1$), sound speed
+# $c_s=0.5$ and ion inertial length $d_i=0.5$. `LinearMHDWaves` describes the small-amplitude
+# waves of this plasma. The box has the side $2\pi$, so wave vectors are integer triples; all six
+# have $|\mathbf k|=3$ and differ in their angle to the field.
+
+gamma, hall_coefficient = 5 / 3, 0.5
+waves = LinearMHDWaves(density=1.0, pressure=0.15, magnetic_field=(0, 0, 1), gamma=gamma,
+                       hall_coefficient=hall_coefficient)
+modes = [((0, 0, 3), "whistler"), ((1, 2, 2), "whistler"), ((2, 2, 1), "whistler"), ((0, 3, 0), "whistler"),
+         ((2, 1, 2), "ion_cyclotron"), ((2, -2, 1), "ion_cyclotron")]
+angles = np.array([np.degrees(np.arccos(abs(k[2]) / 3)) for k, _ in modes])
+exact = np.array([waves.frequency(k, branch) for k, branch in modes])
+
+
+# ## Reference from the literature
 #
-# Eight modes are launched on the whistler branch and six on the ion-cyclotron / kinetic-Alfvén
-# branch, each with a magnetic amplitude of $10^{-7}B_0$ (small enough that the quadratic coupling
-# between the harmonics $\mathbf k$, $2\mathbf k$, $3\mathbf k$ stays below the time-integration error): a family with $|\mathbf k|=3$ at
-# $\theta=0^\circ$, $48.2^\circ$, $70.5^\circ$ and $90^\circ$, and families along $\theta=0^\circ$
-# and $\theta=45^\circ$ with $|\mathbf k|$ between 1 and 4.24 ($kd_i$ up to 2.1).
-
-rho_0, B_0, eta_H, gamma, c_s = 1.0, 1.0, 0.5, 5.0 / 3.0, 0.5
-p_0 = rho_0 * c_s**2 / gamma
-B0_vec = np.array([0.0, 0.0, B_0])
-v_A, d_i = B_0 / np.sqrt(rho_0), eta_H / np.sqrt(rho_0)
-amplitude = 1.0e-7
-final_time = 4.0 * np.pi
-sample_interval = 0.08
-
-WHISTLER, ION_CYCLOTRON = -1, -2
-modes = [((0, 0, 1), WHISTLER), ((0, 0, 3), WHISTLER), ((1, 0, 1), WHISTLER), ((2, 0, 2), WHISTLER),
-         ((3, 0, 3), WHISTLER), ((1, 2, 2), WHISTLER), ((2, 2, 1), WHISTLER), ((0, 3, 0), WHISTLER),
-         ((0, 0, 2), ION_CYCLOTRON), ((0, 1, 1), ION_CYCLOTRON), ((0, 2, 2), ION_CYCLOTRON),
-         ((0, 3, 3), ION_CYCLOTRON), ((2, 1, 2), ION_CYCLOTRON), ((2, -2, 1), ION_CYCLOTRON)]
-branch_name = {WHISTLER: "whistler", ION_CYCLOTRON: "ion-cyclotron/KAW"}
-print(f"v_A = {v_A:.3f}, d_i = {d_i:.3f}, c_s = {c_s:.3f}, beta = {2*p_0/B_0**2:.3f}")
-
-
-# ## Geometry and mesh
+# Independently of the library, the frequencies follow from the dispersion relation of Hameiri,
+# Ishizawa and Ishida (*Phys. Plasmas* 12, 072109, 2005), a cubic equation for $\omega^2$:
 #
-# The domain is the cube $[0,2\pi)^3$, periodic in $x$, $y$ and $z$ on all six faces (the solver's
-# only boundary condition). The grids have $N^3$ points with $N=8$, 16 and 32 for the spectral
-# scheme and $N=16$, 32 and 64 for the difference scheme; the main run uses the spectral scheme
-# on $32^3$ points. All fourteen modes are superposed, so the field is a genuinely
-# three-dimensional interference pattern.
+# $$\left(\omega^2-k_\parallel^2v_A^2\right)\left(\omega^4-k^2(v_A^2+c_s^2)\,\omega^2+k^2k_\parallel^2v_A^2c_s^2\right)
+#   =\omega^2\,k_\parallel^2k^2\,v_A^2\,d_i^2\left(\omega^2-k^2c_s^2\right),\qquad k_\parallel=k\cos\theta .$$
 
-# ## Model
+def literature_frequencies(k, angle):
+    """Slow, ion-cyclotron and whistler frequency from the dispersion relation of Hameiri et al."""
+    va2, cs2, di2 = waves.alfven_speed**2, waves.sound_speed**2, waves.ion_inertial_length**2
+    k2, kp2 = k**2, (k * np.cos(np.radians(angle))) ** 2
+    cubic = [1.0,
+             -(k2 * (va2 + cs2) + kp2 * va2 * (1 + k2 * di2)),
+             k2 * kp2 * va2 * (va2 + 2 * cs2 + k2 * di2 * cs2),
+             -k2 * kp2**2 * va2**2 * cs2]
+    return np.sqrt(np.sort(np.abs(np.roots(cubic).real)))
+
+
+# ## Simulation
 #
-# **Linear theory.** For a plane wave $\propto e^{i\mathbf k\cdot\mathbf x}$ the linearised equations for
-# $X=(\rho',\mathbf v,p',\mathbf b)$ read $\dot X=L(\mathbf k)X$ with
+# The solver starts from the uniform plasma plus the six waves, each with a magnetic amplitude of
+# $10^{-7}$, and advances it for two Alfvén crossing times of the box with the classical Runge-Kutta method. While
+# it runs, `observe` records the complex amplitude of every wave; `oscillation_fit` turns each
+# recorded signal into a frequency. `scheme` selects how spatial derivatives are computed.
+
+def measure_frequencies(scheme, points):
+    """Simulate the six waves on points^3 grid points and return their measured frequencies."""
+    solver = ResistiveMHD3DSolver(mesh_size=points, gamma=gamma, hall_coefficient=hall_coefficient,
+                                  resistivity=0.0, final_time=4 * np.pi, time_step=0.008,
+                                  time_method="classical_rk4", derivative_scheme=scheme)
+    grid = np.meshgrid(*solver.axes, indexing="ij")
+    start = sum(waves.perturbation(k, branch, grid, amplitude=1e-7) for k, branch in modes)
+    result = solver.run(
+        solver.conservative_state(*waves.primitive_state(start)), observe_interval=0.08,
+        observe=lambda state: [waves.amplitude(k, branch, state.magnetic_field, axes=state.axes)
+                               for k, branch in modes])
+    signals = result.history.values.T
+    return np.array([oscillation_fit(result.history.times, signal).frequency for signal in signals]), result
+
+
+grid_points = [16, 24, 32]
+runs = {(scheme, n): measure_frequencies(scheme, n) for scheme in ("spectral", "centered_fdm") for n in grid_points}
+measured, result = runs["spectral", 32]
+
+
+# ## Results
 #
-# $$\dot\rho'=-\rho_0\,i\mathbf k\cdot\mathbf v,\quad
-#   \rho_0\dot{\mathbf v}=-i\mathbf k\,p'-i\mathbf k(\mathbf B_0\cdot\mathbf b)+i(\mathbf k\cdot\mathbf B_0)\mathbf b,\quad
-#   \dot p'=-\gamma p_0\,i\mathbf k\cdot\mathbf v,$$
-# $$\dot{\mathbf b}=i\mathbf k\times(\mathbf v\times\mathbf B_0)-\frac{\eta_H}{\rho_0}\,i\mathbf k\times\big[(i\mathbf k\times\mathbf b)\times\mathbf B_0\big].$$
-#
-# The eigenvalues of $L$ are $-i\omega$ and its eigenvectors the polarisations. OneSimulation's
-# `LinearMHDWaves` solves this eigenproblem for a uniform state; it supplies the initial state of
-# each launched mode and its frequency. The frequencies are checked below against the three roots
-# of the closed-form relation above, coded here independently of the library. For the difference
-# scheme every derivative of a Fourier mode is multiplied by $i\tilde{\mathbf k}$ instead of
-# $i\mathbf k$, so its exact discrete frequency is $\omega(\tilde{\mathbf k})$ with
-# $\tilde k_j=\sin(k_jh)/h$; the difference runs are launched with the polarisation of
-# $L(\tilde{\mathbf k})$ so that each excites a single discrete branch.
+# Frequencies of the spectral run on $32^3$ points against the library's linear theory and the
+# literature formula.
 
-waves = LinearMHDWaves(density=rho_0, pressure=p_0, magnetic_field=B0_vec, gamma=gamma, hall_coefficient=eta_H)
+print("wave vector   angle  branch          simulation   linear theory   literature   deviation")
+for (k, branch), angle, simulation, theory in zip(modes, angles, measured, exact):
+    literature = literature_frequencies(3.0, angle)[2 if branch == "whistler" else 1]
+    print(f"{str(k):12s} {angle:5.1f}°  {branch:14s} {simulation:10.6f}   {theory:10.6f}   {literature:10.6f}"
+          f"   {simulation / theory - 1:+.1e}")
 
+# The spectral derivative is exact for every resolved wave, so its error does not depend on the
+# grid. Central differences approach the exact frequencies with second order.
 
-def dispersion_roots(k_abs, theta):
-    """Positive roots of the closed-form oblique Hall-MHD dispersion relation (Hameiri et al. 2005)."""
-    k2, kp2 = k_abs**2, (k_abs * np.cos(theta)) ** 2
-    lhs = np.polymul([1.0, -kp2 * v_A**2], [1.0, -k2 * (v_A**2 + c_s**2), k2 * kp2 * v_A**2 * c_s**2])
-    rhs = kp2 * k2 * v_A**2 * d_i**2 * np.array([1.0, -k2 * c_s**2, 0.0])
-    w2 = np.roots(np.polysub(lhs, rhs))
-    w2 = w2.real[(np.abs(w2.imag) < 1e-9 * np.abs(w2).max()) & (w2.real > 1e-14)]
-    return np.sort(np.sqrt(w2))
-
-
-wavevectors = np.array([k for k, _ in modes], float)
-branches = [branch for _, branch in modes]
-k_abs = np.linalg.norm(wavevectors, axis=1)
-theta = np.arccos(np.abs(wavevectors[:, 2]) / k_abs)
-omega_exact = np.array([waves.frequency(k, b) for k, b in zip(wavevectors, branches)])
-
-print(" mode (kx,ky,kz)   |k|    theta    branch               omega (library)      omega (closed form)")
-for m, (k, branch) in enumerate(modes):
-    print(f" {str(k):15s} {k_abs[m]:5.3f}  {np.degrees(theta[m]):5.1f} deg  {branch_name[branch]:18s}"
-          f"  {omega_exact[m]:12.7f}        {dispersion_roots(k_abs[m], theta[m])[branch]:12.7f}")
-
-
-# **Runs.** Each run starts from the uniform state plus the fourteen wave perturbations
-# (`waves.perturbation`, magnetic amplitude $10^{-7}$), converted with the solver's `conservative_state`. While
-# the solver advances the state it records, every `sample_interval`, the complex Fourier amplitude
-# of $\mathbf B$ at each launched wave vector (`fourier_coefficient`), the total energy and the
-# largest $|\nabla\cdot\mathbf B|$. The amplitude of each mode is the projection of that Fourier
-# amplitude onto the launched polarisation vector; `oscillation_fit` returns its frequency (slope
-# of the unwrapped phase, least squares) and its amplitude change.
-#
-# Main run: spectral, $32^3$, $\Delta t=0.008$. Resolution study: spectral on $8^3$ and $16^3$ with
-# the same step, central differences on $16^3$, $32^3$, $64^3$ with $\Delta t=0.02$. Time-step
-# study: spectral $16^3$ with $\Delta t=0.04$, 0.02, 0.01. The difference runs are launched with
-# the eigenvectors of $L(\tilde{\mathbf k})$, $\tilde k_j=\sin(k_jh)/h$, so each excites a single
-# discrete branch whose exact frequency is $\omega(\tilde{\mathbf k})$.
-
-# ## Solve
-
-configurations = [("spectral", 32, 0.008), ("spectral", 8, 0.008), ("spectral", 16, 0.008),
-                  ("spectral", 16, 0.04), ("spectral", 16, 0.02), ("spectral", 16, 0.01),
-                  ("centered_fdm", 16, 0.02), ("centered_fdm", 32, 0.02), ("centered_fdm", 64, 0.02)]
-runs = {}
-for scheme, N, dt in configurations:
-    solver = ResistiveMHD3DSolver(mesh_size=N, gamma=gamma, resistivity=0.0, hall_coefficient=eta_H,
-                                  final_time=final_time, time_step=dt, time_method="classical_rk4",
-                                  derivative_scheme=scheme)
-    h = 2 * np.pi / N
-    X = np.meshgrid(*solver.axes, indexing="ij")
-    k_grid = np.sin(wavevectors * h) / h if scheme == "centered_fdm" else wavevectors
-    perturbation = sum(waves.perturbation(k, branch, X, amplitude=amplitude, discrete_wavevector=k_discrete)
-                       for k, branch, k_discrete in zip(wavevectors, branches, k_grid))
-    state = solver.conservative_state(*waves.primitive_state(perturbation))
-    start = time.perf_counter()
-    result = solver.run(state, observe_interval=sample_interval, observe=lambda snapshot: (
-        np.array([fourier_coefficient(snapshot.magnetic_field, k, solver.axes) for k in wavevectors]),
-        snapshot.total_energy.sum(), np.abs(snapshot.divergence).max()))
-    times = np.array([t for t, _ in result.history])
-    coefficients = np.array([record[0] for _, record in result.history])
-    energy = np.array([record[1] for _, record in result.history])
-    polarisation = np.array([waves.modes(k).polarisation(branch) for k, branch in zip(k_grid, branches)])
-    signals = np.einsum("tmc,mc->tm", coefficients, polarisation.conj()) / np.sum(np.abs(polarisation) ** 2, 1)
-    fits = [oscillation_fit(times, signals[:, m]) for m in range(len(modes))]
-    runs[scheme, N, dt] = dict(
-        N=N, h=h, dt=dt, times=times, signals=signals, coefficients=coefficients, polarisation=polarisation,
-        omega=np.array([f.frequency for f in fits]), amplitude_ratio=np.array([f.amplitude_ratio for f in fits]),
-        omega_discrete=np.array([waves.frequency(k, branch) for k, branch in zip(k_grid, branches)]),
-        energy_drift=np.max(np.abs(energy / energy[0] - 1)),
-        div_b=max(record[2] for _, record in result.history), final=result.magnetic_field, axes=solver.axes)
-    print(f"{'spectral' if scheme == 'spectral' else 'central differences':19s} N = {N:2d}, dt = {dt:.3f}:"
-          f" {result.step_count:5d} RK4 steps in {time.perf_counter() - start:6.1f} s")
-
-main = runs["spectral", 32, 0.008]
-spectral_study = [runs["spectral", N, 0.008] for N in (8, 16, 32)]
-time_study = [runs["spectral", 16, dt] for dt in (0.04, 0.02, 0.01)]
-fd_study = [runs["centered_fdm", N, 0.02] for N in (16, 32, 64)]
-
-
-# ## Comparison with the reference
-#
-# **Frequencies** of the main run (spectral, $32^3$, $\Delta t=0.008$) against the exact
-# dispersion relation, with the polarisation $b_1/b_2$ in the frame $e_1\perp(\mathbf k,\mathbf B_0)$,
-# $e_2\perp\mathbf k$ in the $(\mathbf k,\mathbf B_0)$ plane: a purely imaginary ratio
-# $\pm i\,|b_1/b_2|$ means elliptical polarisation, its sign gives the sense of rotation, and the
-# value is printed as measured (time average) and from the eigenvector.
-
-khat = wavevectors / k_abs[:, None]
-e1 = np.cross(khat, B0_vec)
-e1[np.linalg.norm(e1, axis=1) < 1e-12] = (1.0, 0.0, 0.0)
-e1 /= np.linalg.norm(e1, axis=1)[:, None]
-e2 = np.cross(khat, e1)
-measured_ratio = np.einsum("tmc,mc->tm", main["coefficients"], e1) / np.einsum("tmc,mc->tm", main["coefficients"], e2)
-theory_ratio = np.einsum("mc,mc->m", main["polarisation"], e1) / np.einsum("mc,mc->m", main["polarisation"], e2)
-
-print(" mode         theta   branch               omega measured   omega exact     rel. dev.  "
-      " b1/b2 measured        b1/b2 theory       |a(T)/a(0)|-1")
-for m, (k, branch) in enumerate(modes):
-    pol = measured_ratio[:, m].mean()
-    print(f" {str(k):11s} {np.degrees(theta[m]):5.1f}  {branch_name[branch]:18s}"
-          f"  {main['omega'][m]:13.8f}  {omega_exact[m]:13.8f}   {main['omega'][m]/omega_exact[m]-1:+.2e}"
-          f"   {pol.real:+.4f}{pol.imag:+.4f}i   {theory_ratio[m].real:+.4f}{theory_ratio[m].imag:+.4f}i"
-          f"   {main['amplitude_ratio'][m]-1:+.1e}")
-spread = np.max(np.abs(measured_ratio - measured_ratio.mean(0)) / (1 + np.abs(measured_ratio.mean(0))))
-print(f"\nlargest change of b1/b2 during the run, relative to 1 + |b1/b2|: {spread:.1e}")
-print(f"total energy: largest relative change {main['energy_drift']:.1e};  max |div B| = {main['div_b']:.1e}")
-
-# **Resolution study.** The spectral derivative is exact for every resolved Fourier mode, so the
-# spectral frequencies should not change with $N$ (all three spectral runs use $\Delta t=0.008$;
-# what remains is the RK4 time error). The central-difference frequencies converge to
-# the exact value with second order and must equal the modified-wavenumber prediction
-# $\omega(\tilde{\mathbf k})$ on each grid. From the three grids $N=16,32,64$ the observed order is
-# $p=\log_2[(\omega_{16}-\omega_{32})/(\omega_{32}-\omega_{64})]$ and the Richardson estimate
-# $\omega_{64}+(\omega_{64}-\omega_{32})/(2^p-1)$, which uses no knowledge of the exact value.
-# The difference runs use $\Delta t=0.02$, so their agreement with $\omega(\tilde{\mathbf k})$ is
-# limited by the RK4 time error of a few $10^{-6}$ (see the time-step study).
-
-print("\nlargest relative deviation from the exact frequency over all 14 modes")
-for run in spectral_study:
-    print(f"  spectral            N = {run['N']:2d}: {np.max(np.abs(run['omega'] / omega_exact - 1)):.2e}")
-for run in fd_study:
-    print(f"  central differences N = {run['N']:2d}: {np.max(np.abs(run['omega'] / omega_exact - 1)):.2e}"
-          f"   (vs modified-wavenumber prediction: {np.max(np.abs(run['omega'] / run['omega_discrete'] - 1)):.1e})")
-
-print("\ncentral differences, per mode: omega on N = 16, 32, 64, observed order, Richardson estimate vs exact")
-w = np.array([run["omega"] for run in fd_study])
-order = np.log2((w[0] - w[1]) / (w[1] - w[2]))
-richardson = w[2] + (w[2] - w[1]) / (2**order - 1)
-for m, (k, branch) in enumerate(modes):
-    print(f"  {str(k):11s} {branch_name[branch]:18s} " + "  ".join(f"{v:.6f}" for v in w[:, m])
-          + f"   p = {order[m]:.2f}   Richardson {richardson[m]:.6f} ({richardson[m]/omega_exact[m]-1:+.1e})"
-          f"   exact {omega_exact[m]:.6f}")
-
-# **Time-step study** (spectral, $16^3$): the error of RK4 must fall with the fourth power of
-# $\Delta t$ until it reaches the level set by the small nonlinearity of the waves.
-
-print("\nspectral 16^3: largest relative frequency deviation over all modes")
-errors = np.array([np.max(np.abs(run["omega"] / omega_exact - 1)) for run in time_study])
-for i, run in enumerate(time_study):
-    observed = f"   observed order {np.log2(errors[i-1]/errors[i]):.2f}" if i else ""
-    print(f"  dt = {run['dt']:.3f}: {errors[i]:.2e}{observed}")
-fastest = int(np.argmax(omega_exact))
-print(f"  (dominated by the fastest mode {modes[fastest][0]}, omega dt = "
-      f"{omega_exact[fastest] * time_study[0]['dt']:.2f} at the largest step)")
+errors = {name: [np.max(np.abs(runs[scheme, n][0] / exact - 1)) for n in grid_points]
+          for name, scheme in (("central differences", "centered_fdm"), ("spectral", "spectral"))}
+for name, values in errors.items():
+    print(f"{name:20s} largest frequency error on {grid_points} points: " + ", ".join(f"{e:.1e}" for e in values))
 
 
 # ## Figure
 #
-# Top: two slices of the computed magnetic perturbation at $t=4\pi$ (spectral, $32^3$, shown
-# with spectral interpolation): $b_x$ in the plane $z=0$ perpendicular to $\mathbf B_0$ and $b_y$
-# in the plane $y=0$ containing $\mathbf B_0$ (along the vertical axis), and the time series of
-# two launched modes against $\cos\omega t$ from the dispersion relation. Bottom: the dispersion
-# relation, frequency against the angle $\theta$ for $|\mathbf k|=3$ and against $|\mathbf k|$ for
-# $\theta=0^\circ$ and $45^\circ$ (lines: closed form, symbols: measured), and the resolution and
-# time-step studies.
+# The magnetic field in a plane across $\mathbf B_0$, one recorded wave signal against
+# $\cos\omega t$, the measured frequencies on the dispersion relation, and the grid study.
 
-fig = plots.figure(layout=[["bx", "by", "series", "series"], ["angle", "wavenumber", "resolution", "time step"]],
-                   size=(16, 9.2))
+fig = plots.figure(1, 4, size=(17, 4.4))
 
-fine = np.linspace(0, 2 * np.pi, 160, endpoint=False)
-plots.heatmap(fine, fine, fourier_interpolate(main["final"][0][:, :, 0], 160) / amplitude, colormap="diverging",
-              label="b / (10^-7 B_0)", xlabel="x", ylabel="y", title="b_x on the plane z = 0, normal to B_0",
-              ax=fig["bx"])
-plots.heatmap(fine, fine, fourier_interpolate(main["final"][1][:, 0, :], 160) / amplitude, colormap="diverging",
-              label="b / (10^-7 B_0)", xlabel="x", ylabel="z", title="b_y on the plane y = 0, containing B_0",
-              ax=fig["by"])
+plots.heatmap(result.axes[0], result.axes[1], result.magnetic_field[0][:, :, 0] / 1e-7, colormap="diverging",
+              label="b_x / 10^-7", xlabel="x", ylabel="y", title="Magnetic field b_x at z = 0", ax=fig[0])
 
-t_fine = np.linspace(0, final_time, 1200)
-shown = {m: f"k = {modes[m][0]}, {branch_name[branches[m]]}, omega = {main['omega'][m]:.4f}" for m in (6, 13)}
-plots.line(points={label: (main["times"], (main["signals"][:, m] / main["signals"][0, m]).real) for m, label in shown.items()},
-           reference={label: (t_fine, np.cos(omega_exact[m] * t_fine)) for m, label in shown.items()},
-           xlabel="time t", ylabel="Re a(t) / a(0)", legend="lower left", ax=fig["series"],
-           title="Launched-mode amplitudes (symbols) and cos(omega t) from the dispersion relation")
+times, signal = result.history.times, result.history.values[:, 2]
+smooth = np.linspace(0, times[-1], 600)
+plots.line(points={"simulation": (times, (signal / signal[0]).real)},
+           reference={"cos(omega t)": (smooth, np.cos(exact[2] * smooth))},
+           xlabel="time", ylabel="wave amplitude", title="Whistler wave k = (2, 2, 1)", legend="lower left", ax=fig[1])
 
-angles = np.linspace(0.0, np.pi / 2, 181)
-roots = np.array([np.r_[np.nan, np.nan, np.nan, dispersion_roots(3.0, th)][-3:] for th in angles])
-on_shell = np.isclose(k_abs, 3.0)
-plots.line(np.degrees(angles), {"ion-cyclotron / KAW": roots[:, 1], "fast / whistler": roots[:, 2], "slow": roots[:, 0]},
-           points={"measured": (np.degrees(theta[on_shell]), main["omega"][on_shell])}, colors={"measured": "ink"},
-           xlabel="angle theta between k and B_0 [deg]", ylabel="omega", title="|k| = 3: frequency vs angle",
-           ax=fig["angle"])
+theta = np.linspace(0, 90, 91)
+theory = np.array([literature_frequencies(3.0, angle) for angle in theta])
+plots.line(theta, {"ion-cyclotron": theory[:, 1], "whistler": theory[:, 2]}, points={"simulation": (angles, measured)},
+           xlabel="angle between k and B_0 [deg]", ylabel="frequency", title="Dispersion relation, |k| = 3", ax=fig[2])
 
-k_line = np.linspace(0.05, 4.6, 200)
-parallel = np.array([dispersion_roots(k, 0.0) for k in k_line])
-oblique = np.array([dispersion_roots(k, np.pi / 4) for k in k_line])
-on_lines = np.isclose(np.degrees(theta), 0.0) | np.isclose(np.degrees(theta), 45.0)
-plots.line(k_line, {"ion-cyclotron, theta = 0 deg": k_line * v_A * (np.sqrt(1 + (k_line * d_i / 2) ** 2) - k_line * d_i / 2),
-                    "whistler, theta = 0 deg": parallel[:, -1],
-                    "ion-cyclotron/KAW, theta = 45 deg": oblique[:, -2],
-                    "whistler, theta = 45 deg": oblique[:, -1]},
-           reference={"Alfven omega = k v_A": k_line * v_A},
-           points={"measured": (k_abs[on_lines], main["omega"][on_lines])},
-           colors={"ion-cyclotron/KAW, theta = 45 deg": 0, "whistler, theta = 45 deg": 1, "measured": "ink"},
-           styles={"ion-cyclotron/KAW, theta = 45 deg": "dashdot", "whistler, theta = 45 deg": "dashdot"},
-           xlabel="|k|", ylabel="omega", title="Frequency vs |k| (symbols: measured)", legend="upper left",
-           ax=fig["wavenumber"])
-
-hs = [run["h"] for run in fd_study]
-plots.convergence(
-    hs, {**{f"central diff., k = {modes[m][0]}": np.abs(w[:, m] / omega_exact[m] - 1) for m in (4, 6, 11)},
-         "spectral, all modes (max), dt = 0.008": ([run["h"] for run in spectral_study],
-                                                   [np.max(np.abs(run["omega"] / omega_exact - 1)) for run in spectral_study])},
-    order=2, xlabel="grid spacing h", ylabel="|omega / omega_exact - 1|", title="Resolution study", ax=fig["resolution"])
-plots.convergence([run["dt"] for run in time_study], {"spectral 16^3, max over modes": errors}, order=4,
-                  xlabel="time step dt", ylabel="|omega / omega_exact - 1|", title="Time-step study (RK4)",
-                  ax=fig["time step"])
+plots.convergence(2 * np.pi / np.array(grid_points), errors, order=2, xlabel="grid spacing",
+                  ylabel="largest frequency error", title="Grid study", ax=fig[3])
 plots.show()
 
 
 # ## Going further
 #
-# Raise the amplitude to $10^{-2}B_0$ to see the nonlinear frequency shift and the transfer of
-# energy between modes that share wave-vector triads, or set `eta_H = 0` to recover the ideal
-# Alfvén and magnetosonic waves (the whistler and ion-cyclotron branches then merge into the
-# shear-Alfvén wave $\omega=k_\parallel v_A$). A finite `resistivity` adds the damping rate
-# $\eta k^2/2$ to every mode, which the same phase-and-amplitude fit measures directly.
+# Set `hall_coefficient = 0` to recover the ideal Alfvén and magnetosonic waves, raise the
+# amplitude to see nonlinear coupling between the waves, or give the solver a `resistivity`:
+# every wave is then damped at the rate $\eta k^2/2$, which `oscillation_fit` returns as
+# `growth_rate`.
