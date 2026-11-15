@@ -445,7 +445,7 @@ plots.line(y=history("voltage"), colors=colors, styles=dashed, ylimits=(-11, 4.6
            ylabel="terminal voltage [V]", title="Cell voltages (dashed: with shunts)", legend="lower left", ax=fig["voltage"])
 plots.line(y=history("current"), colors=colors, styles=dashed, ylimits=(-3, 32), xlabel="time [s]",
            ylabel="internal cell current (discharge > 0) [A]", legend=False, ax=fig["current"],
-           title=f"Cell currents (bypass discharge peaks at {reference['current'].max():.0f} A, clipped)")
+           title="Cell currents (bypass peaks clipped)")
 plots.line(y=history("soc"), colors=colors, styles=dashed, points={"shunt events": (events, np.full(len(events), threshold))},
            hlines={"shunt threshold": threshold}, xlabel="time [s]", ylabel="state of charge",
            title="State of charge", legend="upper right", ax=fig["soc"])
