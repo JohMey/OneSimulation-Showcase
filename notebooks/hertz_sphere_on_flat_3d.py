@@ -66,36 +66,12 @@ point-contact solution, with a three-level mesh study near the contact.
 #   all load levels.
 # - Loading: quasi-static, five imposed approaches of the platen.
 
-from importlib.metadata import version
 from dataclasses import dataclass
 from hashlib import sha256
 from itertools import product
 import time
-
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 import gc
 import numpy as np
-from matplotlib.tri import Triangulation
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from scipy.optimize import brentq
 from scipy.spatial import cKDTree
 
@@ -113,8 +89,9 @@ from onesim.meshing.generation.contracts.requests import (
 from onesim.meshing.generation.operations.geometry.model_mesh import CadMeshingService
 from onesim.numerics.discretization.geometry.carriers.kernels.simplex.tetrahedral import boundary_faces
 from onesim.physics.solid_mechanics import MortarBody, MortarContact, SmallStrainSolid
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -125,17 +102,17 @@ print("OneSimulation:", version("onesimulation"))
 # (no yielding). The block is a $10a\times10a\times10a$ quarter, the sphere has
 # $R=20a$.
 
-E, nu = 210e9, 0.30                     # steel, both bodies
-R = 10e-3                               # sphere radius [m]
-a_ref = 0.5e-3                          # contact radius at the largest load (design value)
+E, nu = 210e9, 0.30
+R = 10e-3
+a_ref = 0.5e-3
 E_star = 1.0 / (2.0 * (1.0 - nu**2) / E)
-block_size = 10 * a_ref                 # quarter block: 5 mm x 5 mm x 5 mm
-patch = 1.2 * a_ref                     # block surface region that may come into contact
-grading = 1.45                          # block cell growth ratio away from the contact
-SPHERE_GRADING = ((0.3 * a_ref, 2.0 * a_ref), (0.8 * a_ref, 5 * a_ref))  # (size, ball radius)
-delta_max = a_ref**2 / R                # largest imposed approach of the platen
+block_size = 10 * a_ref
+patch = 1.2 * a_ref
+grading = 1.45
+SPHERE_GRADING = ((0.3 * a_ref, 2.0 * a_ref), (0.8 * a_ref, 5 * a_ref))
+delta_max = a_ref**2 / R
 deltas = delta_max * np.linspace(0.4, 1.0, 5)
-mesh_levels = ((7.1, 7.7), (9.2, 10.0), (12.0, 13.0))   # contact cell sizes h = a_ref / n (block, sphere)
+mesh_levels = ((7.1, 7.7), (9.2, 10.0), (12.0, 13.0))
 G = E / (2 * (1 + nu))
 lam = E * nu / ((1 + nu) * (1 - 2 * nu))
 print(f"E* = {E_star / 1e9:.1f} GPa, largest approach {delta_max * 1e6:.1f} um")
@@ -256,8 +233,8 @@ def sphere_mesh(ns):
         spatial=SpatialMeshControl("free_tetrahedral", body, engine="cad_native", boundary_conforming=False))
     native = CadMeshingService(provider_factory=build_file_free_mesher).generate(octant, request)
     X = np.array(native.data.coordinates, dtype=float)
-    C = np.array(native.data.cells)[:, [0, 2, 1, 3]]       # keep positive volumes after the mirror
-    X[:, 2] = R - X[:, 2]                                   # pole at the origin, equator at z = R
+    C = np.array(native.data.cells)[:, [0, 2, 1, 3]]
+    X[:, 2] = R - X[:, 2]
     groups = {name: [] for name in SPHERE_FACES}
     for facet in boundary_faces(C, X):
         P = X[list(facet.vertices)]
@@ -351,7 +328,7 @@ def block_stresses(grid, X, u):
 def tet_stresses(X, C, u):
     """Constant strain of every linear tetrahedron."""
     P, V = X[C], u[C]
-    J = np.swapaxes(P[:, 1:] - P[:, :1], 1, 2)          # columns = edge vectors
+    J = np.swapaxes(P[:, 1:] - P[:, :1], 1, 2)
     dV = np.swapaxes(V[:, 1:] - V[:, :1], 1, 2)
     grad = dV @ np.linalg.inv(J)
     strain = 0.5 * (grad + np.swapaxes(grad, -1, -2))
@@ -372,13 +349,11 @@ def run_level(n_block, n_sphere):
                            normal_offset=lambda t: -deltas[int(round(t)) - 1])
     w, xc = result.multiplier_measures, result.multiplier_coordinates
     r = np.hypot(xc[:, 0], xc[:, 1])
-    forces = 4 * result.normal_pressure @ w                   # full sphere = 4 quarters
+    forces = 4 * result.normal_pressure @ w
     p = result.normal_pressure[-1]
     force = forces[-1]
     a_h, p0_h = hertz(force)
-    # contact radius from the second moment of the pressure (= 2a^2/5 for the ellipse)
     a_moment = np.sqrt(2.5 * (w @ (p * r**2)) / (w @ p))
-    # least-squares ellipse p0 sqrt(1 - r^2/a^2) through the nodal pressures
     fit = lambda a: np.sqrt(np.clip(1 - (r / a) ** 2, 0, None))
     misfit = lambda a: (w * (p - (w * p * fit(a)).sum() / (w * fit(a) ** 2).sum() * fit(a)) ** 2).sum()
     trial = np.linspace(0.7 * a_h, 1.3 * a_h, 241)
@@ -388,7 +363,6 @@ def run_level(n_block, n_sphere):
     rms = np.sqrt((w * (p - hertz_p) ** 2).sum() / (w * hertz_p**2).sum())
     inner = r < 0.8 * a_h
     rms_inner = np.sqrt((w * (p - hertz_p) ** 2)[inner].sum() / (w * hertz_p**2)[inner].sum())
-    # stresses on the axis: first column of block cells (cell centres at x = y = h/2)
     centres, sigma = block_stresses(block_grid, result.slave_coordinates, result.slave_displacement[-1])
     z_axis = -centres[0, 0, :, 2]
     tau_axis = max_shear(sigma[0, 0])
@@ -396,14 +370,12 @@ def run_level(n_block, n_sphere):
     z_axis, tau_axis, sz_axis, sx_axis = (z_axis[order], tau_axis[order],
                                           sigma[0, 0, order, 2, 2], sigma[0, 0, order, 0, 0])
     k = int(np.argmax(tau_axis))
-    zz = z_axis[k - 1:k + 2]                                  # parabola through the peak
+    zz = z_axis[k - 1:k + 2]
     coeff = np.polyfit(zz, tau_axis[k - 1:k + 2], 2)
     z_peak = -coeff[1] / (2 * coeff[0])
     tau_peak = np.polyval(coeff, z_peak)
-    # force-approach law: delta = c1 F^(2/3) + c2 F
     design = np.column_stack((forces ** (2 / 3), forces))
     c1, c2 = np.linalg.lstsq(design, deltas, rcond=None)[0]
-    # sphere stresses (for the figure)
     tree = cKDTree(result.master_coordinates)
     Xs = np.asarray(sphere_grid.coordinates)
     Cs = np.asarray(sphere_grid.cells)
@@ -426,7 +398,7 @@ def run_level(n_block, n_sphere):
 
 
 levels = []
-for n_block, n_sphere in reversed(mesh_levels):           # finest first: it needs the most memory
+for n_block, n_sphere in reversed(mesh_levels):
     lv = run_level(n_block, n_sphere)
     levels.insert(0, lv)
     print(f"h = a/{n_block:<4} block {lv['hex']:6d} hexahedra, sphere {lv['tets']:6d} tetrahedra, "
@@ -516,115 +488,58 @@ print(f"transmitted force F [N]: " + ", ".join(f"{f:.1f}" for f in forces)
 # force-approach law, and the mesh study.
 
 tau_scale = 1 / p0_h
-fig = plt.figure(figsize=(16, 10), constrained_layout=True)
-grid_spec = fig.add_gridspec(2, 3)
-
-# 3D view of the quarter model
-ax = fig.add_subplot(grid_spec[0, 0], projection="3d")
-norm = matplotlib.colors.Normalize(0.0, 0.32)
 xs, ys, zs = fine["block_axes"]
 tau_b = fine["block_tau"] * tau_scale
-polys, values = [], []
-for i, j in product(range(len(xs) - 1), range(len(zs) - 1)):         # y = 0 face
-    polys.append([(xs[i], 0, zs[j]), (xs[i + 1], 0, zs[j]), (xs[i + 1], 0, zs[j + 1]), (xs[i], 0, zs[j + 1])])
-    values.append(tau_b[i, 0, j])
-for i, j in product(range(len(ys) - 1), range(len(zs) - 1)):         # x = 0 face
-    polys.append([(0, ys[i], zs[j]), (0, ys[i + 1], zs[j]), (0, ys[i + 1], zs[j + 1]), (0, ys[i], zs[j + 1])])
-    values.append(tau_b[0, i, j])
-for i, j in product(range(len(xs) - 1), range(len(ys) - 1)):         # top face
-    polys.append([(xs[i], ys[j], 0), (xs[i + 1], ys[j], 0), (xs[i + 1], ys[j + 1], 0), (xs[i], ys[j + 1], 0)])
-    values.append(tau_b[i, j, -1])
-Xs, Cs, tau_s = fine["Xs"], fine["Cs"], fine["tau_s"] * tau_scale
-node_tau = np.zeros(len(Xs))
-node_vol = np.zeros(len(Xs))
-np.add.at(node_tau, Cs.ravel(), np.repeat(tau_s * fine["vol_s"], 4))
-np.add.at(node_vol, Cs.ravel(), np.repeat(fine["vol_s"], 4))
-node_tau /= node_vol
-for name in ("plane_x", "plane_y", "cap", "surface"):
-    for facet in fine["sphere_groups"][name]:
-        polys.append(Xs[list(facet)])
-        values.append(node_tau[list(facet)].mean())
-collection = Poly3DCollection([np.asarray(q) * 1e3 for q in polys], facecolors=FIELD_CMAP(norm(np.array(values))),
-                              edgecolors="none")
-ax.add_collection3d(collection)
-ax.set(xlim=(0, 10), ylim=(0, 10), zlim=(-5, 10), xlabel="x [mm]", ylabel="y [mm]", zlabel="z [mm]")
-ax.set_box_aspect((10, 10, 15))
-ax.view_init(elev=18, azim=225)
-ax.set_title("Quarter model: max shear stress / p0")
-fig.colorbar(matplotlib.cm.ScalarMappable(norm=norm, cmap=FIELD_CMAP), ax=ax, shrink=0.6, label=r"$\tau_1/p_0$")
-
-# section y = 0 around the contact
-ax = fig.add_subplot(grid_spec[0, 1])
-zoom = 2.5 * a_h
+quads = ([[(xs[i], 0, zs[j]), (xs[i + 1], 0, zs[j]), (xs[i + 1], 0, zs[j + 1]), (xs[i], 0, zs[j + 1])]
+          for i, j in product(range(len(xs) - 1), range(len(zs) - 1))]
+         + [[(0, ys[i], zs[j]), (0, ys[i + 1], zs[j]), (0, ys[i + 1], zs[j + 1]), (0, ys[i], zs[j + 1])]
+            for i, j in product(range(len(ys) - 1), range(len(zs) - 1))]
+         + [[(xs[i], ys[j], 0), (xs[i + 1], ys[j], 0), (xs[i + 1], ys[j + 1], 0), (xs[i], ys[j + 1], 0)]
+            for i, j in product(range(len(xs) - 1), range(len(ys) - 1))])
+quad_values = ([tau_b[i, 0, j] for i, j in product(range(len(xs) - 1), range(len(zs) - 1))]
+               + [tau_b[0, i, j] for i, j in product(range(len(ys) - 1), range(len(zs) - 1))]
+               + [tau_b[i, j, -1] for i, j in product(range(len(xs) - 1), range(len(ys) - 1))])
+quad_points = np.array(quads, dtype=float).reshape(-1, 3)
+quad_triangles = (4 * np.arange(len(quads))[:, None, None] + np.array([[0, 1, 2], [0, 2, 3]])[None]).reshape(-1, 3)
+Xs, Cs = fine["Xs"], fine["Cs"]
+node_tau, node_volume = np.zeros(len(Xs)), np.zeros(len(Xs))
+np.add.at(node_tau, Cs.ravel(), np.repeat(fine["tau_s"] * tau_scale * fine["vol_s"], 4))
+np.add.at(node_volume, Cs.ravel(), np.repeat(fine["vol_s"], 4))
+node_tau /= node_volume
+sphere_triangles = np.array([facet for name in ("plane_x", "plane_y", "cap", "surface") for facet in fine["sphere_groups"][name]])
 cx, cz = fine["block_centres"][:, 0, :, 0], fine["block_centres"][:, 0, :, 2]
-levels_tau = np.linspace(0, 0.32, 17)
-mx = np.concatenate((-cx[::-1], cx)) / a_h                   # mirror the quarter to -x
-mz = np.concatenate((cz[::-1], cz)) / a_h
-mt = np.concatenate((tau_b[::-1, 0, :], tau_b[:, 0, :]))
-ax.contourf(mx, mz, mt, levels=levels_tau, cmap=FIELD_CMAP, extend="max")
-ax.contour(mx, mz, mt, levels=[0.31], colors="white", linewidths=1.2)
-plane = np.array(fine["sphere_groups"]["plane_y"])
-for sign in (1, -1):
-    tri = Triangulation(sign * Xs[:, 0] / a_h, Xs[:, 2] / a_h, plane)
-    ax.tricontourf(tri, node_tau, levels=levels_tau, cmap=FIELD_CMAP, extend="max")
-    ax.tricontour(tri, node_tau, levels=[0.31], colors="white", linewidths=1.2)
-ax.axhline(0, color=INK, lw=0.8)
-ax.plot([0], [-Z_HERTZ], "x", color=CREAM, ms=9, mew=2, label="Hertz maximum (0.31 p0 at z = 0.48a)")
-ax.set(xlim=(-2.5, 2.5), ylim=(-2.5, 2.5), aspect="equal", xlabel="x / a", ylabel="z / a",
-       title="Section y = 0: max shear stress / p0")
-ax.legend(loc="upper right", fontsize=8, frameon=False, labelcolor=CREAM)
-
-# contact pressure
-ax = fig.add_subplot(grid_spec[0, 2])
-rr = np.linspace(0, 1.3, 300)
-ax.plot(rr, np.sqrt(np.clip(1 - rr**2, 0, None)), color=COPPER, lw=2, label="Hertz ellipse")
-for lv, marker, colour in zip(levels, ("s", "^", "o"), ("#B4AA98", "#8B9A8D", GREEN)):
-    ax.plot(lv["r"] / lv["a_h"], lv["p"] / lv["p0_h"], marker, ms=3, color=colour, ls="none",
-            label=f"OneSimulation, h = a/{lv['n'][0]}")
-ax.set(xlim=(0, 1.3), xlabel="r / a", ylabel="p / p0", title="Contact pressure at every contact node")
-ax.grid(alpha=0.4)
-ax.legend(frameon=False, fontsize=9)
-
-# axis stresses
-ax = fig.add_subplot(grid_spec[1, 0])
-zz = np.linspace(1e-3, 4, 400) * a_h
+rr, zz = np.linspace(0, 1.3, 300), np.linspace(1e-3, 4, 400) * a_h
 sz_h, sr_h = axis_stresses(zz, a_h, p0_h)
-ax.plot(-sz_h / p0_h, zz / a_h, color=COPPER, lw=1.8, label=r"$-\sigma_z$ Hertz")
-ax.plot(-sr_h / p0_h, zz / a_h, color=COPPER, lw=1.8, ls="--", label=r"$-\sigma_r$ Hertz")
-ax.plot((sr_h - sz_h) / (2 * p0_h), zz / a_h, color=INK, lw=1.8, ls=":", label=r"$\tau_1$ Hertz")
-ax.plot(-fine["sz_axis"] / p0_h, fine["z_axis"] / a_h, "o", ms=3.5, color=GREEN, label="OneSimulation")
-ax.plot(-fine["sx_axis"] / p0_h, fine["z_axis"] / a_h, "s", ms=3.5, color=GREEN)
-ax.plot(fine["tau_axis"] / p0_h, fine["z_axis"] / a_h, "^", ms=3.5, color=GREEN)
-ax.set(ylim=(4, 0), xlabel="stress / p0", ylabel="depth below the contact centre z / a",
-       title="Stresses on the axis")
-ax.grid(alpha=0.4)
-ax.legend(frameon=False, fontsize=9, loc="lower right")
-
-# force-approach law
-ax = fig.add_subplot(grid_spec[1, 1])
 FF = np.linspace(0, fine["forces"].max() * 1.05, 200)
-ax.plot(fine["forces"], deltas * 1e6, "o", color=GREEN, label="OneSimulation (imposed approach)")
-ax.plot(FF, (fine["c1"] * FF ** (2 / 3) + fine["c2"] * FF) * 1e6, color=GREEN, lw=1,
-        label=r"fit $c_1F^{2/3}+c_2F$")
-ax.plot(FF, c1_hertz * FF ** (2 / 3) * 1e6, color=COPPER, lw=1.8, ls="--", label=r"Hertz term $c_1F^{2/3}$")
-ax.plot(FF, fine["c1"] * FF ** (2 / 3) * 1e6, color=GREEN, lw=1.8, ls=":", label=r"fitted $c_1F^{2/3}$")
-ax.set(xlabel="force on the full sphere F [N]", ylabel=r"approach $\delta$ [$\mu$m]",
-       title="Force-approach law")
-ax.grid(alpha=0.4)
-ax.legend(frameon=False, fontsize=9)
-
-# mesh study
-ax = fig.add_subplot(grid_spec[1, 2])
-hh = np.array([lv["n"][0] for lv in levels])
-ax.plot(hh, [100 * (lv["a_moment"] / lv["a_h"] - 1) for lv in levels], "o-", label="contact radius a")
-ax.plot(hh, [100 * (lv["p0_fit"] / lv["p0_h"] - 1) for lv in levels], "s-", label="p0 (ellipse fit)")
-ax.plot(hh, [100 * (lv["tau_peak"] / lv["p0_h"] / TAU_HERTZ - 1) for lv in levels], "^-", label="max shear tau1")
-ax.plot(hh, [100 * lv["rms"] for lv in levels], "d-", label="RMS pressure deviation")
-ax.axhline(0, color=INK, lw=0.8)
-ax.set(xlabel="contact cells per a_ref (block)", ylabel="deviation from Hertz [%]", title="Mesh study")
-ax.grid(alpha=0.4)
-ax.legend(frameon=False, fontsize=9)
-plt.show()
+cells_per_radius = np.array([lv["n"][0] for lv in levels])
+fig = plots.figure(2, 3, size=(19, 10.5))
+plots.trisurface(np.r_[quad_points, Xs] * 1e3, np.r_[quad_triangles, sphere_triangles + len(quad_points)],
+                 np.r_[np.repeat(quad_values, 4), node_tau], limits=(0.0, 0.32), camera=plots.Camera(elevation=18, azimuth=225),
+                 label="tau_1 / p0", title="Quarter model, lengths in mm", ax=fig[0])
+plots.heatmap(np.concatenate((-cx[::-1], cx)) / a_h, np.concatenate((cz[::-1], cz)) / a_h,
+              np.concatenate((tau_b[::-1, 0, :], tau_b[:, 0, :])), limits=(0, 0.32), contours=[0.31], label="tau_1 / p0",
+              xlimits=(-2.5, 2.5), ylimits=(-2.5, 0.0), xlabel="x / a", ylabel="z / a",
+              title="Flat body, section y = 0 (line: 0.31)", ax=fig[1])
+plots.line(points={f"OneSimulation, h = a/{lv['n'][0]}": (lv["r"] / lv["a_h"], lv["p"] / lv["p0_h"]) for lv in levels},
+           reference={"Hertz ellipse": (rr, np.sqrt(np.clip(1 - rr**2, 0, None)))}, xlimits=(0, 1.3), xlabel="r / a",
+           ylabel="p / p0", title="Contact pressure at every contact node", ax=fig[2])
+plots.line(points={"-sigma_z": (-fine["sz_axis"] / p0_h, fine["z_axis"] / a_h), "-sigma_r": (-fine["sx_axis"] / p0_h, fine["z_axis"] / a_h),
+                   "tau_1": (fine["tau_axis"] / p0_h, fine["z_axis"] / a_h)},
+           reference={"-sigma_z": (-sz_h / p0_h, zz / a_h), "-sigma_r": (-sr_h / p0_h, zz / a_h),
+                      "tau_1": ((sr_h - sz_h) / (2 * p0_h), zz / a_h)},
+           ylimits=(4, 0), xlabel="stress / p0", ylabel="depth below the contact centre z / a",
+           title="Stresses on the axis (dashed: Hertz)", legend="lower right", ax=fig[3])
+plots.line(FF, {"fit c1 F^(2/3) + c2 F": (fine["c1"] * FF ** (2 / 3) + fine["c2"] * FF) * 1e6},
+           points={"OneSimulation (imposed approach)": (fine["forces"], deltas * 1e6)},
+           reference={"Hertz term c1 F^(2/3)": c1_hertz * FF ** (2 / 3) * 1e6, "fitted c1 F^(2/3)": fine["c1"] * FF ** (2 / 3) * 1e6},
+           xlabel="force on the full sphere F [N]", ylabel="approach [µm]", title="Force-approach law", ax=fig[4])
+plots.line(cells_per_radius, {"contact radius a": [100 * (lv["a_moment"] / lv["a_h"] - 1) for lv in levels],
+                              "p0 (ellipse fit)": [100 * (lv["p0_fit"] / lv["p0_h"] - 1) for lv in levels],
+                              "max shear tau1": [100 * (lv["tau_peak"] / lv["p0_h"] / TAU_HERTZ - 1) for lv in levels],
+                              "RMS pressure deviation": [100 * lv["rms"] for lv in levels]},
+           hlines=0.0, markers=True, xlabel="contact cells per a_ref (block)", ylabel="deviation from Hertz [%]",
+           title="Mesh study", ax=fig[5])
+plots.show()
 
 
 # ## Going further

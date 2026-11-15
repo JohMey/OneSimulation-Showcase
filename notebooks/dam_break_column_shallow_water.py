@@ -62,52 +62,30 @@ dam-break solution, the exact bore-reflection force at impact and mass conservat
 # on these grids. Tabulated measurements of the cited experiment are not
 # available, so the measured forces are not compared.
 
-from importlib.metadata import version
 import time
 from collections import Counter
 from dataclasses import dataclass
-
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
 import numpy as np
-from matplotlib.patches import Rectangle
 from scipy.optimize import brentq
 
 from onesim.physics.hydrodynamics import (CompressibleBoundaryPatch, CompressibleFaceFiniteVolume,
                                           ImpermeableCompressibleWall, UnstructuredCompressibleGeometry)
-from onesim.numerics.time.methods.kernels.registry import create_time_integrator
 from onesim.physics.hydrodynamics import CompressibleFlowDiscretization, CompressibleNavierStokesSolver
+from onesim.numerics.time import DEFAULT_TIME_INTEGRATOR_REGISTRY
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
 
-g, rho_w = 9.81, 1000.0            # m/s^2, kg/m^3
-width, length = 0.61, 1.60         # m, tank (x across, y along)
-y_gate = 0.40                      # m, water body occupies 0 <= y <= 0.40
-column = (0.24, 0.90, 0.12)        # m, lower-left corner (x, y) and side of the column
-h_up, h_bed = 0.30, 0.01           # m, initial depths behind and in front of the gate
-t_end = 2.0                        # s
-grids = (0.02, 0.01, 0.005)        # m, target cell size
+g, rho_w = 9.81, 1000.0
+width, length = 0.61, 1.60
+y_gate = 0.40
+column = (0.24, 0.90, 0.12)
+h_up, h_bed = 0.30, 0.01
+t_end = 2.0
+grids = (0.02, 0.01, 0.005)
 x0, y0, side = column
 
 # Stoker's wet-bed dam-break solution: a rarefaction into the reservoir, a uniform
@@ -118,7 +96,6 @@ h_mid = brentq(lambda h: f_rare(h) + f_bore(h), h_bed, h_up)
 u_mid = -f_rare(h_mid)
 bore_speed = h_mid * u_mid / (h_mid - h_bed)
 t_arrival = (y0 - y_gate) / bore_speed
-# Reflection of the bore at the front face: shock back into the moving middle state.
 h_reflected = brentq(lambda h: (h - h_mid) * np.sqrt(0.5 * g * (h + h_mid) / (h * h_mid)) - u_mid, h_mid, 1.0)
 F_impact = rho_w * g * side * (h_reflected**2 - h_bed**2) / 2
 print(f"Stoker middle state h_m = {h_mid:.5f} m, u_m = {u_mid:.5f} m/s, bore speed {bore_speed:.5f} m/s")
@@ -264,7 +241,7 @@ def wall_depth(h, un):
     hs = np.maximum(np.sqrt(g * h) + 0.5 * np.minimum(un, 0.0), 0.0) ** 2 / g
     bore = un > 0
     x, hb, ub = h[bore] + un[bore] * np.sqrt(h[bore] / g), h[bore], un[bore]
-    for _ in range(30):                                  # Newton iteration for the reflected bore
+    for _ in range(30):
         q = np.sqrt(0.5 * g * (x + hb) / (x * hb))
         x = x - ((x - hb) * q - ub) / (q - (x - hb) * 0.25 * g / (q * x * x))
     hs[bore] = x
@@ -337,9 +314,9 @@ def make_solver(grid, second_order=True, cfl=0.45):
         reconstruction=muscl if second_order else None, stability=cfl_step(cfl, grid["h_min"]), cfl=0.5)
     return CompressibleNavierStokesSolver(
         mesh=grid["cells"], spatial=CompressibleFlowDiscretization(derivatives=None, balance=balance),
-        time_integrator=create_time_integrator("ssprk3"),
-        viscosity=0.0, thermal_conductivity=0.0, density=1.0, pressure=1.0, final_time=0.01,
-        time_step=1.0, equation_of_state=HydrostaticClosure(), spatial_carrier=grid["geometry"].carrier)
+        time_integrator=DEFAULT_TIME_INTEGRATOR_REGISTRY.resolve_id("ssprk3"), viscosity=0.0, thermal_conductivity=0.0,
+        density=1.0, pressure=1.0, final_time=0.01, time_step=1.0, equation_of_state=HydrostaticClosure(),
+        spatial_carrier=grid["geometry"].carrier)
 
 
 def initial_state(grid):
@@ -489,46 +466,29 @@ for h, out in zip(grids, runs):
 
 fine = runs[-1]
 grid = fine["grid"]
-xc = 0.5 * (grid["xs"][:-1] + grid["xs"][1:])
-yc = 0.5 * (grid["ys"][:-1] + grid["ys"][1:])
-fig = plt.figure(figsize=(16, 10.5), constrained_layout=True)
-layout = fig.add_gridspec(2, 5, height_ratios=(1.55, 1.0), width_ratios=(1, 1, 1, 1, 0.07))
-depth_levels = np.linspace(0.0, 0.30, 46)
-for k, t in enumerate(t_maps):
-    ax = fig.add_subplot(layout[0, k])
-    field = np.ma.masked_all((len(yc), len(xc)))
-    field[grid["J"], grid["I"]] = fine["maps"][t]
-    filled = ax.contourf(xc, yc, field, levels=depth_levels, cmap=FIELD_CMAP, extend="max")
-    ax.contour(xc, yc, field, levels=depth_levels[::4], colors="w", linewidths=0.3, alpha=0.6)
-    ax.add_patch(Rectangle((x0, y0), side, side, color="0.35"))
-    ax.set(aspect="equal", xlim=(0, width), ylim=(0, length), xlabel="x / m", title=f"t = {t:.2f} s")
-    if k == 0:
-        ax.set_ylabel("y / m (gate at 0.40 m)")
-fig.colorbar(filled, cax=fig.add_subplot(layout[0, 4]), label="water depth h / m")
-
-ax = fig.add_subplot(layout[1, :2])
+xc, yc = 0.5 * (grid["xs"][:-1] + grid["xs"][1:]), 0.5 * (grid["ys"][:-1] + grid["ys"][1:])
 y_line = np.linspace(0.0, y0, 600)
-ax.plot(y_line, stoker(y_line, 0.20), color=INK, lw=1.5, label="Stoker, exact")
-for out, h, color in zip(runs, grids, ("#CD9561", GREEN, INK)):
-    cg = out["grid"]["cells"]
-    strip = np.abs(cg.coordinates[:, 0] - 0.5 * width) < 0.6 * h + 1e-9
-    order = np.argsort(cg.coordinates[strip, 1])
-    ax.plot(cg.coordinates[strip, 1][order], out["maps"][0.2][strip][order], ".-", ms=3, lw=0.8, color=color,
-            label=f"MUSCL-HLL, {h * 1e3:.0f} mm")
-ax.set(xlabel="y / m", ylabel="h / m", title="Depth along the tank at t = 0.20 s (before impact)", xlim=(0, y0))
-ax.grid(alpha=0.3)
-ax.legend(fontsize=8)
-
-ax = fig.add_subplot(layout[1, 2:5])
-for out, h, color in zip(runs, grids, ("#CD9561", GREEN, INK)):
-    ax.plot(out["times"], out["force"], color=color, lw=1.2, label=f"MUSCL-HLL, {h * 1e3:.0f} mm")
-ax.plot(first_order["times"], first_order["force"], color="0.5", lw=1.0, ls="--", label="first-order Godunov, 10 mm")
-ax.plot([t_arrival], [F_impact], "*", color=INK, ms=12, label=f"exact impact force {F_impact:.1f} N")
-ax.axhline(0.0, color="0.6", lw=0.6)
-ax.set(xlabel="t / s", ylabel="F_y on the column / N", title="Pressure force on the column", xlim=(0, t_end))
-ax.grid(alpha=0.3)
-ax.legend(fontsize=8)
-plt.show()
+depth_lines, force_lines = {}, {}
+for out, h in zip(runs, grids):
+    cells = out["grid"]["cells"]
+    strip = np.abs(cells.coordinates[:, 0] - 0.5 * width) < 0.6 * h + 1e-9
+    along = np.argsort(cells.coordinates[strip, 1])
+    depth_lines[f"MUSCL-HLL, {h * 1e3:.0f} mm"] = (cells.coordinates[strip, 1][along], out["maps"][0.2][strip][along])
+    force_lines[f"MUSCL-HLL, {h * 1e3:.0f} mm"] = (out["times"], out["force"])
+force_lines["first-order Godunov, 10 mm"] = (first_order["times"], first_order["force"])
+fig = plots.figure(layout=[[f"map {k}" for k in range(len(t_maps))], ["stoker"] * (len(t_maps) // 2) + ["force"] * (len(t_maps) - len(t_maps) // 2)],
+                   size=(16, 10.5))
+for k, t in enumerate(t_maps):
+    depth = np.full((len(xc), len(yc)), np.nan)
+    depth[grid["I"], grid["J"]] = fine["maps"][t]
+    plots.heatmap(xc, yc, depth, limits=(0.0, 0.30), contours=8, label="water depth h [m]", xlabel="x [m]",
+                  ylabel="y [m] (gate at 0.40 m)", title=f"t = {t:.2f} s", ax=fig[f"map {k}"])
+plots.line(y=depth_lines, reference={"Stoker, exact": (y_line, stoker(y_line, 0.20))}, markers=True, xlimits=(0, y0),
+           xlabel="y [m]", ylabel="h [m]", title="Depth along the tank at t = 0.20 s (before impact)", ax=fig["stoker"])
+plots.line(y=force_lines, styles={"first-order Godunov, 10 mm": "dashed"},
+           points={f"exact impact force {F_impact:.1f} N": ([t_arrival], [F_impact])}, hlines=0.0, xlimits=(0, t_end),
+           xlabel="t [s]", ylabel="F_y on the column [N]", title="Pressure force on the column", ax=fig["force"])
+plots.show()
 
 
 # ## Going further

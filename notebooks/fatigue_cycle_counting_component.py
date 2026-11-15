@@ -64,60 +64,37 @@ fillet stress concentration by a three-level mesh study.
 # specimen elongation, and the change of the fillet stress concentration between the
 # meshes.
 
-from importlib.metadata import version
 import time
-from dataclasses import dataclass
-
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
-import netgen.occ as occ
-from matplotlib.tri import Triangulation
 from scipy.sparse import coo_matrix
 from scipy.sparse.linalg import spsolve
 
-from onesim.cad.geometry.primitives import Geometry
-from onesim.meshing import UnstructuredSimplexMesh
+from onesim.cad.d2 import Circle, Rectangle
+from onesim.cad.d3 import Regrouped
+from onesim.meshing import TriangularMesher
+from onesim.numerics.time import rainflow_cycles, scalar_turning_points
+from onesim.results.comparisons import convergence
 from onesim.physics.solid_mechanics import SmallStrainSolid
-from onesim.physics.solid_mechanics.fatigue.models.fatigue_data import FatigueCycle, FatigueState, SNDataset
-from onesim.physics.solid_mechanics.inelasticity.models.damage.damage_laws import DamageLaw
-from onesim.physics.solid_mechanics.inelasticity.models.damage.damage_provider import (
-    StructuralDamageFractureFatigueProvider,
-)
+from onesim.physics.solid_mechanics import FatigueCycle, FatigueState, SNDataset
+from onesim.physics.solid_mechanics import DamageLaw
+from onesim.physics.solid_mechanics import StructuralDamageFractureFatigueProvider
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
 
 mm = 1e-3
-half_width, half_neck, half_length = 10 * mm, 6.25 * mm, 100 * mm   # grip, central section, specimen
+half_width, half_neck, half_length = 10 * mm, 6.25 * mm, 100 * mm
 fillet_radius = 12.5 * mm
 neck_end = 50 * mm - np.sqrt(fillet_radius**2 - (fillet_radius - (half_width - half_neck)) ** 2)
 thickness = 6.25 * mm
 E, nu = 69e9, 0.34
 
-unit_force = 10e6 * (2 * half_neck) * thickness        # N per load unit (10 MPa in the central section)
-grip_traction = (unit_force / 2) / (half_width * thickness)   # quarter model: half the force on the half grip
-load_block = np.array([-2.0, 1.0, -3.0, 5.0, -1.0, 3.0, -4.0, 4.0, -2.0])   # load units
+unit_force = 10e6 * (2 * half_neck) * thickness
+grip_traction = (unit_force / 2) / (half_width * thickness)
+load_block = np.array([-2.0, 1.0, -3.0, 5.0, -1.0, 3.0, -4.0, 4.0, -2.0])
 blocks = 1e5
 infinite_life = 1e8
 
@@ -132,60 +109,27 @@ def sn_life(amplitude, R):
 
 # ## Geometry and mesh
 #
-# The quarter specimen $x\ge0$, $y\ge0$ is built exactly as described: a $10\times100$ mm
+# The quarter specimen $x\ge0$, $y\ge0$ is declared exactly as described: a $10\times100$ mm
 # rectangle minus the region beside the central section and minus the fillet circle of
-# radius 12.5 mm centred at $(18.75, 41.07)$ mm. Netgen triangulates it with 0.2 mm
-# edges along the fillet and the central-section edge (about 60 elements along the
-# fillet arc), 1.6 mm elsewhere, and a smooth grading. Finer meshes come from uniform
+# radius 12.5 mm centred at $(18.75, 41.07)$ mm (negative bodies). `TriangularMesher`
+# triangulates it with 0.2 mm edges along the fillet and the central-section edge (about
+# 60 elements along the fillet arc), 1.6 mm elsewhere, and a smooth grading. Finer meshes come from uniform
 # refinement (each triangle split into four, new boundary points placed on the exact
 # circle), so the element size halves exactly: 0.2, 0.1 and 0.05 mm on the fillet.
 
-def quarter_face():
-    outer = occ.WorkPlane().Rectangle(half_width, half_length).Face()
-    beside = occ.WorkPlane().MoveTo(half_neck, 0).Rectangle(half_width - half_neck, neck_end).Face()
-    circle = occ.WorkPlane().Circle(half_neck + fillet_radius, neck_end, fillet_radius).Face()
-    face = outer - beside - circle
-    for edge in face.edges:
-        c = edge.center
-        if c.y < 50 * mm + 1e-9 and c.x > half_neck - 1e-9:
-            edge.maxh = 0.2 * mm
-    return face
-
-
-@dataclass(frozen=True, eq=False, kw_only=True)
-class QuarterSpecimen(Geometry):
-    """Quarter of the flat specimen with its four boundary groups."""
-
-    dimension = 2
-
-    def boundary_groups(self):
-        names = ("symmetry_x", "symmetry_y", "grip", "free")
-        return {**{name: (name,) for name in names}, "all": names}
-
-
-def classify(points):
-    if np.all(np.abs(points[:, 0]) < 1e-9):
-        return "symmetry_x"
-    if np.all(np.abs(points[:, 1]) < 1e-9):
-        return "symmetry_y"
-    if np.all(np.abs(points[:, 1] - half_length) < 1e-9):
-        return "grip"
-    return "free"
+quarter = Regrouped(
+    source=(Rectangle(length=half_width, width=half_length)
+            - Rectangle(length=half_width - half_neck, width=neck_end, origin=(half_neck, 0.0, 0.0)).named("beside")
+            - Circle(radius=fillet_radius, origin=(half_neck + fillet_radius, neck_end, 0.0)).named("fillet")),
+    groups={"symmetry_x": ("x_min",), "symmetry_y": ("y_min",), "grip": ("y_max",),
+            "free": ("x_max", "beside.x_min", "fillet.circumference")})
 
 
 def build_mesh(level):
-    ng = occ.OCCGeometry(quarter_face(), dim=2).GenerateMesh(maxh=1.6 * mm, grading=0.2)
-    for _ in range(level):
-        ng.Refine()
-    xy = np.array([p.p for p in ng.Points()])[:, :2]
-    triangles = np.array([[v.nr for v in e.vertices] for e in ng.Elements2D()]) - 1
-    geometry = QuarterSpecimen()
-    groups = {name: [] for name in geometry.boundary_groups()["all"]}
-    for edge in ng.Elements1D():
-        v = np.array([p.nr for p in edge.vertices]) - 1
-        groups[classify(xy[v])].append(tuple(v))
-    mesh = UnstructuredSimplexMesh(geometry=geometry, coordinates=xy, cells=triangles, boundary_facets=groups)
-    return geometry, mesh, triangles
+    mesher = TriangularMesher(target_size=1.6 * mm, grading=0.2, refinements=level,
+                              local_sizes={"beside.x_min": 0.2 * mm, "fillet.circumference": 0.2 * mm})
+    mesh = mesher.generate(quarter)
+    return quarter, mesh, np.asarray(mesh.cells)
 
 
 # ## Model
@@ -281,55 +225,23 @@ Kt = fine["peak"] / 10e6
 print(f"stress concentration of the fillet (P2, finest): Kt = {Kt:.4f}")
 
 
-# **Rainflow counting (ASTM E1049-85, Sec. 5.4.4).** The history is first reduced to
-# its turning points (peaks and valleys). Points are then read one by one onto a stack;
+# **Rainflow counting (ASTM E1049-85, Sec. 5.4.4)** with OneSimulation's
+# `scalar_turning_points` and `rainflow_cycles`. The history is first reduced to its
+# turning points (peaks and valleys). Points are then read one by one onto a stack;
 # with $X$ the range between the last two points and $Y$ the range before it, a range
 # $Y\le X$ is counted: as a half cycle if $Y$ contains the starting point (and the
 # starting point is discarded), otherwise as a full cycle (both points of $Y$ are
 # removed). Ranges left on the stack at the end are counted as half cycles.
 
-def turning_points(history):
-    """Indices and values of the peaks and valleys of a history."""
-    points = [(0, float(history[0]))]
-    for index, value in enumerate(history[1:], start=1):
-        if value == points[-1][1]:
-            continue
-        if len(points) >= 2 and (points[-1][1] - points[-2][1]) * (value - points[-1][1]) > 0:
-            points[-1] = (index, float(value))
-        else:
-            points.append((index, float(value)))
-    return points
-
-
 def rainflow(history, with_positions=False):
-    """Return (minimum, maximum, count) of every counted cycle; count is 0.5 or 1.
+    """(minimum, maximum, count) of every counted cycle; count is 0.5 or 1.
 
-    With positions, also return the history indices of the two points of each range.
+    With positions, also the history indices of the two points of each range.
     """
-    stack, cycles, positions = [], [], []
-
-    def count(a, b, n):
-        cycles.append((min(a[1], b[1]), max(a[1], b[1]), n))
-        positions.append((a[0], b[0]))
-
-    for point in turning_points(history):
-        stack.append(point)
-        while len(stack) >= 3:
-            X = abs(stack[-1][1] - stack[-2][1])
-            Y = abs(stack[-2][1] - stack[-3][1])
-            if X < Y:
-                break
-            if len(stack) == 3:
-                count(stack[0], stack[1], 0.5)
-                stack.pop(0)
-            else:
-                count(stack[-3], stack[-2], 1.0)
-                last = stack.pop()
-                del stack[-2:]
-                stack.append(last)
-    for a, b in zip(stack[:-1], stack[1:]):
-        count(a, b, 0.5)
-    return (np.array(cycles), positions) if with_positions else np.array(cycles)
+    counted = list(rainflow_cycles(scalar_turning_points(np.asarray(history, dtype=float))))
+    cycles = np.array([(min(c.start_value, c.end_value), max(c.start_value, c.end_value), c.count) for c in counted])
+    positions = [(c.start_index, c.end_index) for c in counted]
+    return (cycles, positions) if with_positions else cycles
 
 
 cycles_units, cycle_positions = rainflow(load_block, with_positions=True)
@@ -381,8 +293,8 @@ def damage_field(cycles, stress_per_unit):
     return blocks * np.nansum(terms, axis=1)
 
 
-sigma_bench = fine["bench"][1]            # axial stress per unit at the benchmark point
-sigma_hot = fine["peak"]                  # largest principal stress per unit at the fillet
+sigma_bench = fine["bench"][1]
+sigma_hot = fine["peak"]
 D_bench = blocks * block_damage(cycles_units, sigma_bench, "bench")
 D_hot = blocks * block_damage(cycles_units, sigma_hot, "fillet")
 D_map = damage_field(cycles_units, s1)
@@ -473,11 +385,8 @@ for (sa, sm, r), d in zip(np.c_[amplitude / 1e6, mean / 1e6, R], contrib):
 # uncertainty we quote.
 
 def richardson(values, refinement=2.0):
-    f1, f2, f3 = values
-    if (f1 - f2) * (f2 - f3) <= 0:
-        return np.nan, np.nan
-    p = np.log(abs(f1 - f2) / abs(f2 - f3)) / np.log(refinement)
-    return p, f3 + (f3 - f2) / (refinement**p - 1.0)
+    estimate = convergence(values, [refinement**2, refinement, 1.0])
+    return (estimate.order, estimate.extrapolated) if estimate.order is not None else (np.nan, values[-1])
 
 
 print(f"Fillet damage {D_hot:.4f}, scaling law {D_bench * (sigma_hot / sigma_bench) ** (1 / 0.119):.4f}; "
@@ -502,116 +411,40 @@ print(f"  life sensitivity: a 0.1 % stress change alters the fillet damage by {1
 # ## Figure
 
 cells_p2 = np.asarray(space.cell_dofs)
-sub = np.vstack([cells_p2[:, [0, 3, 5]], cells_p2[:, [3, 1, 4]], cells_p2[:, [5, 4, 2]], cells_p2[:, [3, 4, 5]]])
+triangles = np.vstack([cells_p2[:, [0, 3, 5]], cells_p2[:, [3, 1, 4]], cells_p2[:, [5, 4, 2]], cells_p2[:, [3, 4, 5]]])
 X, Y = space.dof_coordinates.T / mm
-
-
-def mirrored(ax, values, **kwargs):
-    for sx in (1, -1):
-        for sy in (1, -1):
-            tri = Triangulation(sx * X, sy * Y, sub if sx * sy > 0 else sub[:, ::-1])
-            image = ax.tripcolor(tri, values, shading="gouraud", rasterized=True, **kwargs)
-    return image
-
-
-fig = plt.figure(figsize=(15, 9.6), constrained_layout=True)
-grid = fig.add_gridspec(2, 4, width_ratios=(0.55, 1.0, 1.0, 1.0))
-ax_full = fig.add_subplot(grid[:, 0])
-ax_zoom = fig.add_subplot(grid[0, 1])
-ax_dam = fig.add_subplot(grid[0, 2])
-ax_hist = fig.add_subplot(grid[0, 3])
-ax_rf = fig.add_subplot(grid[1, 1])
-ax_bar = fig.add_subplot(grid[1, 2])
-ax_mesh = fig.add_subplot(grid[1, 3])
-
-image = mirrored(ax_full, s1 / 1e6, cmap=FIELD_CMAP, vmin=0, vmax=s1.max() / 1e6)
-ax_full.set_aspect("equal")
-ax_full.set_title("principal stress\nper load unit")
-ax_full.set_xlabel("x (mm)")
-ax_full.set_ylabel("y (mm)")
-fig.colorbar(image, ax=ax_full, shrink=0.95, location="bottom", label="MPa per unit (F = 781 N)")
-
-zoom = (X < 11) & (Y > 30) & (Y < 56)
-tri_q = Triangulation(X, Y, sub)
-levels_c = np.linspace(6.0, s1.max() / 1e6, 25)
-image = ax_zoom.tricontourf(tri_q, s1 / 1e6, levels=levels_c, cmap=FIELD_CMAP, extend="min")
-ax_zoom.triplot(Triangulation(*(runs[2, 0]["space"].dof_coordinates.T / mm),
-                              np.asarray(runs[2, 0]["space"].cell_dofs)[:, :3]), color=INK, lw=0.25, alpha=0.35)
-ax_zoom.plot(*fine["hot_xy"] / mm, marker="*", ms=14, color=COPPER, mec=INK)
-ax_zoom.set_xlim(0, 11)
-ax_zoom.set_ylim(30, 56)
-ax_zoom.set_aspect("equal")
-ax_zoom.set_title(f"fillet, coarsest mesh: Kt = {Kt:.3f}")
-ax_zoom.set_xlabel("x (mm)")
-ax_zoom.set_ylabel("y (mm)")
-fig.colorbar(image, ax=ax_zoom, label="MPa per unit")
-
-log_damage = np.log10(np.maximum(D_map, 1e-6))
-image = ax_dam.tricontourf(tri_q, log_damage, levels=np.linspace(-2.0, np.log10(D_map.max()), 25),
-                           cmap=FIELD_CMAP, extend="min")
-ax_dam.plot(*fine["hot_xy"] / mm, marker="*", ms=14, color=COPPER, mec=INK)
-ax_dam.plot(*bench_point[0] / mm, marker="o", ms=8, color=CREAM, mec=INK)
-ax_dam.set_xlim(0, 11)
-ax_dam.set_ylim(15, 56)
-ax_dam.set_aspect("equal")
-ax_dam.set_title(f"Miner damage after 1e5 blocks (max {D_map.max():.2f})")
-ax_dam.set_xlabel("x (mm)")
-fig.colorbar(image, ax=ax_dam, label="log10 D")
-
 steps = np.arange(1, len(load_block) + 1)
-ax_hist.plot(steps, load_block * sigma_hot / 1e6, "-", color=COPPER, lw=1.2, label="fillet hot spot")
-ax_hist.plot(steps, load_block * sigma_bench / 1e6, "-", color="#9FA593", lw=1.0, label="benchmark point")
-cycle_colors = [GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]
-for k, ((i_a, i_b), (lo, hi, n)) in enumerate(zip(cycle_positions, cycles_units)):
-    ya, yb = load_block[i_a] * sigma_bench / 1e6, load_block[i_b] * sigma_bench / 1e6
-    ax_hist.plot([i_a + 1, i_b + 1], [ya, yb], color=cycle_colors[k], lw=4.5 if n == 1.0 else 2.2,
-                 ls="-" if n == 1.0 else "--", alpha=0.85,
-                 label=f"{'full' if n == 1.0 else 'half'} cycle {5 * (hi - lo):.0f}/{5 * (hi + lo):.0f} MPa")
-ax_hist.axhline(0, color=INK, lw=0.6)
-ax_hist.set_xlabel("load step in block")
-ax_hist.set_ylabel("stress (MPa)")
-ax_hist.set_title("rainflow ranges in the load block")
-ax_hist.legend(fontsize=7, ncol=2, loc="lower center")
-ax_hist.set_ylim(-125, 72)
-ax_hist.grid(alpha=0.3)
-
-ref = np.array(astm_table, float)
-ax_rf.scatter(ref[:, 1], ref[:, 0], s=900 * ref[:, 2], facecolors="none", edgecolors=COPPER, lw=2,
-              label="ASTM E1049 example")
-ax_rf.scatter(mean / 1e6, amplitude / 1e6, s=250 * cycles_units[:, 2], color=GREEN, label="rainflow (this notebook)")
-for x0 in m_edges / 1e6:
-    ax_rf.axvline(x0, color="#9FA593", lw=0.6)
-for y0 in a_edges / 1e6:
-    ax_rf.axhline(y0, color="#9FA593", lw=0.6)
-ax_rf.set_xlabel("mean stress (MPa)")
-ax_rf.set_ylabel("stress amplitude (MPa)")
-ax_rf.set_title("rainflow matrix with the benchmark bins")
-ax_rf.legend(fontsize=8, loc="upper left", markerscale=0.5)
-
-labels = [f"{a:.0f}/{m:.0f}" for a, m in zip(amplitude / 1e6, mean / 1e6)]
+history = {"fillet hot spot": (steps, load_block * sigma_hot / 1e6), "benchmark point": (steps, load_block * sigma_bench / 1e6)}
+half_cycles = {}
+for (i_a, i_b), (lo, hi, n) in zip(cycle_positions, cycles_units):
+    label = f"{'full' if n == 1.0 else 'half'} cycle {5 * (hi - lo):.0f}/{5 * (hi + lo):.0f} MPa"
+    history[label] = ([i_a + 1, i_b + 1], [load_block[i_a] * sigma_bench / 1e6, load_block[i_b] * sigma_bench / 1e6])
+    if n != 1.0:
+        half_cycles[label] = "dashed"
+astm = np.array(astm_table, float)
+bars = [f"{a:.0f}/{m:.0f}" for a, m in zip(amplitude / 1e6, mean / 1e6)]
 binned_terms = np.where(N_bin < infinite_life, cycles_units[:, 2] / N_bin, 0) * blocks
-xpos = np.arange(len(labels))
-ax_bar.bar(xpos - 0.2, contrib, width=0.4, color=GREEN, label=f"true cycles, D = {D_bench:.3f}")
-ax_bar.bar(xpos + 0.2, binned_terms, width=0.4, color=COPPER, label=f"bin centres, D = {D_binned:.3f} (ref. 0.182)")
-ax_bar.set_xticks(xpos, labels, rotation=35, fontsize=8)
-ax_bar.set_xlabel("cycle amplitude/mean (MPa)")
-ax_bar.set_ylabel("damage contribution")
-ax_bar.set_title("damage per cycle at the benchmark point")
-ax_bar.legend(fontsize=8)
-ax_bar.grid(alpha=0.3, axis="y")
-
-for order, color in ((1, COPPER), (2, GREEN)):
-    dofs = [runs[order, level]["dofs"] for level in levels]
-    peaks = [runs[order, level]["peak"] / 1e6 for level in levels]
-    ax_mesh.semilogx(dofs, peaks, "-o", color=color, label=f"P{order} triangles")
-ax_mesh.axhspan(p2_peaks[-1] / 1e6 * (1 - 2e-4), p2_peaks[-1] / 1e6 * (1 + 2e-4), color=GREEN, alpha=0.15,
-                label=f"P2 finest {p2_peaks[-1] / 1e6:.4f} ± 0.02 %")
-ax_mesh.set_xlabel("unknowns")
-ax_mesh.set_ylabel("fillet peak stress (MPa per unit)")
-ax_mesh.set_title("mesh study of the critical stress")
-ax_mesh.legend(fontsize=8)
-ax_mesh.grid(alpha=0.3)
-plt.show()
+fig = plots.figure(layout=[["part", "zoom", "damage", "history"], ["part", "matrix", "bars", "mesh"]], size=(21, 10))
+plots.heatmap(np.r_[X, -X, X, -X], np.r_[Y, Y, -Y, -Y], np.tile(s1 / 1e6, 4),
+              triangles=np.vstack([triangles + k * len(X) for k in range(4)]), limits=(0, s1.max() / 1e6),
+              label="MPa per unit (F = 781 N)", xlabel="x [mm]", ylabel="y [mm]", title="Principal stress per load unit", ax=fig["part"])
+plots.heatmap(X, Y, s1 / 1e6, triangles=triangles, limits=(6.0, s1.max() / 1e6), label="MPa per unit",
+              xlimits=(0, 11), ylimits=(30, 56), xlabel="x [mm]", ylabel="y [mm]", title=f"Fillet: Kt = {Kt:.3f}", ax=fig["zoom"])
+plots.heatmap(X, Y, np.log10(np.maximum(D_map, 1e-6)), triangles=triangles, limits=(-2.0, np.log10(D_map.max())),
+              label="log10 D", xlimits=(0, 11), ylimits=(15, 56), xlabel="x [mm]", ylabel="y [mm]",
+              title=f"Miner damage after 1e5 blocks (max {D_map.max():.2f})", ax=fig["damage"])
+plots.line(y=history, styles=half_cycles, hlines=0.0, ylimits=(-125, 72), xlabel="load step in block", ylabel="stress [MPa]",
+           title="Rainflow ranges in the load block", legend="lower center", ax=fig["history"])
+plots.line(points={"ASTM E1049 example": (astm[:, 1], astm[:, 0]), "rainflow (this notebook)": (mean / 1e6, amplitude / 1e6)},
+           vlines=m_edges / 1e6, hlines=a_edges / 1e6, xlabel="mean stress [MPa]", ylabel="stress amplitude [MPa]",
+           title="Rainflow matrix and benchmark bins", legend="upper left", ax=fig["matrix"])
+plots.bars(bars, {f"true cycles, D = {D_bench:.3f}": contrib, f"bin centres, D = {D_binned:.3f} (ref. 0.182)": binned_terms},
+           ylabel="damage contribution (cycles as amplitude/mean in MPa)", title="Damage per cycle at the benchmark point", ax=fig["bars"])
+plots.line(y={f"P{order} triangles": ([runs[order, level]["dofs"] for level in levels], [runs[order, level]["peak"] / 1e6 for level in levels])
+              for order in (1, 2)},
+           hlines={f"P2 finest {p2_peaks[-1] / 1e6:.4f} MPa": p2_peaks[-1] / 1e6}, markers=True, scale="logx",
+           xlabel="unknowns", ylabel="fillet peak stress [MPa per unit]", title="Mesh study of the critical stress", ax=fig["mesh"])
+plots.show()
 
 
 # ## Going further
