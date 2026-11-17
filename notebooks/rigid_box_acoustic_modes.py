@@ -65,58 +65,34 @@ frequencies and mode shapes.
 # frequency, i.e. with fewer elements per wavelength, and high-order elements push it
 # down by orders of magnitude at the same number of unknowns.
 
-from importlib.metadata import version
 import time
-
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
-from matplotlib.colors import Normalize
 import scipy.sparse as sp
+import numpy as np
 from scipy.sparse.linalg import LinearOperator, splu
 
 from onesim.cad.d3 import Box
 from onesim.meshing import StructuredHexahedralMesher, TetrahedralMesher
 from onesim.numerics.fem import FiniteElement, Lagrange
-from onesim.numerics.linear.kernels.algorithms.sparse_symmetric_eigen import SparseSymmetricEigenSolver
+from onesim.numerics.linear import SparseSymmetricEigenSolver
 from onesim.physics.acoustics import pressure_eigenmodes, pressure_helmholtz_element
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 start_time = time.perf_counter()
 
 
 # ## Parameters
 
-Lx, Ly, Lz = 1.0, 0.7, 0.5          # m, box dimensions
-c0 = 343.0                          # m/s, speed of sound in air at 20 C
-rho0 = 1.204                        # kg/m^3, air density at 20 C
-compressibility = 1.0 / (rho0 * c0**2)   # 1/Pa
-mode_count = 20                     # graded non-zero modes
+Lx, Ly, Lz = 1.0, 0.7, 0.5
+c0 = 343.0
+rho0 = 1.204
+compressibility = 1.0 / (rho0 * c0**2)
+mode_count = 20
 
-# Mesh study: element size h = 0.1 m / k for refinement level k, per polynomial degree p.
 hex_levels = {1: (1, 2, 3, 4), 2: (1, 2, 3), 3: (1, 2), 4: (1,)}
-tet_size = 0.1                      # m, target size of the unstructured tetrahedral mesh
+tet_size = 0.1
 tet_degrees = (1, 2, 3)
 
-# Exact modes, sorted by frequency.
 exact = sorted(
     (c0 / 2 * np.sqrt((l / Lx) ** 2 + (m / Ly) ** 2 + (n / Lz) ** 2), (l, m, n))
     for l in range(8) for m in range(8) for n in range(8) if l + m + n
@@ -124,7 +100,6 @@ exact = sorted(
 f_exact = np.array([f for f, _ in exact[:mode_count]])
 indices = [lmn for _, lmn in exact[:mode_count]]
 kind = {1: "axial", 2: "tangential", 3: "oblique"}
-# Degenerate groups: modes with the same exact frequency.
 group_of = [int(np.flatnonzero(np.isclose(f_exact, f, rtol=1e-12, atol=0))[0]) for f in f_exact]
 print(f"first {mode_count} exact modes: {f_exact[0]:.2f} ... {f_exact[-1]:.2f} Hz; "
       f"next mode {exact[mode_count][0]:.2f} Hz {exact[mode_count][1]}")
@@ -194,8 +169,6 @@ eigensolver = SparseSymmetricEigenSolver(shift_inverse=shift_invert)
 def acoustic_modes(mesh, degree):
     started = time.perf_counter()
     space, K, M = acoustic_matrices(mesh, degree)
-    # Shift sigma = -1 rad^2/s^2 sits just below the null mode; the 21 lowest pairs are
-    # the constant mode plus the 20 graded modes.
     frequencies, vectors = pressure_eigenmodes(
         K, M, zero_tolerance=1e-3,
         eigensolver=lambda mass, stiffness: eigensolver(mass, stiffness, mode_count=mode_count + 1,
@@ -285,7 +258,6 @@ for degree, levels in hex_levels.items():
         last, prev = hex_runs[degree, levels[-1]]["f"], hex_runs[degree, levels[-2]]["f"]
         print(f"     observed order(s) {', '.join(f'{o:.2f}' for o in orders)} (theory {2 * degree});"
               f" largest change between the last two meshes {np.max(np.abs(last / prev - 1)):.2e}")
-# Richardson estimate for Q3 from the two levels with the theoretical order 6.
 f_rich = final["f"] + (final["f"] - hex_runs[3, 1]["f"]) / (2**6 - 1)
 print(f"Q3 Richardson estimate (order 6): largest deviation from exact {np.max(np.abs(f_rich / f_exact - 1)):.1e}")
 
@@ -327,94 +299,48 @@ print(f"Total run time: {time.perf_counter() - start_time:.0f} s")
 # $(0,0,1)$. Right: convergence of the largest frequency error with the number of
 # unknowns, and the dispersion error over the twenty modes on the coarsest mesh.
 
-def mode_on_faces(run, vector, n=41):
-    """Pressure of a nodal vector on the three visible walls, normalised to max |p| = 1."""
-    space = run["space"]
-    s, t = np.meshgrid(np.linspace(1e-6, 1 - 1e-6, n), np.linspace(1e-6, 1 - 1e-6, n))
-    faces = {
-        "x": (np.full_like(s, Lx * (1 - 1e-9)), s * Ly, t * Lz),
-        "y": (s * Lx, np.full_like(s, 1e-9 * Ly), t * Lz),
-        "z": (s * Lx, t * Ly, np.full_like(s, Lz * (1 - 1e-9))),
-    }
-    values = {key: np.asarray(space.evaluate(vector, np.column_stack([c.ravel() for c in xyz]))).reshape(s.shape)
-              for key, xyz in faces.items()}
-    peak = max(np.max(np.abs(v)) for v in values.values())
-    corner = np.asarray(space.evaluate(vector, np.array([[Lx * (1 - 1e-9), 1e-9, Lz * (1 - 1e-9)]])))[0]
-    sign = 1.0 if corner >= 0 else -1.0
-    return faces, {k: sign * v / peak for k, v in values.items()}
-
-
 def rotated_pair(run, members):
     """Rotate the computed degenerate eigenspace onto the exact shapes of the pair."""
     space, M, V = run["space"], run["M"], run["modes"][:, members]
-    out = []
-    for i in members:
-        q = exact_shape(indices[i], space.dof_coordinates)
-        out.append(V @ np.linalg.solve(V.T @ (M @ V), V.T @ (M @ q)))
-    return out
+    return [V @ np.linalg.solve(V.T @ (M @ V), V.T @ (M @ exact_shape(indices[i], space.dof_coordinates))) for i in members]
 
 
 shown = [indices.index(lmn) for lmn in ((1, 1, 0), (1, 1, 1), (2, 0, 0), (0, 0, 1), (2, 1, 1), (3, 1, 1))]
 pair = [indices.index((0, 0, 1)), indices.index((2, 0, 0))]
 pair_vectors = dict(zip(pair, rotated_pair(final, pair)))
-
-norm = Normalize(-1.0, 1.0)
-fig = plt.figure(figsize=(17, 9.6), constrained_layout=True)
-layout = fig.add_gridspec(2, 4, width_ratios=(1, 1, 1, 1.25))
-for k, j in enumerate(shown):
-    ax = fig.add_subplot(layout[k // 3, k % 3], projection="3d")
-    ax.set_facecolor(CREAM)
-    vector = pair_vectors.get(j, final["modes"][:, j])
-    faces, values = mode_on_faces(final, vector)
-    for key in ("x", "y", "z"):
-        ax.plot_surface(*faces[key], facecolors=DIVERGING_CMAP(norm(values[key])), rstride=1, cstride=1,
-                        linewidth=0, antialiased=False, shade=False)
-    for xs, ys, zs in (([0, Lx], [0, 0], [Lz, Lz]), ([Lx, Lx], [0, Ly], [Lz, Lz]), ([Lx, Lx], [0, 0], [0, Lz]),
-                       ([0, Lx], [Ly, Ly], [Lz, Lz]), ([0, 0], [0, Ly], [Lz, Lz]), ([0, Lx], [0, 0], [0, 0]),
-                       ([Lx, Lx], [0, Ly], [0, 0]), ([0, 0], [0, 0], [0, Lz]), ([Lx, Lx], [Ly, Ly], [0, Lz])):
-        ax.plot(xs, ys, zs, color=INK, lw=0.7)
-    ax.set_box_aspect((Lx, Ly, Lz))
-    ax.view_init(elev=24, azim=-58)
-    ax.set_xticks([0, 0.5, 1.0]), ax.set_yticks([0, 0.35, 0.7]), ax.set_zticks([0, 0.25, 0.5])
-    ax.tick_params(labelsize=7, pad=0)
-    ax.set_xlabel("x / m", fontsize=8, labelpad=-4), ax.set_ylabel("y / m", fontsize=8, labelpad=-4)
-    ax.set_zlabel("z / m", fontsize=8, labelpad=-2)
-    lmn = indices[j]
-    label = kind[np.count_nonzero(lmn)] + (", degenerate pair" if group_of[j] != j or j in group_of[j + 1:] else "")
-    ax.set_title(f"mode {lmn}: {final['f'][j]:.3f} Hz (exact {f_exact[j]:.3f})\n{label}", fontsize=10)
-fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=DIVERGING_CMAP), ax=fig.axes[:6], shrink=0.5,
-             label="pressure p / max|p|", location="bottom", aspect=40, pad=0.02)
-
-ax = fig.add_subplot(layout[0, 3])
-markers = {1: "o", 2: "s", 3: "^", 4: "D"}
+n = 41
+s, t = (grid.ravel() for grid in np.meshgrid(np.linspace(1e-6, 1 - 1e-6, n), np.linspace(1e-6, 1 - 1e-6, n), indexing="ij"))
+walls = np.vstack((np.column_stack((np.full_like(s, Lx * (1 - 1e-9)), s * Ly, t * Lz)),
+                   np.column_stack((s * Lx, np.full_like(s, 1e-9 * Ly), t * Lz)),
+                   np.column_stack((s * Lx, t * Ly, np.full_like(s, Lz * (1 - 1e-9))))))
+wall_triangles = (np.array([(i * n + j + a, i * n + j + b, i * n + j + c) for i in range(n - 1) for j in range(n - 1)
+                            for a, b, c in ((0, n, n + 1), (0, n + 1, 1))])[None] + (np.arange(3) * n * n)[:, None, None]).reshape(-1, 3)
+convergence, guides = {}, {}
 for degree, levels in hex_levels.items():
     dofs = np.array([hex_runs[degree, k]["dofs"] for k in levels])
     errors = np.array([np.max(np.abs(hex_runs[degree, k]["f"] / f_exact - 1)) for k in levels])
-    line, = ax.loglog(dofs, errors, markers[degree] + "-", label=f"Q{degree} hexahedra")
+    convergence[f"Q{degree} hexahedra"] = (dofs, errors)
     if len(levels) > 1:
-        guide = errors[0] * (dofs / dofs[0]) ** (-2 * degree / 3)
-        ax.loglog(dofs, guide, ":", color=line.get_color(), lw=1)
-for degree in tet_degrees:
-    run = tet_runs[degree]
-    ax.loglog(run["dofs"], np.max(np.abs(run["f"] / f_exact - 1)), markers[degree], mfc="none", ms=9,
-              color="#8B9A8D", label=f"P{degree} tetrahedra (unstructured)")
-ax.set(xlabel="number of pressure unknowns", ylabel="largest relative frequency error (20 modes)",
-       title="Convergence: dotted guides ~ h^(2p)")
-ax.grid(alpha=0.3, which="both")
-ax.legend(fontsize=8)
-
-ax = fig.add_subplot(layout[1, 3])
-for degree in (1, 2, 3, 4):
-    run = hex_runs[degree, 1]
-    ax.semilogy(f_exact, np.abs(run["f"] / f_exact - 1), markers[degree] + "-", ms=4,
-                label=f"Q{degree}, h = 10 cm ({run['dofs']} unknowns)")
-ax.semilogy(f_exact, np.abs(final["f"] / f_exact - 1), "*-", color=INK, ms=6,
-            label=f"Q3, h = 5 cm ({final['dofs']} unknowns)")
-ax.set(xlabel="exact frequency / Hz", ylabel="relative frequency error",
-       title="Dispersion error over the first 20 modes")
-ax.grid(alpha=0.3, which="both")
-ax.legend(fontsize=8)
-plt.show()
+        guides[f"Q{degree} hexahedra"] = (dofs, errors[0] * (dofs / dofs[0]) ** (-2 * degree / 3))
+fig = plots.figure(layout=[["m0", "m1", "m2", "convergence"], ["m3", "m4", "m5", "dispersion"]], size=(23, 10))
+for k, j in enumerate(shown):
+    pressure = np.asarray(final["space"].evaluate(pair_vectors.get(j, final["modes"][:, j]), walls))
+    label = kind[np.count_nonzero(indices[j])]
+    plots.trisurface(walls, wall_triangles, pressure / np.max(np.abs(pressure)) * np.sign(pressure[n * n - 1]),
+                     colormap="diverging", limits=(-1.0, 1.0), camera=plots.Camera(elevation=24, azimuth=-58),
+                     label="pressure p / max|p|", ax=fig[f"m{k}"],
+                     title=f"Mode {indices[j]}, {label}: {final['f'][j]:.1f} Hz")
+plots.line(y=convergence, reference=guides,
+           points={f"P{degree} tetrahedra (unstructured)": ([tet_runs[degree]["dofs"]], [np.max(np.abs(tet_runs[degree]["f"] / f_exact - 1))])
+                   for degree in tet_degrees},
+           markers=True, scale="loglog", xlabel="number of pressure unknowns",
+           ylabel="largest relative frequency error", title="Convergence (dashed: h^(2p))", ax=fig["convergence"])
+plots.line(f_exact, {**{f"Q{degree}, h = 10 cm ({hex_runs[degree, 1]['dofs']} unknowns)": np.abs(hex_runs[degree, 1]["f"] / f_exact - 1)
+                        for degree in (1, 2, 3, 4)},
+                     f"Q3, h = 5 cm ({final['dofs']} unknowns)": np.abs(final["f"] / f_exact - 1)},
+           markers=True, scale="logy", xlabel="exact frequency [Hz]", ylabel="relative frequency error",
+           title="Dispersion error over the first 20 modes", ax=fig["dispersion"])
+plots.show()
 
 
 # ## Going further

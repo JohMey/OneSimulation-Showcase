@@ -1,8 +1,9 @@
 """OneSimulation example: TE10 mode of a rectangular waveguide.
 Requires the installed, activated OneSimulation runtime.
 
-The computed port eigenmode and the driven 3D field are checked against the
-closed-form TE10 cutoff frequency, mode shape and standing-wave pattern.
+The air volume of the guide is read from a STEP file. The computed port eigenmode and the driven 3D
+field are checked against the closed-form TE10 cutoff frequency, mode shape and standing-wave
+pattern.
 """
 
 
@@ -15,8 +16,10 @@ closed-form TE10 cutoff frequency, mode shape and standing-wave pattern.
 # eigenvalue problem on the port cross-section numerically and uses the first
 # TE eigenmode as the excitation.
 #
-# The frequency-domain Maxwell equations are solved with Nédélec (H(curl))
-# elements of order 2 on a tetrahedral mesh:
+# The air volume comes from the CAD file `rectangular_waveguide_te10.step` with the face groups
+# `port`, `short` and `walls`; the script `rectangular_waveguide_te10_geometry.py` builds it with the CAD
+# objects of OneSimulation. The frequency-domain Maxwell equations are solved with Nédélec
+# (H(curl)) elements of order 2 on a tetrahedral mesh:
 #
 # $$\nabla\times\big(\mu_r^{-1}\nabla\times\mathbf{E}\big)-k_0^2\,\varepsilon_r\,\mathbf{E}=0,
 #   \qquad k_0=\omega/c.$$
@@ -29,124 +32,90 @@ closed-form TE10 cutoff frequency, mode shape and standing-wave pattern.
 #
 # and, with $\beta=\sqrt{k_0^2-(\pi/a)^2}$, the shorted guide carries the
 # standing wave $|E_y(z)|\propto|\sin\beta(\ell-z)|$ without absorbing power.
-# We check the cutoff frequency, the port mode shape, the standing-wave pattern
-# and the absorbed power against these closed forms.
 
-from math import pi, sqrt
 import numpy as np
 
-from onesim.cad.d3 import Box
-from onesim.materials.electromagnetic import IsotropicElectromagneticMaterial
+from onesim.cad.exchange import load
 from onesim.materials import VACUUM_PERMEABILITY, VACUUM_PERMITTIVITY
+from onesim.materials.electromagnetic import IsotropicElectromagneticMaterial
 from onesim.meshing import TetrahedralMesher
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Nedelec
 from onesim.numerics.linear import ComplexSparseDirect
-from onesim.physics.electromagnetics import (
-    FrequencyDomainMaxwell, NumericalWaveguideMode, PerfectElectricConductor, WaveguidePort,
-)
+from onesim.physics.electromagnetics import FrequencyDomainMaxwell, NumericalWaveguideMode, PerfectElectricConductor, WaveguidePort
 from onesim.simulation import Problem, Simulation
 from onesim.visualization import theme, plots
 
 theme.set()
 
-
-# ## Parameters
+# ## Geometry and mesh
 #
-# The guide is 100 mm wide and 50 mm high, so TE10 cuts off at about 1.5 GHz
-# and the next modes (TE20, TE01) at 3.0 GHz. At 2.5 GHz only TE10 propagates.
+# The guide is 100 mm wide and 50 mm high, so TE10 cuts off at about 1.5 GHz and the next modes
+# (TE20, TE01) at 3.0 GHz.
 
-a = 0.100
-b = 0.050
-length = 0.080
-frequency = 2.5e9
-c0 = 1.0 / sqrt(VACUUM_PERMEABILITY * VACUUM_PERMITTIVITY)
-f_c10 = c0 / (2 * a)
-f_c20 = c0 / a
-f_c01 = c0 / (2 * b)
-k0 = 2 * pi * frequency / c0
-beta = sqrt(k0**2 - (pi / a) ** 2)
-print(f"f_c(TE10) = {f_c10 / 1e9:.4f} GHz,  f_c(TE20) = {f_c20 / 1e9:.3f} GHz,  f_c(TE01) = {f_c01 / 1e9:.3f} GHz")
-print(f"guide wavelength at {frequency / 1e9:.1f} GHz: {2 * pi / beta * 1e3:.1f} mm")
-
-guide = Box(length=a, width=b, height=length)
+guide = load("rectangular_waveguide_te10.step")
+faces = guide.boundaries
+a, b, length = guide.size
 mesh = TetrahedralMesher(target_size=0.010).generate(guide)
-print("Mesh:", mesh.cell_count, "tetrahedra")
 
-model = FrequencyDomainMaxwell(
-    domain=guide.volume, frequency=frequency,
-    material=IsotropicElectromagneticMaterial(),
-    phasor_convention="exp(-i*omega*t)", amplitude_convention="peak",
-)
-problem = Problem(
-    name="TE10 mode of a rectangular waveguide",
-    geometry=guide,
-    physics=(model,),
-    boundary_conditions=(
-        WaveguidePort(boundary=guide.boundaries.z_min, physics=model,
-                      mode=NumericalWaveguideMode("TE"), incident_power=1.0),
-        PerfectElectricConductor(boundary=guide.boundaries.all - guide.boundaries.z_min, physics=model),
-    ),
-)
-simulation = Simulation(
-    problem=problem,
-    mesh=mesh,
-    numerics=Numerics(spatial=FiniteElement(element=Nedelec(order=2)), linear_solver=ComplexSparseDirect()),
-)
-simulation.validate().require_valid()
-result = simulation.solve_stationary()
+fig = plots.figure(1, 2, size=(13, 5))
+plots.geometry(guide, selection={"port": faces.port, "short": faces.short}, labels=False,
+               title="Air volume of the guide with port and short", ax=fig[0])
+plots.mesh(mesh, groups=("all",), legend=False, title=f"{mesh.cell_count} tetrahedra", ax=fig[1])
+plots.show()
 
+# ## Model
+#
+# At 2.5 GHz only TE10 propagates. The port carries the first numerical TE eigenmode with 1 W.
+
+frequency = 2.5e9
+model = FrequencyDomainMaxwell(domain=guide.volume, frequency=frequency, material=IsotropicElectromagneticMaterial(),
+                               phasor_convention="exp(-i*omega*t)", amplitude_convention="peak")
+problem = Problem(name="TE10 mode of a rectangular waveguide", geometry=guide, physics=(model,), boundary_conditions=(
+    WaveguidePort(boundary=faces.port, physics=model, mode=NumericalWaveguideMode("TE"), incident_power=1.0),
+    PerfectElectricConductor(boundary=faces.walls | faces.short, physics=model)))
+numerics = Numerics(spatial=FiniteElement(element=Nedelec(order=2)), linear_solver=ComplexSparseDirect())
+result = Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_stationary()
 
 # ## Comparison with the closed-form TE10 solution
 #
-# The bound port mode exposes its cutoff frequency and its transverse electric
-# field; the driven 3D solution is sampled along the guide axis.
+# The bound port mode exposes its cutoff frequency and its transverse electric field; the driven
+# 3D solution is sampled along the guide axis.
 
-_, port_mode = result.operators[model.model_id].ports[0]
-f_c_num = float(port_mode.cutoff_frequency)
-cutoff_error = abs(f_c_num / f_c10 - 1.0)
-print(f"TE10 cutoff: computed {f_c_num / 1e9:.4f} GHz, reference {f_c10 / 1e9:.4f} GHz, deviation {100 * cutoff_error:.2f} %")
-
-xs = np.linspace(0.05 * a, 0.95 * a, 19)
-port_points = np.column_stack((xs, np.full_like(xs, b / 2), np.zeros_like(xs)))
-E_port = np.asarray(port_mode.electric_field(port_points))
-Ey_port = E_port[:, 1]
-Ey_port = Ey_port / Ey_port[np.argmax(np.abs(Ey_port))]
-shape_ref = np.sin(pi * xs / a)
-shape_error = float(np.max(np.abs(Ey_port - shape_ref)))
-cross_component = float(np.max(np.abs(E_port[:, 0])) / np.max(np.abs(E_port[:, 1])))
-print(f"Port mode shape vs sin(pi x / a): max deviation {shape_error:.3f} (of peak 1), |E_x|/|E_y| = {cross_component:.3f}")
-
-zs = np.linspace(0.02 * length, 0.98 * length, 25)
-axis_points = np.column_stack((np.full_like(zs, a / 2), np.full_like(zs, b / 2), zs))
-E_axis = np.asarray(result.field(model.electric_field).evaluate(axis_points))
-amplitude = np.abs(E_axis[:, 1])
-standing_ref = np.abs(np.sin(beta * (length - zs)))
-standing_error = float(np.max(np.abs(amplitude / amplitude.max() - standing_ref / standing_ref.max())))
-print(f"Standing wave |E_y(z)| vs |sin(beta (l - z))|: max deviation {standing_error:.3f} (of peak 1)")
-
+c0 = 1.0 / np.sqrt(VACUUM_PERMEABILITY * VACUUM_PERMITTIVITY)
+cutoff, beta = c0 / (2 * a), np.sqrt((2 * np.pi * frequency / c0) ** 2 - (np.pi / a) ** 2)
+port_mode = result.operators[model.model_id].ports[0][1]
+x = np.linspace(0.05 * a, 0.95 * a, 19)
+port_field = port_mode.electric_field(np.column_stack((x, np.full_like(x, b / 2), np.zeros_like(x))))
+mode_shape = port_field[:, 1] / port_field[np.argmax(np.abs(port_field[:, 1])), 1]
+z = np.linspace(0.02 * length, 0.98 * length, 25)
+amplitude = np.abs(result.field(model.electric_field).evaluate(np.column_stack((np.full_like(z, a / 2), np.full_like(z, b / 2), z)))[:, 1])
+standing_wave = np.abs(np.sin(beta * (length - z)))
 absorbed = result.field(model.absorbed_power_density).integrate()
-print(f"Absorbed power in the lossless guide: {absorbed.value:.3e} {absorbed.unit} (incident 1 W)")
 
+print(f"TE10 cutoff: computed {port_mode.cutoff_frequency / 1e9:.4f} GHz, reference {cutoff / 1e9:.4f} GHz, "
+      f"deviation {100 * abs(port_mode.cutoff_frequency / cutoff - 1):.2f} %")
+print(f"port mode shape against sin(pi x / a): largest deviation {np.max(np.abs(mode_shape - np.sin(np.pi * x / a))):.3f} of the peak, "
+      f"|E_x|/|E_y| = {np.max(np.abs(port_field[:, 0])) / np.max(np.abs(port_field[:, 1])):.3f}")
+print(f"standing wave against |sin(beta (l - z))|: largest deviation "
+      f"{np.max(np.abs(amplitude / amplitude.max() - standing_wave / standing_wave.max())):.3f} of the peak")
+print(f"absorbed power in the lossless guide: {absorbed.value:.3e} {absorbed.unit} (incident 1 W)")
 
 # ## Figure
 
-fine, fine_z = np.linspace(0, a, 200), np.linspace(0, length, 300)
+fine_x, fine_z = np.linspace(0, a, 200), np.linspace(0, length, 300)
 fig = plots.figure(1, 2, size=(12, 4.8))
-plots.line(points={"OneSimulation port eigenmode": (xs * 1e3, Ey_port)},
-           reference={"sin(pi x / a)": (fine * 1e3, np.sin(pi * fine / a))},
-           xlabel="position x across the broad wall [mm]", ylabel="E_y / E_y,max",
-           title=f"TE10 mode shape, cutoff {f_c_num / 1e9:.3f} GHz (reference {f_c10 / 1e9:.3f} GHz)", ax=fig[0])
-plots.line(points={"OneSimulation |E_y| on the axis": (zs * 1e3, amplitude / amplitude.max())},
-           reference={"|sin(beta (l - z))|": (fine_z * 1e3, np.abs(np.sin(beta * (length - fine_z))))},
+plots.line(points={"port eigenmode": (1e3 * x, mode_shape.real)}, reference={"sin(pi x / a)": (1e3 * fine_x, np.sin(np.pi * fine_x / a))},
+           xlabel="position x across the broad wall [mm]", ylabel="E_y / E_y,max", title="TE10 mode shape at the port", ax=fig[0])
+plots.line(points={"|E_y| on the axis": (1e3 * z, amplitude / amplitude.max())},
+           reference={"|sin(beta (l - z))|": (1e3 * fine_z, np.abs(np.sin(beta * (length - fine_z))))},
            xlabel="position z along the guide [mm]", ylabel="|E_y| / max",
            title=f"Standing wave in the shorted guide at {frequency / 1e9:.1f} GHz", ax=fig[1])
 plots.show()
 
-
 # ## Going further
 #
-# Ask for `NumericalWaveguideMode("TE", order=2)` to excite the next mode and
-# compare its cutoff with $f_{c,20}$ or $f_{c,01}$ (raise the drive frequency
-# above that cutoff first). Giving the material a finite conductivity turns the
-# absorbed power on, and refining `target_size` tightens all four comparisons.
+# Change the cross-section in `rectangular_waveguide_te10_geometry.py` and write the STEP file
+# again: the cutoff follows $c/(2a)$. Ask for `NumericalWaveguideMode("TE", order=2)` to excite the
+# next mode (raise the drive frequency above its cutoff first), or give the material a finite
+# conductivity to turn the absorbed power on.

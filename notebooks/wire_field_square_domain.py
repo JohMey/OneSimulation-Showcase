@@ -2,8 +2,8 @@
 Requires the installed, activated OneSimulation runtime.
 
 A straight round conductor runs through the centre of a square box whose walls carry the return
-current. The field is computed with edge elements and compared with the exact conformal-mapping
-solution and the exact inductance per unit length.
+current. Air region and wire are read from STEP files; the field is computed with edge elements
+and compared with the exact conformal-mapping solution and the exact inductance per unit length.
 """
 
 
@@ -19,6 +19,10 @@ solution and the exact inductance per unit length.
 # Nédélec edge elements and a Coulomb gauge, on a slab of the cross-section that is one layer of
 # tetrahedra thick.
 #
+# The slab comes from two CAD files: `wire_field_square_domain.step` holds the air region with the
+# face group `walls`, `wire_field_square_domain_wire.step` the wire. The script
+# `wire_field_square_domain_geometry.py` builds both with the CAD objects of OneSimulation.
+#
 # **Reference.** The Schwarz-Christoffel map $z(w)=R_c\,w\,{}_2F_1(\tfrac14,\tfrac12;\tfrac54;-w^4)$
 # takes the unit disc onto the square; $R_c=0.53935\,s$ is the conformal radius. Outside the wire
 # the vector potential is $A_z=-\frac{\mu_0I}{2\pi}\ln|w|$, and the inductance per unit length is
@@ -30,7 +34,7 @@ import numpy as np
 from scipy.special import hyp2f1
 
 from onesim.cad.d2 import Plane
-from onesim.cad.d3 import Cylinder
+from onesim.cad.exchange import load
 from onesim.materials import VacuumPermeability
 from onesim.meshing import Geometric, disc_blocks, extrude, merge_blocks, o_grid
 from onesim.numerics import Numerics
@@ -43,7 +47,19 @@ from onesim.visualization import theme, plots
 
 theme.set()
 
-wire_radius, side, current = 0.01, 0.20, 1.0
+# ## Geometry
+
+air, wire = load("wire_field_square_domain.step"), load("wire_field_square_domain_wire.step")
+faces = air.boundaries
+side, thickness, wire_radius, current = air.size[0], air.size[2], wire.size[0] / 2, 1.0
+
+fig = plots.figure(1, 2, size=(13, 5))
+plots.geometry(air, selection={"walls": faces.walls}, labels=False, title="Air region with its insulated walls", ax=fig[0])
+plots.geometry(wire, labels=False, title="Wire", ax=fig[1])
+plots.show()
+
+# ## Reference
+
 mu0 = float(VacuumPermeability().evaluate())
 conformal_radius = 0.53935 * side
 exact_inductance = mu0 / (2 * np.pi) * (0.25 + np.log(conformal_radius / wire_radius))
@@ -63,30 +79,27 @@ def exact_field(x, y):
 #
 # `disc_blocks` meshes the wire, `o_grid` the air between the wire and the square walls with cells
 # that grow with the distance from the wire. The quadrilaterals are split into triangles and
-# extruded into one layer of tetrahedra. The wire carries a uniform axial current density.
+# extruded into one layer of tetrahedra; `geometry=air` binds the mesh to the faces of the air
+# region. The wire carries a uniform axial current density.
 
 def solve(n):
     """Magnetic flux density on the mesh with n cells per quarter of the wire circumference."""
-    thickness = 2.5 * np.pi * wire_radius / (2 * n)
     blocks = disc_blocks((0, 0), (wire_radius,), n, n // 2) + o_grid(
         (0, 0), wire_radius, side / 2, n, 3 * n // 2, radial_grading=Geometric(3 * n // 2, ratio=10.0),
         inner_name=None, outer_names=("walls",) * 4)
-    mesh = extrude(merge_blocks(blocks).triangulated(), thickness, 1, names=("front", "back"))
-    faces = mesh.geometry.boundaries
-    wire_area = 2 * n * wire_radius**2 * np.sin(np.pi / (2 * n))
-    wire = RegionCurrent.axial(Cylinder(radius=wire_radius, length=thickness), current, area=wire_area,
-                               within=mesh.geometry.domain())
-    model = Magnetostatics(domain=mesh.geometry.domain(), permeability=VacuumPermeability(),
-                           formulation=MagneticVectorPotential(gauge=CoulombGauge()), current_sources=(wire,))
-    problem = Problem(name="Wire in an insulated square", geometry=mesh.geometry, physics=(model,), boundary_conditions=(
-        MagneticInsulation(boundary=faces.walls | faces.front | faces.back, physics=model),))
+    mesh = extrude(merge_blocks(blocks).triangulated(), thickness, 1, geometry=air)
+    source = RegionCurrent.axial(wire, current, area=2 * n * wire_radius**2 * np.sin(np.pi / (2 * n)), within=air.volume)
+    model = Magnetostatics(domain=air.volume, permeability=VacuumPermeability(),
+                           formulation=MagneticVectorPotential(gauge=CoulombGauge()), current_sources=(source,))
+    problem = Problem(name="Wire in an insulated square", geometry=air, physics=(model,), boundary_conditions=(
+        MagneticInsulation(boundary=faces.all, physics=model),))
     numerics = Numerics(spatial=FiniteElement(element=Nedelec(order=2)), linear_solver=SparseDirect())
     field = Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_stationary().field(model.magnetic_flux_density)
-    return field, mesh, thickness
+    return field, mesh
 
 
 runs = {4 * n: solve(n) for n in (8, 12, 16)}
-field, mesh, thickness = runs[64]
+field, mesh = runs[64]
 
 
 # ## Results
@@ -95,7 +108,7 @@ field, mesh, thickness = runs[64]
 # $W'=\int B^2/(2\mu_0)\,\mathrm dA$.
 
 squared = lambda B, position: (B**2).sum(axis=1)
-inductance = {cells: mean_value(B, component=squared) * measure(B) / (mu0 * current**2 * t) for cells, (B, _, t) in runs.items()}
+inductance = {cells: mean_value(B, component=squared) * measure(B) / (mu0 * current**2 * thickness) for cells, (B, _) in runs.items()}
 print("cells around the wire   tetrahedra   L' [nH/m]   deviation from the exact value")
 for cells, value in inductance.items():
     print(f"{cells:21d} {runs[cells][1].cell_count:12d} {1e9 * value:11.3f}   {100 * (value / exact_inductance - 1):+.4f} %")
@@ -105,7 +118,7 @@ print(f"{'exact':>21s} {'':12s} {1e9 * exact_inductance:11.3f}")
 # ## Figure
 #
 # The field strength over the cross-section, the field along a line towards a side midpoint and
-# towards a corner against the exact solution, and the mesh study of the inductance.
+# towards a corner against the exact solution, the mesh study of the inductance and the finest mesh.
 
 strength = lambda B, position: 1e6 * np.hypot(B[:, 0], B[:, 1])
 lines = {"towards a side": (1.0, 0.0, 0.099), "towards a corner": (2**-0.5, 2**-0.5, 0.139)}
@@ -116,7 +129,9 @@ for label, (dx, dy, reach) in lines.items():
     computed[label] = (100 * coarse, strength(field.evaluate(points), points))
     exact[label] = (100 * fine, 1e6 * exact_field(dx * fine, dy * fine))
 
-fig = plots.figure(1, 3, size=(17, 5))
+fig = plots.figure(2, 2, size=(13, 11))
+plots.mesh(mesh, groups=("all",), legend=False, camera=plots.Camera(elevation=50, azimuth=-60),
+           title=f"{mesh.cell_count} tetrahedra, one layer", ax=fig[3])
 plots.section(field, plane=Plane(origin=(0, 0, thickness / 2), normal=(0, 0, 1)), component=strength, limits=(0, 20),
               contours=10, subdivisions=3, label="|B| [µT]", title="Field strength", ax=fig[0])
 plots.line(points=computed, reference=exact, vlines={"wire surface": 1.0}, scale="logy", xlabel="distance from the axis [cm]",
@@ -129,5 +144,6 @@ plots.show()
 
 # ## Going further
 #
-# Shrink the square to see how tight magnetic insulation deforms the field and lowers the
-# inductance, move the wire off centre, or give it a permeability $\mu_r\neq1$.
+# Shrink the square in `wire_field_square_domain_geometry.py` and write the STEP files again to see
+# how tight magnetic insulation deforms the field and lowers the inductance, move the wire off
+# centre, or give it a permeability $\mu_r\neq1$.

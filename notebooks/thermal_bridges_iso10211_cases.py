@@ -3,7 +3,8 @@ Requires the installed, activated OneSimulation runtime.
 
 A floor slab runs through the insulated wall of a building corner and continues outside as a
 balcony. The heat flows and the lowest surface temperatures are compared with the reference values
-of EN ISO 10211, with linear, quadratic and cubic finite elements on the same mesh.
+of EN ISO 10211, with linear, quadratic and cubic finite elements on the same mesh. The
+construction is read from STEP files.
 """
 
 
@@ -51,6 +52,13 @@ of EN ISO 10211, with linear, quadratic and cubic finite elements on the same me
 # The field is genuinely three-dimensional: it depends on the depth into each wall, on
 # the distance from the corner and on the height relative to the slab.
 #
+# The construction comes from the CAD file `thermal_bridges_iso10211_cases.step`, whose face groups
+# `alpha`, `beta`, `gamma` and `delta` are the four environments. The files
+# `thermal_bridges_iso10211_cases_slab.step`, `..._finish.step`, `..._brick.step` and
+# `..._insulation.step` hold the regions of the materials. The script
+# `thermal_bridges_iso10211_cases_geometry.py` builds all of them with the CAD objects of
+# OneSimulation.
+#
 # **Method.** Finite elements on one hexahedral mesh that follows every material interface. The
 # same mesh is solved with linear (Q1), quadratic (Q2) and cubic (Q3) elements.
 #
@@ -64,8 +72,9 @@ import numpy as np
 
 from onesim.cad.d2 import Plane
 from onesim.cad.d3 import Box
+from onesim.cad.exchange import load
 from onesim.materials import IsotropicSolid
-from onesim.meshing import ExplicitGeometry, Geometric, Piecewise, StructuredHexahedralMesher, region_mesh
+from onesim.meshing import Geometric, Piecewise, StructuredHexahedralMesher, region_mesh
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import SparseDirect
@@ -75,33 +84,18 @@ from onesim.visualization import theme, plots
 
 theme.set()
 
-
 # ## Geometry
 #
-# The construction is a union of boxes: the two wall legs of the corner, the slab that runs through
-# the wall into the balcony, and the floor finish. `environment` assigns every boundary face to one
-# of the environments of the standard from its position.
+# `load` returns the construction with its named faces and the four material regions. The positions
+# of the material interfaces are read from the regions.
 
-end, balcony, top, soffit, floor = 1.3, -0.6, 2.15, 1.0, 1.2
-slab = Box(length=end - 0.15, width=end - balcony, height=0.15, origin=(0.15, balcony, soffit))
-finish = Box(length=end - 0.3, width=end - 0.3, height=0.05, origin=(0.3, 0.3, 1.15))
-walls = Box(length=0.3, width=end, height=top) | Box(length=end - 0.3, width=0.3, height=top, origin=(0.3, 0, 0))
-construction = walls | slab.named("slab") | finish.named("finish")
-
-
-def environment(point, normal):
-    """Environment of a boundary face: alpha lower room, beta upper room, gamma outside, delta cut plane."""
-    x, y, z = point
-    if min(abs(z), abs(z - top), abs(x - end), abs(y - end)) < 1e-9:
-        return "delta"
-    if abs(x) < 1e-9 or abs(y) < 1e-9 or y < 0:
-        return "gamma"
-    return "alpha" if z <= soffit + 1e-9 else "beta"
-
-
-building = ExplicitGeometry(dimension=3, boundary_names=("alpha", "beta", "gamma", "delta"), classifier=environment)
+building = load("thermal_bridges_iso10211_cases.step")
+slab, finish, brick, insulation = (load(f"thermal_bridges_iso10211_cases_{name}.step")
+                                   for name in ("slab", "finish", "brick", "insulation"))
 faces = building.boundaries
-
+(_, balcony, _), (end, _, top) = building.bounding_box
+leaf, core, room = insulation.bounding_box[0][0], slab.bounding_box[0][0], finish.bounding_box[0][0]
+soffit, deck, floor = slab.bounding_box[0][2], finish.bounding_box[0][2], finish.bounding_box[1][2]
 
 # ## Mesh
 #
@@ -109,36 +103,36 @@ faces = building.boundaries
 # interfaces and grow away from them. `region_mesh` keeps the cells inside the construction.
 
 fine = 0.02
-across_wall = ((0.10, Geometric(2, first=fine)), (0.05, Geometric(2, first=fine)),
-               (0.15, Geometric(3, first=fine, toward="end")), (end - 0.3, Geometric(5, first=fine)))
+across_wall = ((leaf, Geometric(2, first=fine)), (core - leaf, Geometric(2, first=fine)),
+               (room - core, Geometric(3, first=fine, toward="end")), (end - room, Geometric(5, first=fine)))
 grading = (Piecewise(across_wall),
            Piecewise(((-balcony, Geometric(4, first=fine, toward="end")),) + across_wall),
-           Piecewise(((soffit, Geometric(5, first=fine, toward="end")), (0.15, Geometric(3, first=fine)),
-                      (0.05, Geometric(2, first=fine)), (top - floor, Geometric(5, first=fine)))))
-block = StructuredHexahedralMesher(cells=tuple(g.cells for g in grading), grading=grading).generate(
-    Box(length=end, width=end - balcony, height=top, origin=(0, balcony, 0)))
-mesh = region_mesh(block, construction, geometry=building)
-print(f"{mesh.cell_count} hexahedra")
+           Piecewise(((soffit, Geometric(5, first=fine, toward="end")), (deck - soffit, Geometric(3, first=fine)),
+                      (floor - deck, Geometric(2, first=fine)), (top - floor, Geometric(5, first=fine)))))
+hull = Box(length=end, width=end - balcony, height=top, origin=building.bounding_box[0])
+mesh = region_mesh(StructuredHexahedralMesher(cells=tuple(g.cells for g in grading), grading=grading).generate(hull), building)
 
+view = plots.Camera(elevation=20, azimuth=225)
+fig = plots.figure(1, 2, size=(15, 7))
+plots.geometry(building, selection={name: getattr(faces, name) for name in ("alpha", "beta", "gamma", "delta")}, labels=False,
+               camera=view, title="Construction with its four environments", ax=fig[0])
+plots.mesh(mesh, groups=("all",), legend=False, camera=view, title=f"{mesh.cell_count} hexahedra", ax=fig[1])
+plots.show()
 
 # ## Materials and boundary conditions
 #
 # The conductivity is given region by region (the first match wins); the interior leaf is the
 # default. Each room and the outside exchange heat through a surface resistance.
 
-brick = Box(length=0.10, width=end, height=top) | Box(length=end, width=0.10, height=top)
-insulation = (Box(length=0.05, width=end - 0.1, height=top, origin=(0.1, 0.1, 0))
-              | Box(length=end - 0.1, width=0.05, height=top, origin=(0.1, 0.1, 0)))
 conductivity = regionwise(((slab, 2.5), (finish, 1.0), (brick, 1.0), (insulation, 0.04)), default=0.7, unit="W/m/K")
 material = replace(IsotropicSolid(density=1500.0, specific_heat_capacity=1000.0, thermal_conductivity=1.0,
                                   youngs_modulus=1e9, poisson_ratio=0.3, thermal_expansion_coefficient=0.0),
                    thermal_conductivity=conductivity)
-model = HeatConduction(domain=building.domain(), material=material, heating=0.0)
+model = HeatConduction(domain=building.volume, material=material, heating=0.0)
 air = {"alpha": (20.0, 1 / 0.20), "beta": (15.0, 1 / 0.20), "gamma": (0.0, 1 / 0.05)}
 problem = Problem(name="ISO 10211 case 3", geometry=building, physics=(model,), boundary_conditions=tuple(
     ConvectiveHeatFlux(boundary=getattr(faces, name), physics=model, heat_transfer_coefficient=h, ambient_temperature=273.15 + T)
     for name, (T, h) in air.items()) + (HeatFlux(boundary=faces.delta, physics=model, value=0.0),))
-
 
 # ## Solve
 #
@@ -152,7 +146,6 @@ def solve(order):
 
 fields = {order: solve(order) for order in (1, 2, 3)}
 field = fields[3]
-
 
 # ## Results
 #
@@ -171,7 +164,6 @@ for row, (name, value) in enumerate(reference.items()):
     print(f"{name:30s} {value:10.2f} " + " ".join(f"{results[order][row]:10.4f}" for order in fields) + "   " + deviation)
 print(f"energy balance (Q3): in {results[3][0] + results[3][1]:.5f} W, out {results[3][2]:.5f} W")
 
-
 # ## Figure
 #
 # The room walls and the outside with the balcony, two sections through the slab, the temperature
@@ -179,7 +171,7 @@ print(f"energy balance (Q3): in {results[3][0] + results[3][1]:.5f} W, out {resu
 
 celsius = lambda T, position: T - 273.15
 z = np.linspace(0, top, 431)
-corner = field.evaluate(np.column_stack((np.full_like(z, 0.3), np.full_like(z, 0.3), z))).ravel() - 273.15
+corner = field.evaluate(np.column_stack((np.full_like(z, room), np.full_like(z, room), z))).ravel() - 273.15
 rooms = {"lower room": z <= soffit, "upper room": z >= floor}
 deviation = {name[:-4]: [100 * (results[order][row] / value - 1) for order in fields]
              for row, (name, value) in enumerate(reference.items()) if "flow" in name}
@@ -189,7 +181,7 @@ plots.surface(field, boundary=faces.alpha | faces.beta, component=celsius, limit
               camera=plots.Camera(elevation=20, azimuth=45), label="surface temperature [°C]",
               title="Room side: 20 °C below, 15 °C above the slab", ax=fig[0])
 plots.surface(field, boundary=faces.gamma, component=celsius, limits=(0, 2.5), subdivisions=3,
-              camera=plots.Camera(elevation=20, azimuth=225), label="surface temperature [°C]",
+              camera=view, label="surface temperature [°C]",
               title="Outside with the balcony", ax=fig[1])
 plots.line(y={label: (corner[part], z[part]) for label, part in rooms.items()},
            points={"ISO 10211 minimum": ([11.32, 11.11], [soffit, floor])}, ylimits=(0, top),
@@ -204,9 +196,8 @@ plots.line([1, 2, 3], deviation, hlines={"tolerance of the standard": 1.0}, mark
            ylabel="deviation from ISO 10211 [%]", title="Heat flows against the standard", ax=fig[5])
 plots.show()
 
-
 # ## Going further
 #
 # Put a thermal break into the slab inside the brick leaf (a 60 mm element with
-# $\lambda=0.15$ W/(m K)) and watch the minimum surface temperature rise, or refine the mesh by
-# lowering `fine`.
+# $\lambda=0.15$ W/(m K), one more region file from `thermal_bridges_iso10211_cases_geometry.py`)
+# and watch the minimum surface temperature rise, or refine the mesh by lowering `fine`.

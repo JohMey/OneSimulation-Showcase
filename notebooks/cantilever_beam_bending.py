@@ -1,7 +1,8 @@
 """OneSimulation example: bending of a clamped beam (linear elasticity).
 Requires the installed, activated OneSimulation runtime.
 
-The OneSimulation solution is checked against Euler-Bernoulli beam theory.
+The beam is read from a STEP file, meshed with hexahedra and solved for the displacement; the
+deflection is checked against Euler-Bernoulli beam theory.
 """
 
 
@@ -10,21 +11,23 @@ The OneSimulation solution is checked against Euler-Bernoulli beam theory.
 # A beam (length $L$, width $b$, height $h$) fully clamped on the left carries a
 # uniformly distributed transverse load with total force $F$ pointing down on the right.
 #
-# OneSimulation solves the stationary 3D equilibrium
-# $-\nabla\!\cdot\boldsymbol\sigma=0$ with an isotropic Hooke law (Q2 hexahedra) and
-# computes displacement and stress.
+# The beam comes from the CAD file `cantilever_beam_bending.step`; its faces are named `x_min`,
+# `x_max`, `y_min`, `y_max`, `z_min` and `z_max`. The script `cantilever_beam_bending_geometry.py`
+# builds it with the CAD objects of OneSimulation. OneSimulation solves the stationary 3D
+# equilibrium $-\nabla\!\cdot\boldsymbol\sigma=0$ with an isotropic Hooke law on quadratic
+# hexahedra.
 #
-# **Reference.** Euler-Bernoulli beam theory gives the tip deflection
+# **Reference.** Euler-Bernoulli beam theory gives the deflection line
 #
-# $$u_z(L)=-\frac{F L^3}{3EI},\qquad I=\frac{b h^3}{12}.$$
+# $$u_z(x)=-\frac{F\,(3Lx^2-x^3)}{6EI},\qquad I=\frac{b h^3}{12}.$$
 #
 # It neglects shear and 3D clamping effects and is therefore an approximate target value.
 
 import numpy as np
 
-from onesim.cad.d3 import Box
+from onesim.cad.exchange import load
 from onesim.materials import IsotropicSolid
-from onesim.meshing import StructuredHexahedralMesher
+from onesim.meshing import CadHexahedralMesher
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import SparseDirect
@@ -34,64 +37,49 @@ from onesim.visualization import theme, plots
 
 theme.set()
 
+# ## Geometry and mesh
 
-# ## Parameters and model
+beam = load("cantilever_beam_bending.step")
+faces = beam.boundaries
+length, width, height = beam.size
+mesh = CadHexahedralMesher(cells=(24, 4, 4)).generate(beam)
 
-length, width, height = 0.120, 0.018, 0.012
-E, nu = 70e9, 0.30
-force = 30.0
-inertia = width * height**3 / 12.0
-tip_reference = -force * length**3 / (3.0 * E * inertia)
+fig = plots.figure(1, 2, size=(14, 4.5))
+plots.geometry(beam, selection={"clamped": faces.x_min, "loaded": faces.x_max}, labels=False,
+               title="Beam with its clamped and loaded face", ax=fig[0])
+plots.mesh(mesh, groups=("all",), legend=False, title=f"{mesh.cell_count} hexahedra", ax=fig[1])
+plots.show()
 
-geometry = Box(length=length, width=width, height=height)
-material = IsotropicSolid(
-    density=2700.0, specific_heat_capacity=900.0, thermal_conductivity=200.0,
-    youngs_modulus=E, poisson_ratio=nu, thermal_expansion_coefficient=23e-6,
-)
-model = LinearElasticity(domain=geometry.volume, material=material)
-problem = Problem(
-    name="Clamped beam under end-face load",
-    geometry=geometry, physics=(model,),
-    boundary_conditions=(
-        FixedDisplacement(boundary=geometry.boundaries.x_min, physics=model, value=(0.0, 0.0, 0.0)),
-        Traction(boundary=geometry.boundaries.x_max, physics=model,
-                 value=(0.0, 0.0, -force / (width * height))),
-        TractionFree(boundary=geometry.boundaries.all - geometry.boundaries.x_min - geometry.boundaries.x_max,
-                     physics=model),
-    ),
-)
-mesh = StructuredHexahedralMesher(cells=(24, 4, 4)).generate(geometry)
-print("Mesh:", mesh.cell_count, "hexahedra")
-result = Simulation(
-    problem=problem, mesh=mesh,
-    numerics=Numerics(spatial=FiniteElement(element=Lagrange(order=2)), linear_solver=SparseDirect()),
-).solve_stationary()
+# ## Model
 
+force, youngs_modulus = 30.0, 70e9
+aluminium = IsotropicSolid(density=2700.0, specific_heat_capacity=900.0, thermal_conductivity=200.0,
+                           youngs_modulus=youngs_modulus, poisson_ratio=0.30, thermal_expansion_coefficient=23e-6)
+model = LinearElasticity(domain=beam.volume, material=aluminium)
+problem = Problem(name="Clamped beam under end-face load", geometry=beam, physics=(model,), boundary_conditions=(
+    FixedDisplacement(boundary=faces.x_min, physics=model, value=(0.0, 0.0, 0.0)),
+    Traction(boundary=faces.x_max, physics=model, value=(0.0, 0.0, -force / (width * height))),
+    TractionFree(boundary=faces.all - faces.x_min - faces.x_max, physics=model)))
+numerics = Numerics(spatial=FiniteElement(element=Lagrange(order=2)), linear_solver=SparseDirect())
+displacement = Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_stationary().field(model.displacement)
 
 # ## Comparison with beam theory
 
-displacement = result.field(model.displacement)
-tip = float(displacement.evaluate([[length, width / 2, height / 2]])[0, 2])
-rel_error = abs(tip - tip_reference) / abs(tip_reference)
-print(f"Tip deflection: FEM {tip*1e3:.4f} mm,  Euler-Bernoulli {tip_reference*1e3:.4f} mm")
-print(f"relative deviation: {100*rel_error:.2f} %  (3D FEM is slightly lower due to shear/clamping)")
+x = np.linspace(0.0, length, 25)
+deflection = displacement.evaluate(np.column_stack((x, np.full_like(x, width / 2), np.full_like(x, height / 2))))[:, 2]
+beam_theory = -force * (3 * length * x**2 - x**3) / (6 * youngs_modulus * width * height**3 / 12)
 
-xs = np.linspace(0.0, length, 25)
-line = np.column_stack((xs, np.full_like(xs, width / 2), np.full_like(xs, height / 2)))
-uz = np.asarray(displacement.evaluate(line))[:, 2]
-uz_ref = -force * (3 * length * xs**2 - xs**3) / (6 * E * inertia)
-
+print(f"tip deflection: simulation {1e3 * deflection[-1]:.4f} mm, Euler-Bernoulli {1e3 * beam_theory[-1]:.4f} mm, "
+      f"deviation {100 * (deflection[-1] / beam_theory[-1] - 1):+.2f} %")
 
 # ## Figure
 
-plots.line(xs * 1000, points={"OneSimulation 3D FEM": uz * 1e3}, reference={"Euler-Bernoulli": uz_ref * 1e3},
+plots.line(1e3 * x, points={"simulation": 1e3 * deflection}, reference={"Euler-Bernoulli": 1e3 * beam_theory},
            xlabel="position along the beam x [mm]", ylabel="deflection u_z [mm]", title="Clamped beam: deflection line")
 plots.show()
 
-
 # ## Going further
 #
-# Refine the mesh (more cells through the height) and watch the FEM deflection
-# approach the Euler-Bernoulli value, or slightly exceed it because of shear.
-# Change the L/h ratio; for stubby beams the shear contribution grows and beam
-# theory becomes less accurate.
+# Change the cross-section in `cantilever_beam_bending_geometry.py` and write the STEP file again;
+# for stubby beams the shear contribution grows and beam theory becomes less accurate. More cells
+# through the height bring the 3D result closer to its own limit.

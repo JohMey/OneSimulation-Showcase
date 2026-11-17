@@ -1,8 +1,9 @@
 """OneSimulation example: lid-driven cavity flow at Reynolds number 100.
 Requires the installed, activated OneSimulation runtime.
 
-The OneSimulation solution is checked against the tabulated Ghia-Ghia-Shin (1982)
-benchmark for the velocity along the vertical centreline.
+The cavity is read from a STEP file and meshed with tetrahedra; the velocity along the vertical
+centre line of the Navier-Stokes solution is checked against the tabulated benchmark of Ghia,
+Ghia and Shin (1982).
 """
 
 
@@ -14,150 +15,99 @@ benchmark for the velocity along the vertical centreline.
 # flow has no closed-form solution and is a classic verification case for
 # incompressible Navier-Stokes solvers.
 #
-# OneSimulation solves the full stationary Navier-Stokes system
-# $\rho(u\cdot\nabla)u=-\nabla p+\mu\nabla^2 u$ with inf-sup stable Taylor-Hood
-# finite elements (quadratic velocity, linear pressure) and a Newton solver. The
-# cavity is modelled as a thin slab that is made periodic across its two faces normal
-# to $z$, which reproduces the two-dimensional flow exactly while keeping the native
-# 3D formulation.
+# The cavity comes from the CAD file `lid_driven_cavity.step`, a thin slab whose face `y_max` is
+# the lid. The script `lid_driven_cavity_geometry.py` builds it with the CAD objects of
+# OneSimulation. OneSimulation solves the stationary Navier-Stokes system
+# $\rho(u\cdot\nabla)u=-\nabla p+\mu\nabla^2 u$ with Taylor-Hood finite elements (quadratic
+# velocity, linear pressure) and a Newton solver. The slab is periodic across its two faces normal
+# to $z$, which reproduces the two-dimensional flow.
 #
-# **Reference.** We compare the horizontal velocity $u_x$ sampled along the vertical
-# centreline $x=L/2$ with the tabulated benchmark of Ghia, Ghia & Shin (1982),
-# "High-Re solutions for incompressible flow using the Navier-Stokes equations and a
-# multigrid method", J. Comput. Phys. 48, 387-411, Table I, Re = 100.
+# **Reference.** The horizontal velocity $u_x$ along the vertical centre line $x=L/2$ in the
+# benchmark of Ghia, Ghia & Shin (1982), "High-Re solutions for incompressible flow using the
+# Navier-Stokes equations and a multigrid method", J. Comput. Phys. 48, 387-411, Table I, Re = 100.
 
 import numpy as np
 
-from onesim.cad.d3 import Box
+from onesim.cad.exchange import load
 from onesim.materials import NewtonianFluid
-from onesim.meshing import StructuredTetrahedralMesher
-from onesim.meshing import PeriodicPair
+from onesim.meshing import PeriodicPair, StructuredTetrahedralMesher
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, TaylorHood
 from onesim.numerics.linear import SparseDirect
 from onesim.numerics.nonlinear import Newton
 from onesim.physics.hydrodynamics import FixedVelocity, IncompressibleNavierStokes, NoSlipWall
-from onesim.simulation import Problem, Simulation
+from onesim.simulation import PeriodicBoundary, Problem, Simulation
 from onesim.simulation.field_constraints import MeanValue
 from onesim.simulation.initial_conditions import InitialValue
-from onesim.simulation import PeriodicBoundary
 from onesim.visualization import theme, plots
 
 theme.set()
 
+# ## Geometry and mesh
 
-# ## Parameters
-#
-# The cavity spans $L\times L$ in the $x$-$y$ plane; the lid lies on the top face
-# (y_max). The thin $z$ extent carries a periodic pair, so the resolved flow is
-# independent of $z$ and therefore two-dimensional. The density and viscosity are
-# chosen so that $Re = \rho U L/\mu = 100$.
+cavity = load("lid_driven_cavity.step")
+faces = cavity.boundaries
+side, _, span = cavity.size
+cells = 32
+mesh = StructuredTetrahedralMesher(cells=(cells, cells, 1)).generate(cavity)
 
-side = 1.0
-span = 0.0625
-lid_speed = 1.0
-rho = 1.0
-mu = 0.01
-
-reynolds = rho * lid_speed * side / mu
-print(f"U = {lid_speed:.2f} m/s,  L = {side:.2f} m,  Re = {reynolds:.0f}")
-
+view = plots.Camera(elevation=62, azimuth=-90)
+fig = plots.figure(1, 2, size=(13, 6.5))
+plots.geometry(cavity, selection={"lid": faces.y_max, "fixed walls": faces.x_min | faces.x_max | faces.y_min}, labels=False,
+               camera=view, title="Cavity with its lid and fixed walls", ax=fig[0])
+plots.mesh(mesh, groups=("all",), legend=False, camera=view, title=f"{mesh.cell_count} tetrahedra", ax=fig[1])
+plots.show()
 
 # ## Model
 #
-# The left, right and bottom faces are no-slip walls; the top face is the moving lid;
-# the two faces normal to $z$ form one periodic pair. Every one of the six boundary
-# faces therefore carries an explicit condition. The lid speed is uniform except for
-# a linear taper to zero inside the single corner cell on each side: this removes the
-# mathematically singular velocity jump at the two top corners (where the lid meets
-# the fixed walls) so the prescribed trace is single-valued there, while leaving the
-# lid uniform over the interior and unchanged along the sampled centreline.
+# Density and viscosity give $Re=100$. The lid speed is uniform except for a linear ramp to zero
+# inside the corner cell on each side, so the velocity is single-valued where the lid meets the
+# fixed walls.
 
-cells_per_side = 32
-geometry = Box(length=side, width=side, height=span)
-mesh = StructuredTetrahedralMesher(
-    cells=(cells_per_side, cells_per_side, 1)).generate(geometry)
-taper = side / cells_per_side
-print("Mesh:", mesh.cell_count, "tetrahedra")
-
-fluid = NewtonianFluid(density=rho, dynamic_viscosity=mu)
-
-
-def lid_velocity(x):
-    ramp = np.clip(np.minimum(x, side - x) / taper, 0.0, 1.0)
-    return np.column_stack((lid_speed * ramp, np.zeros_like(x), np.zeros_like(x)))
-
-
-model = IncompressibleNavierStokes(domain=geometry.volume, material=fluid)
-fixed_walls = (geometry.boundaries.x_min | geometry.boundaries.x_max
-               | geometry.boundaries.y_min)
-spanwise = PeriodicPair(first=geometry.boundaries.z_min, second=geometry.boundaries.z_max)
-problem = Problem(
-    name="Lid-driven cavity",
-    geometry=geometry,
-    physics=(model,),
-    boundary_conditions=(
-        NoSlipWall(boundary=fixed_walls, physics=model),
-        FixedVelocity(boundary=geometry.boundaries.y_max, physics=model, value=lid_velocity),
-        PeriodicBoundary(pair=spanwise, physics=model),
-    ),
-    constraints=(MeanValue(model.pressure, 0.0),),
-    initial_conditions=(InitialValue(model.velocity, (0.0, 0.0, 0.0)),),
-)
-simulation = Simulation(
-    problem=problem,
-    mesh=mesh,
-    numerics=Numerics(
-        spatial=FiniteElement(element=TaylorHood()),
-        nonlinear_solver=Newton(
-            linear_solver=SparseDirect(), absolute_tolerance=1e-9, relative_tolerance=1e-10,
-            maximum_iterations=40,
-        ),
-        initial_guess={model.velocity: (0.0, 0.0, 0.0)},
-    ),
-)
-result = simulation.solve_stationary()
-
+lid_speed = 1.0
+fluid = NewtonianFluid(density=1.0, dynamic_viscosity=0.01)
+model = IncompressibleNavierStokes(domain=cavity.volume, material=fluid)
+problem = Problem(name="Lid-driven cavity", geometry=cavity, physics=(model,), boundary_conditions=(
+    NoSlipWall(boundary=faces.x_min | faces.x_max | faces.y_min, physics=model),
+    FixedVelocity(boundary=faces.y_max, physics=model, value=lambda x: np.column_stack((
+        lid_speed * np.clip(np.minimum(x, side - x) * cells / side, 0.0, 1.0), 0 * x, 0 * x))),
+    PeriodicBoundary(pair=PeriodicPair(first=faces.z_min, second=faces.z_max), physics=model)),
+    constraints=(MeanValue(model.pressure, 0.0),), initial_conditions=(InitialValue(model.velocity, (0.0, 0.0, 0.0)),))
+numerics = Numerics(spatial=FiniteElement(element=TaylorHood()), initial_guess={model.velocity: (0.0, 0.0, 0.0)},
+                    nonlinear_solver=Newton(linear_solver=SparseDirect(), absolute_tolerance=1e-9, relative_tolerance=1e-10,
+                                            maximum_iterations=40))
+velocity = Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_stationary().field(model.velocity)
 
 # ## Comparison with the Ghia-Ghia-Shin benchmark
 #
-# We sample the horizontal velocity $u_x$ along the vertical centreline $x=L/2$ at the
-# tabulated benchmark heights and compare with the Re = 100 reference values.
+# The horizontal velocity on the vertical centre line at the heights of the benchmark table.
 
-benchmark_y = np.array([
-    0.0000, 0.0547, 0.0625, 0.0703, 0.1016, 0.1719, 0.2813, 0.4531,
-    0.5000, 0.6172, 0.7344, 0.8516, 0.9531, 0.9609, 0.9688, 0.9766, 1.0000])
-benchmark_u = np.array([
-    0.00000, -0.03717, -0.04192, -0.04775, -0.06434, -0.10150, -0.15662, -0.21090,
-    -0.20581, -0.13641, 0.00332, 0.23151, 0.68717, 0.73722, 0.78871, 0.84123, 1.00000])
+benchmark_y = np.array([0.0000, 0.0547, 0.0625, 0.0703, 0.1016, 0.1719, 0.2813, 0.4531,
+                        0.5000, 0.6172, 0.7344, 0.8516, 0.9531, 0.9609, 0.9688, 0.9766, 1.0000])
+benchmark_u = np.array([0.00000, -0.03717, -0.04192, -0.04775, -0.06434, -0.10150, -0.15662, -0.21090,
+                        -0.20581, -0.13641, 0.00332, 0.23151, 0.68717, 0.73722, 0.78871, 0.84123, 1.00000])
+u = velocity.evaluate(np.column_stack((np.full_like(benchmark_y, side / 2), benchmark_y * side,
+                                       np.full_like(benchmark_y, span / 2))))[:, 0] / lid_speed
 
-sample_points = np.column_stack((
-    np.full_like(benchmark_y, side / 2.0),
-    benchmark_y * side,
-    np.full_like(benchmark_y, span / 2.0)))
-u_numeric = np.asarray(result.field(model.velocity).evaluate(sample_points))[:, 0] / lid_speed
-
-max_abs_error = float(np.max(np.abs(u_numeric - benchmark_u)))
-print("Horizontal velocity along the vertical centreline (u_x / U):")
-for y, u_ref, u_fem in zip(benchmark_y, benchmark_u, u_numeric):
-    print(f"  y/L = {y:.4f}   benchmark {u_ref:+.5f}   OneSimulation {u_fem:+.5f}")
-print(f"Maximum absolute deviation from the Ghia benchmark: {max_abs_error:.4f} (of U)")
-
+print(f"Reynolds number: {fluid.density * lid_speed * side / fluid.dynamic_viscosity:.0f}")
+print("   y / L    benchmark   simulation")
+for height, reference, value in zip(benchmark_y, benchmark_u, u):
+    print(f"{height:8.4f} {reference:+12.5f} {value:+12.5f}")
+print(f"largest deviation from the benchmark: {np.abs(u - benchmark_u).max():.4f} of the lid speed")
 
 # ## Figure
 
-plots.line(y={"OneSimulation FEM": (u_numeric, benchmark_y)},
-           points={"Ghia et al. (1982), Re = 100": (benchmark_u, benchmark_y)}, vlines=0.0,
+height = np.linspace(0.0, 1.0, 201)
+profile = velocity.evaluate(np.column_stack((np.full_like(height, side / 2), height * side, np.full_like(height, span / 2))))[:, 0] / lid_speed
+plots.line(y={"simulation": (profile, height)}, points={"Ghia et al. (1982), Re = 100": (benchmark_u, benchmark_y)}, vlines=0.0,
            xlabel="horizontal velocity u_x / U", ylabel="vertical position y / L",
-           title="Lid-driven cavity at Re = 100: velocity on the vertical centreline")
+           title="Lid-driven cavity at Re = 100: velocity on the vertical centre line")
 plots.show()
-
 
 # ## Going further
 #
-# Raise the Reynolds number toward 400 or 1000 and refine the mesh; the primary
-# vortex strengthens, its centre drifts, and secondary corner vortices grow, all of
-# which the same benchmark tables document. Replace the periodic spanwise pair with
-# no-slip walls to study how a finite-width cavity departs from the two-dimensional
-# limit. Sample the vertical velocity along the horizontal centreline to compare with
-# the companion benchmark column.
+# Raise the Reynolds number toward 400 or 1000 and refine the mesh; the primary vortex
+# strengthens, its centre drifts, and secondary corner vortices grow, all of which the same
+# benchmark tables document. Make the slab as deep as the cavity is wide in
+# `lid_driven_cavity_geometry.py`, write the STEP file again and replace the periodic pair by
+# no-slip walls to see how a cavity of finite width departs from the two-dimensional flow.

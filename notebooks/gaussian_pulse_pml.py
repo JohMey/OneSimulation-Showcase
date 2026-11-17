@@ -2,8 +2,8 @@
 Requires the installed, activated OneSimulation runtime.
 
 A pressure pulse released in air spreads as a cylindrical wave and leaves the domain through
-perfectly matched layers. The simulation is compared with the exact free-space solution, and the
-reflection from layers of different thickness is measured.
+perfectly matched layers. The air volume is read from a STEP file; the simulation is compared with
+the exact free-space solution, and the reflection from layers of different thickness is measured.
 """
 
 
@@ -17,6 +17,10 @@ reflection from layers of different thickness is measured.
 # and the classical Runge-Kutta method. By symmetry one quarter of the square is computed, with
 # reflecting walls on the two symmetry lines.
 #
+# The quarter of the air volume comes from the CAD file `gaussian_pulse_pml.step`, written by
+# `gaussian_pulse_pml_geometry.py` with the CAD objects of OneSimulation. The model lives on its
+# cross-section, a square of 0.36 m whose sides keep the names `x_min`, `x_max`, `y_min`, `y_max`.
+#
 # **Reference.** In free space the pulse $p_0e^{-\beta r^2}$ evolves as the Hankel integral
 #
 # $$p(r,t)=\frac{p_0}{2\beta}\int_0^\infty e^{-k^2/4\beta}\,\cos(ckt)\,J_0(kr)\,k\,\mathrm dk .$$
@@ -24,7 +28,7 @@ reflection from layers of different thickness is measured.
 import numpy as np
 from scipy.special import j0, roots_legendre
 
-from onesim.cad.d2 import Rectangle
+from onesim.cad.exchange import load
 from onesim.meshing import cartesian
 from onesim.numerics import Numerics
 from onesim.numerics.time import ClassicalRungeKutta4
@@ -35,8 +39,24 @@ from onesim.visualization import theme, plots
 
 theme.set()
 
-sound_speed, half_width, side, spacing = 343.0, 0.030, 0.30, 0.003
+sound_speed, half_width, inner, spacing = 343.0, 0.030, 0.30, 0.003
 beta = np.log(2) / half_width**2
+
+# ## Geometry and mesh
+#
+# `section` cuts the loaded solid at half thickness. The square is 0.36 m wide; the inner 0.30 m
+# are evaluated, and the outer cells hold the layer.
+
+air_volume = load("gaussian_pulse_pml.step")
+square = air_volume.section((0, 0, 1), origin=(0, 0, 0.005))
+side = square.size[0]
+cells = round(side / spacing)
+mesh = cartesian(shape=(cells, cells), extents=(side, side), geometry=square, periodic=False, max_candidate_cells=10**6)
+
+fig = plots.figure(1, 2, size=(13, 4.5))
+plots.geometry(air_volume, labels=False, title="Quarter of the air volume", ax=fig[0])
+plots.geometry(square, title="Cross-section with its named sides", ax=fig[1])
+plots.show()
 
 
 def exact_pressure(r, t):
@@ -46,18 +66,13 @@ def exact_pressure(r, t):
     amplitude = np.exp(-k**2 / (4 * beta)) * k * 0.5 * np.sqrt(160 * beta) * weights / (2 * beta)
     return j0(np.outer(np.ravel(r), k)) @ (amplitude * np.cos(sound_speed * k * t))
 
-
 # ## Simulation
 #
-# The quarter square of 0.3 m gets `layer` extra cells of PML on its two outer sides; without a
-# layer the outer sides are plain reflecting walls.
+# The outermost `layer` cells on the two outer sides are PML; without a layer the outer sides are
+# plain reflecting walls.
 
 def simulate(layer):
     """Pressure history of the pulse with a PML of `layer` cells (0: reflecting walls)."""
-    cells = round(side / spacing) + layer
-    square = Rectangle(length=cells * spacing, width=cells * spacing)
-    mesh = cartesian(shape=(cells, cells), extents=(cells * spacing, cells * spacing), geometry=square, periodic=False,
-                     max_candidate_cells=10**6)
     air = LinearAcoustics(domain=square.domain(), density=1.204, sound_speed=sound_speed)
     problem = Problem(name="Gaussian pulse", geometry=square, physics=(air,),
                       boundary_conditions=(ReflectingWall(boundary=square.boundaries.all, physics=air),),
@@ -72,14 +87,13 @@ def simulate(layer):
 runs = {layer: simulate(layer) for layer in (0, 5, 10, 20)}
 pressure = runs[20]
 
-
 # ## Results
 #
 # While the pulse crosses the square, the field with the 20-cell layer is compared with the
-# exact solution. After 2 ms the pulse has left; any difference to the free-space solution inside
-# the square was reflected by the outer sides.
+# exact solution. After 2 ms the pulse has left; any difference to the free-space solution in the
+# inner 0.30 m was reflected by the outer sides.
 
-axis = (np.arange(100) + 0.5) * spacing
+axis = (np.arange(round(inner / spacing)) + 0.5) * spacing
 grid = np.array([[x, y] for x in axis for y in axis])
 radius = np.hypot(*grid.T)
 times = pressure.times
@@ -91,7 +105,6 @@ for t in (0.5e-3, 0.8e-3):
 reflected = {layer: np.abs(snapshot(field, 2.0e-3) - exact_pressure(radius, nearest(field, 2.0e-3))).max() for layer, field in runs.items()}
 for layer, value in reflected.items():
     print(f"{'reflecting walls' if layer == 0 else f'PML of {layer:2d} cells':17s} largest deviation from free space after 2 ms: {value:.1e}")
-
 
 # ## Figure
 #
@@ -105,7 +118,7 @@ free_space = np.array([exact_pressure(np.hypot(*probe[0]), t)[0] for t in times[
 
 fig = plots.figure(2, 2, size=(13, 11))
 for panel, t in zip((fig[0], fig[1]), (0.5e-3, 0.8e-3)):
-    plots.heatmap(axis, axis, snapshot(pressure, t).reshape(100, 100).T, colormap="diverging", centre=0.0, label="pressure / initial peak",
+    plots.heatmap(axis, axis, snapshot(pressure, t).reshape(len(axis), len(axis)).T, colormap="diverging", centre=0.0, label="pressure / initial peak",
                   xlabel="x [m]", ylabel="y [m]", title=f"Pressure after {1e3 * t:.1f} ms", ax=panel)
 plots.line(y=signals, reference={"exact, free space": (1e3 * times[::10], free_space)}, xlabel="time [ms]",
            ylabel="pressure at 0.27 m / initial peak", title="Near the outer side: the wall reflects, the layer does not",
@@ -113,7 +126,6 @@ plots.line(y=signals, reference={"exact, free space": (1e3 * times[::10], free_s
 plots.bars([("walls" if layer == 0 else f"{layer} cells") for layer in reflected], list(reflected.values()), scale="log",
            ylabel="reflected pressure after 2 ms / initial peak", title="Reflection against the layer thickness", ax=fig[3])
 plots.show()
-
 
 # ## Going further
 #

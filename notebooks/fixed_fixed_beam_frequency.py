@@ -1,17 +1,20 @@
 """OneSimulation example: fundamental bending frequency of a doubly clamped beam.
 Requires the installed, activated OneSimulation runtime.
 
-The OneSimulation modal solution is checked against Euler-Bernoulli beam theory.
+The beam is read from a STEP file and meshed with hexahedra; the natural frequencies from the
+modal analysis are checked against Euler-Bernoulli beam theory.
 """
 
 
 # # Natural frequency of a beam clamped at both ends
 #
 # A prismatic beam (length $L$, square cross-section $b\times h$) is fully clamped on
-# **both** end faces and traction-free on every other face. OneSimulation assembles the
-# 3D linear-elastic stiffness and mass operators (Q2 hexahedra) and solves the
-# generalised eigenproblem $K\boldsymbol\phi=\omega^2 M\boldsymbol\phi$ on the free
-# degrees of freedom to obtain the natural modes and frequencies.
+# **both** end faces and traction-free on every other face. It comes from the CAD file
+# `fixed_fixed_beam_frequency.step` with the face names `x_min` to `z_max`; the script
+# `fixed_fixed_beam_frequency_geometry.py` builds it with the CAD objects of OneSimulation.
+# OneSimulation assembles the 3D linear-elastic stiffness and mass operators on quadratic
+# hexahedra and solves the generalised eigenproblem
+# $K\boldsymbol\phi=\omega^2 M\boldsymbol\phi$ for the natural modes and frequencies.
 #
 # **Reference.** Euler-Bernoulli beam theory gives the bending natural frequencies
 #
@@ -23,12 +26,11 @@ The OneSimulation modal solution is checked against Euler-Bernoulli beam theory.
 # and is therefore an approximate target for a three-dimensional solid of finite
 # slenderness; the deviation grows for stubby beams.
 
-from math import pi, sqrt
 import numpy as np
 
-from onesim.cad.d3 import Box
+from onesim.cad.exchange import load
 from onesim.materials import IsotropicSolid
-from onesim.meshing import StructuredHexahedralMesher
+from onesim.meshing import CadHexahedralMesher
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import SparseDirect
@@ -38,68 +40,51 @@ from onesim.visualization import theme, plots
 
 theme.set()
 
+# ## Geometry and mesh
 
-# ## Parameters and model
-#
-# A slender beam ($L/h=20$) keeps the Euler-Bernoulli target accurate even for the
-# relatively high wavenumber of the clamped-clamped fundamental.
+beam = load("fixed_fixed_beam_frequency.step")
+faces = beam.boundaries
+length, side, _ = beam.size
+mesh = CadHexahedralMesher(cells=(48, 3, 3)).generate(beam)
 
-length, side = 0.240, 0.012
-E, nu, density = 210e9, 0.30, 7850.0
-inertia = side * side**3 / 12.0
-area = side * side
-beta_1 = 4.730041
-frequency_reference = beta_1**2 / (2.0 * pi) * sqrt(E * inertia / (density * area * length**4))
+fig = plots.figure(1, 2, size=(14, 4.5))
+plots.geometry(beam, selection={"clamped": faces.x_min | faces.x_max}, labels=False, title="Beam with its clamped faces", ax=fig[0])
+plots.mesh(mesh, groups=("all",), legend=False, title=f"{mesh.cell_count} hexahedra", ax=fig[1])
+plots.show()
 
-geometry = Box(length=length, width=side, height=side)
-material = IsotropicSolid(
-    density=density, specific_heat_capacity=460.0, thermal_conductivity=50.0,
-    youngs_modulus=E, poisson_ratio=nu, thermal_expansion_coefficient=12e-6,
-)
-model = LinearElasticity(domain=geometry.volume, material=material)
-problem = Problem(
-    name="Doubly clamped beam natural modes",
-    geometry=geometry, physics=(model,),
-    boundary_conditions=(
-        FixedDisplacement(boundary=geometry.boundaries.x_min, physics=model, value=(0.0, 0.0, 0.0)),
-        FixedDisplacement(boundary=geometry.boundaries.x_max, physics=model, value=(0.0, 0.0, 0.0)),
-        TractionFree(boundary=geometry.boundaries.all - geometry.boundaries.x_min - geometry.boundaries.x_max,
-                     physics=model),
-    ),
-)
-mesh = StructuredHexahedralMesher(cells=(48, 3, 3)).generate(geometry)
-print("Mesh:", mesh.cell_count, "hexahedra")
-result = Simulation(
-    problem=problem, mesh=mesh,
-    numerics=Numerics(spatial=FiniteElement(element=Lagrange(order=2)), linear_solver=SparseDirect()),
-).solve_stationary()
+# ## Model
 
+youngs_modulus, density = 210e9, 7850.0
+steel = IsotropicSolid(density=density, specific_heat_capacity=460.0, thermal_conductivity=50.0,
+                       youngs_modulus=youngs_modulus, poisson_ratio=0.30, thermal_expansion_coefficient=12e-6)
+model = LinearElasticity(domain=beam.volume, material=steel)
+problem = Problem(name="Doubly clamped beam natural modes", geometry=beam, physics=(model,), boundary_conditions=(
+    FixedDisplacement(boundary=faces.x_min | faces.x_max, physics=model, value=(0.0, 0.0, 0.0)),
+    TractionFree(boundary=faces.all - faces.x_min - faces.x_max, physics=model)))
+numerics = Numerics(spatial=FiniteElement(element=Lagrange(order=2)), linear_solver=SparseDirect())
+result = Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_stationary()
 
 # ## Modal analysis and comparison with beam theory
 #
 # The square cross-section makes bending about the two transverse axes degenerate, so
-# the first two computed frequencies form one bending pair. The fundamental is the
-# lowest of them.
+# the first two computed frequencies form one bending pair.
 
 modes = structural_modes(result, model, mode_count=4)
-fundamental = modes.frequencies[0]
-rel_error = abs(fundamental - frequency_reference) / frequency_reference
-print(f"Fundamental frequency: modal {fundamental:.2f} Hz,  Euler-Bernoulli {frequency_reference:.2f} Hz")
-print(f"relative deviation: {100*rel_error:.2f} %  (3D solid is slightly stiffer than beam theory)")
-print("First four frequencies / Hz:", [round(f, 2) for f in modes.frequencies])
+beam_theory = 4.730041**2 / (2 * np.pi) * np.sqrt(youngs_modulus * side**4 / 12 / (density * side**2 * length**4))
 
+print(f"fundamental frequency: simulation {modes.frequencies[0]:.2f} Hz, Euler-Bernoulli {beam_theory:.2f} Hz, "
+      f"deviation {100 * (modes.frequencies[0] / beam_theory - 1):+.2f} %")
+print("first four frequencies [Hz]:", [round(f, 2) for f in modes.frequencies])
 
 # ## Figure
 
-plots.bars(["Mode 1\n(bending)", "Mode 2\n(bending)", "Mode 3", "Mode 4"], {"OneSimulation": modes.frequencies},
-           reference={"Euler-Bernoulli": [frequency_reference, frequency_reference, np.nan, np.nan]},
+plots.bars(["Mode 1\n(bending)", "Mode 2\n(bending)", "Mode 3", "Mode 4"], {"simulation": modes.frequencies},
+           reference={"Euler-Bernoulli": [beam_theory, beam_theory, np.nan, np.nan]},
            ylabel="natural frequency [Hz]", title="Doubly clamped beam: natural frequencies")
 plots.show()
 
-
 # ## Going further
 #
-# Refine the mesh and watch the computed fundamental frequency descend towards the
-# Euler-Bernoulli value from above, as the discrete model becomes less stiff. Reduce
-# the slenderness L/h; for stubby beams shear and rotary inertia grow and the
-# clamped-clamped fundamental drops increasingly below the beam-theory estimate.
+# Change the slenderness in `fixed_fixed_beam_frequency_geometry.py` and write the STEP file
+# again; for stubby beams shear and rotary inertia grow and beam theory increasingly
+# overestimates the clamped-clamped fundamental.

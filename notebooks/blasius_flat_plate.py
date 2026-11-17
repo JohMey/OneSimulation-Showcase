@@ -1,8 +1,9 @@
 """OneSimulation example: laminar boundary layer on a flat plate (Blasius).
 Requires the installed, activated OneSimulation runtime.
 
-A uniform stream flows along a flat plate. Velocity profiles, boundary-layer thickness and skin
-friction of the Navier-Stokes simulation are compared with the Blasius similarity solution.
+A uniform stream flows along a flat plate. The slab of air above the plate is read from a STEP
+file; velocity profiles, boundary-layer thickness and skin friction of the Navier-Stokes
+simulation are compared with the Blasius similarity solution.
 """
 
 
@@ -13,6 +14,10 @@ friction of the Navier-Stokes simulation are compared with the Blasius similarit
 # solution of the boundary-layer equations: with $\eta = y\sqrt{U/(\nu x)}$,
 #
 # $$f''' + \tfrac{1}{2}\,f\,f'' = 0,\qquad f(0)=f'(0)=0,\qquad f'(\infty)=1,\qquad \frac{u}{U}=f'(\eta) .$$
+#
+# The slab of air above the plate comes from the CAD file `blasius_flat_plate.step`: the plate is
+# the face `y_min`, the inflow `x_min`, the outflow `x_max` and the far field `y_max`. The script
+# `blasius_flat_plate_geometry.py` builds it with the CAD objects of OneSimulation.
 #
 # **Reference.** From the Blasius solution (Schlichting and Gersten, *Boundary-Layer Theory*):
 #
@@ -25,7 +30,7 @@ friction of the Navier-Stokes simulation are compared with the Blasius similarit
 import numpy as np
 from scipy.integrate import solve_ivp
 
-from onesim.cad.d3 import Box
+from onesim.cad.exchange import load
 from onesim.materials import NewtonianFluid
 from onesim.meshing import PeriodicPair, StructuredTetrahedralMesher
 from onesim.numerics import Numerics
@@ -39,7 +44,26 @@ from onesim.visualization import theme, plots
 
 theme.set()
 
-start, plate_length, height, span, stream = 0.2, 1.0, 0.25, 0.05, 1.0
+# ## Geometry and mesh
+
+slab = load("blasius_flat_plate.step")
+faces = slab.boundaries
+plate_length, height, span = slab.size
+mesh = StructuredTetrahedralMesher(cells=(20, 50, 1)).generate(slab)
+
+view = plots.Camera(elevation=62, azimuth=-90)
+fig = plots.figure(1, 2, size=(15, 4.5))
+plots.geometry(slab, selection={"plate": faces.y_min, "inflow": faces.x_min}, labels=False, camera=view,
+               title="Slab of air above the plate", ax=fig[0])
+plots.mesh(mesh, groups=("all",), legend=False, camera=view, title=f"{mesh.cell_count} tetrahedra", ax=fig[1])
+plots.show()
+
+# ## Model
+#
+# The slab is periodic across the span. The plate is a no-slip wall, the inflow carries the
+# Blasius profile, and the top and the outflow are open. Taylor-Hood elements with a Newton solver.
+
+start, stream = 0.2, 1.0
 air = NewtonianFluid(density=1.0, dynamic_viscosity=1.0e-4)
 viscosity = air.dynamic_viscosity / air.density
 similarity = solve_ivp(lambda eta, f: (f[1], f[2], -0.5 * f[0] * f[2]), (0, 10), (0, 0, 0.332057), dense_output=True,
@@ -53,15 +77,6 @@ def blasius(x, y):
     return stream * slope, 0.5 * np.sqrt(viscosity * stream / x) * (eta * slope - f)
 
 
-# ## Model
-#
-# A thin slab above the plate, periodic across the span. The plate is a no-slip wall, the inflow
-# carries the Blasius profile, and the top and the outflow are open. Taylor-Hood elements with a
-# Newton solver.
-
-slab = Box(length=plate_length, width=height, height=span)
-faces = slab.boundaries
-mesh = StructuredTetrahedralMesher(cells=(20, 50, 1)).generate(slab)
 model = IncompressibleNavierStokes(domain=slab.volume, material=air)
 problem = Problem(name="Blasius boundary layer", geometry=slab, physics=(model,), boundary_conditions=(
     NoSlipWall(boundary=faces.y_min, physics=model),
@@ -73,7 +88,6 @@ numerics = Numerics(spatial=FiniteElement(element=TaylorHood()), initial_guess={
                     nonlinear_solver=Newton(linear_solver=SparseDirect(), absolute_tolerance=1e-9, relative_tolerance=1e-10,
                                             maximum_iterations=40))
 velocity = Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_stationary().field(model.velocity)
-
 
 # ## Results
 #
@@ -93,7 +107,6 @@ for index in range(0, 17, 4):
     print(f"{x[index]:6.2f} {1e3 * thickness[index]:10.2f} {5e3 * x[index] / np.sqrt(reynolds[index]):9.2f}"
           f" {1e3 * friction[index]:10.3f} {664 / np.sqrt(reynolds[index]):9.3f}")
 
-
 # ## Figure
 #
 # Velocity profiles at three stations in the similarity variable, the boundary-layer thickness
@@ -111,8 +124,9 @@ plots.line(x, points={"simulation": 1e3 * friction}, reference={"0.664 / √Re":
            xlabel="distance from the leading edge [m]", ylabel="c_f × 10³", title="Skin friction", ax=fig[2])
 plots.show()
 
-
 # ## Going further
 #
-# Add a pressure gradient through the outer boundary to obtain the Falkner-Skan wedge flows, or
-# heat the plate and compare the thermal boundary layer with the Pohlhausen solution.
+# Make the slab longer in `blasius_flat_plate_geometry.py` and write the STEP file again to follow
+# the layer to higher Reynolds numbers. Add a pressure gradient through the outer boundary to
+# obtain the Falkner-Skan wedge flows, or heat the plate and compare the thermal boundary layer
+# with the Pohlhausen solution.

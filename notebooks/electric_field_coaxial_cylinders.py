@@ -1,7 +1,8 @@
 """OneSimulation example: electric field between coaxial cylinders.
 Requires the installed, activated OneSimulation runtime.
 
-The OneSimulation solution is checked against the closed-form coaxial solution.
+The dielectric of a coaxial capacitor is read from a STEP file, meshed and solved for the
+potential; potential and field are checked against the closed-form coaxial solution.
 """
 
 
@@ -13,100 +14,78 @@ The OneSimulation solution is checked against the closed-form coaxial solution.
 #
 # $$\nabla\cdot(\varepsilon\nabla V)=0,\qquad V(a)=V_0,\quad V(b)=0.$$
 #
-# OneSimulation solves this on a real 3D annular-cylinder mesh with finite elements
-# (Lagrange order 2). The top and bottom have a zero normal displacement, so the
-# field is purely radial.
+# The dielectric comes from the CAD file `electric_field_coaxial_cylinders.step` with the named
+# faces `inner_wall`, `outer_wall`, `bottom` and `top`; the script
+# `electric_field_coaxial_cylinders_geometry.py` builds it with the CAD objects of OneSimulation.
+# Top and bottom carry no normal displacement, so the field is purely radial.
 #
 # **Reference.** For the coaxial capacitor the closed form is
 #
 # $$V(r)=V_0\,\frac{\ln(b/r)}{\ln(b/a)},\qquad
-#   E_r(r)=\frac{V_0}{r\,\ln(b/a)},\qquad
-#   C'=\frac{2\pi\varepsilon}{\ln(b/a)}\ \text{(capacitance per length).}$$
-#
-# We check potential and field along a radial cut against these formulas.
+#   E_r(r)=\frac{V_0}{r\,\ln(b/a)}.$$
 
 import numpy as np
 
-from onesim.cad.d3 import AnnularCylinder
+from onesim.cad.exchange import load
 from onesim.materials import VacuumPermittivity
 from onesim.meshing import TetrahedralMesher
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import SparseDirect
-from onesim.physics.electrostatics import (
-    FixedPotential, PoissonEquation, ZeroNormalElectricDisplacement,
-)
+from onesim.physics.electrostatics import FixedPotential, PoissonEquation, ZeroNormalElectricDisplacement
 from onesim.simulation import Problem, Simulation
 from onesim.visualization import theme, plots
 
 theme.set()
 
+# ## Geometry and mesh
 
-# ## Parameters and model
+dielectric = load("electric_field_coaxial_cylinders.step")
+faces = dielectric.boundaries
+mesh = TetrahedralMesher(target_size=0.0025, geometry_order=2).generate(dielectric)
 
-a = 0.01
-b = 0.03
-H = 0.02
-V0 = 100.0
-eps0 = 8.8541878128e-12
+fig = plots.figure(1, 2, size=(13, 5))
+plots.geometry(dielectric, selection={"inner_wall": faces.inner_wall, "outer_wall": faces.outer_wall}, labels=False,
+               title="Dielectric with its electrodes", ax=fig[0])
+plots.mesh(mesh, groups=("all",), legend=False, title=f"{mesh.cell_count} tetrahedra", ax=fig[1])
+plots.show()
 
-geometry = AnnularCylinder(inner_radius=a, outer_radius=b, length=H)
-mesh = TetrahedralMesher(target_size=(b - a) / 8.0).generate(geometry)
-print("Mesh:", mesh.cell_count, "tetrahedra")
+# ## Model
 
-model = PoissonEquation(domain=geometry.volume, permittivity=VacuumPermittivity(), charge_density=0.0)
-problem = Problem(
-    name="Coaxial capacitor",
-    geometry=geometry,
-    physics=(model,),
-    boundary_conditions=(
-        FixedPotential(boundary=geometry.boundaries.inner_wall, physics=model, value=V0),
-        FixedPotential(boundary=geometry.boundaries.outer_wall, physics=model, value=0.0),
-        ZeroNormalElectricDisplacement(
-            boundary=geometry.boundaries.top | geometry.boundaries.bottom, physics=model),
-    ),
-)
-result = Simulation(
-    problem=problem,
-    mesh=mesh,
-    numerics=Numerics(spatial=FiniteElement(element=Lagrange(order=2)), linear_solver=SparseDirect()),
-).solve_stationary()
+a, b, height, voltage = 0.01, 0.03, 0.02, 100.0
+model = PoissonEquation(domain=dielectric.volume, permittivity=VacuumPermittivity(), charge_density=0.0)
+problem = Problem(name="Coaxial capacitor", geometry=dielectric, physics=(model,), boundary_conditions=(
+    FixedPotential(boundary=faces.inner_wall, physics=model, value=voltage),
+    FixedPotential(boundary=faces.outer_wall, physics=model, value=0.0),
+    ZeroNormalElectricDisplacement(boundary=faces.top | faces.bottom, physics=model)))
+numerics = Numerics(spatial=FiniteElement(element=Lagrange(order=2)), linear_solver=SparseDirect())
+result = Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_stationary()
 
-
-# ## Comparison with the analytic solution
+# ## Comparison with the closed form
 #
-# Radial cut at half height along the x axis (there the radial direction is the
-# x direction). The ends are slightly inset to avoid evaluating exactly on the boundary.
+# Radial cut at half height along the $x$ axis, slightly inset from the two electrodes.
 
 r = np.linspace(a + 1e-4, b - 1e-4, 40)
-pts = np.column_stack((r, np.zeros_like(r), np.full_like(r, H / 2)))
-V_num = np.asarray(result.field(model.potential).evaluate(pts)).reshape(-1)
-E_num = np.asarray(result.field(model.electric_field).evaluate(pts))
-Er_num = E_num[:, 0]
+cut = np.column_stack((r, np.zeros_like(r), np.full_like(r, height / 2)))
+potential = result.field(model.potential).evaluate(cut).reshape(-1)
+field = np.abs(result.field(model.electric_field).evaluate(cut)[:, 0])
+exact_potential = voltage * np.log(b / r) / np.log(b / a)
+exact_field = voltage / (r * np.log(b / a))
 
-V_ana = V0 * np.log(b / r) / np.log(b / a)
-Er_ana = V0 / (r * np.log(b / a))
-
-V_rel = float(np.max(np.abs(V_num - V_ana)) / V0)
-Er_rel = float(np.max(np.abs(np.abs(Er_num) - Er_ana) / Er_ana))
-C_per_length_ana = 2 * np.pi * eps0 / np.log(b / a)
-print(f"max relative potential error: {100*V_rel:.2f} %")
-print(f"max relative field error:     {100*Er_rel:.2f} %")
-print(f"analytic capacitance per length: {C_per_length_ana*1e12:.3f} pF/m")
-
+print(f"largest potential error: {100 * np.max(np.abs(potential - exact_potential)) / voltage:.2f} % of the voltage")
+print(f"largest field error:     {100 * np.max(np.abs(field / exact_field - 1)):.2f} %")
 
 # ## Figure
 
 fig = plots.figure(1, 2, size=(11, 4.5))
-plots.line(r * 1000, points={"OneSimulation FEM": V_num}, reference={"analytic": V_ana},
+plots.line(1e3 * r, points={"simulation": potential}, reference={"closed form": exact_potential},
            xlabel="radius r [mm]", ylabel="potential [V]", title="Potential V(r)", ax=fig[0])
-plots.line(r * 1000, points={"OneSimulation FEM": np.abs(Er_num)}, reference={"analytic": Er_ana},
-           xlabel="radius r [mm]", ylabel="radial field |E_r| [V/m]", title="Radial field E_r(r)", ax=fig[1])
+plots.line(1e3 * r, points={"simulation": field}, reference={"closed form": exact_field},
+           xlabel="radius r [mm]", ylabel="radial field [V/m]", title="Radial field E_r(r)", ax=fig[1])
 plots.show()
-
 
 # ## Going further
 #
-# Change the radius ratio b/a and see how the field enhancement at the inner
-# conductor and the capacitance per length move with it. A finer mesh lowers the
-# field error near r=a, where the field is most strongly curved.
+# Change the radii in `electric_field_coaxial_cylinders_geometry.py`, write the STEP file again and
+# see how the field at the inner conductor moves with the ratio $b/a$. A finer mesh lowers the
+# field error near $r=a$, where the field is most strongly curved.

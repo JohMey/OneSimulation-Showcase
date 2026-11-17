@@ -2,8 +2,9 @@
 Requires the installed, activated OneSimulation runtime.
 
 A liquid film runs down an inclined open channel. The side walls slow the liquid next to them, so
-the velocity varies over the whole cross-section. The flow is computed in 3D with Taylor-Hood
-finite elements and with staggered finite differences and compared with the exact series solution.
+the velocity varies over the whole cross-section. The film is read from STEP files for five
+channel widths; the flow is computed in 3D with Taylor-Hood finite elements and with staggered
+finite differences and compared with the exact series solution.
 """
 
 
@@ -13,6 +14,12 @@ finite elements and with staggered finite differences and compared with the exac
 # angle $\beta$. The liquid sticks to the bottom and to both side walls; its flat free surface is
 # free of shear stress. Coordinates: $x$ down the channel, $y\in[0,W]$ across, $z\in[0,H]$ from the
 # bottom to the surface.
+#
+# The film comes from CAD files, one for each channel width: `film_flow_side_walls_3d.step`
+# ($W=8$ mm, $W/H=4$) and `film_flow_side_walls_3d_1mm.step`, `..._2mm.step`, `..._4mm.step` and
+# `..._16mm.step`. Each holds a short slab of the film with the bottom `z_min`, the free surface
+# `z_max` and the side walls `y_min` and `y_max`. The script `film_flow_side_walls_3d_geometry.py`
+# builds them with the CAD objects of OneSimulation.
 #
 # **Reference.** Far from the inlet the flow obeys $\mu\nabla^2u=-\rho g\sin\beta$ on the
 # cross-section. With $\lambda_n=(2n+1)\pi/(2H)$ the solution is the series (White, *Viscous Fluid
@@ -28,7 +35,7 @@ finite elements and with staggered finite differences and compared with the exac
 import numpy as np
 
 from onesim.cad.d2 import Plane
-from onesim.cad.d3 import Box
+from onesim.cad.exchange import load
 from onesim.materials import NewtonianFluid
 from onesim.meshing import PeriodicPair, StructuredHexahedralMesher, StructuredTetrahedralMesher
 from onesim.numerics import Numerics
@@ -44,42 +51,43 @@ from onesim.visualization import theme, plots
 
 theme.set()
 
-depth, tilt = 0.002, np.deg2rad(10.0)
+# ## Geometry and mesh
+#
+# The five films, keyed by their aspect ratio $W/H$, and the finite-element mesh of the film with
+# $W/H=4$: one cell along the channel, 16 over the depth.
+
+film = load("film_flow_side_walls_3d.step")
+length, width, depth = film.size
+films = {0.5: load("film_flow_side_walls_3d_1mm.step"), 1.0: load("film_flow_side_walls_3d_2mm.step"),
+         2.0: load("film_flow_side_walls_3d_4mm.step"), 4.0: film, 8.0: load("film_flow_side_walls_3d_16mm.step")}
+
+view = plots.Camera(elevation=28, azimuth=-35)
+fig = plots.figure(1, 2, size=(14, 5))
+plots.geometry(film, selection={"bottom and side walls": film.boundaries.z_min | film.boundaries.y_min | film.boundaries.y_max,
+                                "free surface": film.boundaries.z_max}, labels=False, camera=view,
+               title="Slab of the film, W/H = 4", ax=fig[0])
+mesh = StructuredTetrahedralMesher(cells=(1, 64, 16)).generate(film)
+plots.mesh(mesh, groups=("all",), legend=False, camera=view, title=f"{mesh.cell_count} tetrahedra", ax=fig[1])
+plots.show()
+
+# ## Model
+#
+# Both methods solve the full Navier-Stokes equations on the slab, whose upstream and downstream
+# faces are joined by a periodic condition. Gravity acts as a body force.
+
+tilt = np.deg2rad(10.0)
 oil = NewtonianFluid(density=1200.0, dynamic_viscosity=0.10)
 drive = oil.density * 9.81 * np.sin(tilt)
 nusselt_rate = drive * depth**3 / (3 * oil.dynamic_viscosity)
 nusselt_speed = drive * depth**2 / (2 * oil.dynamic_viscosity)
-
-
-def exact_velocity(y, z, width):
-    """Velocity down the channel at the point (y, z) of the cross-section from the series solution."""
-    lam = (2 * np.arange(200) + 1) * np.pi / (2 * depth)
-    side = np.abs(y - width / 2)
-    walls = np.exp(lam * (side - width / 2)) * (1 + np.exp(-2 * lam * side)) / (1 + np.exp(-lam * width))
-    return drive / oil.dynamic_viscosity * (depth * z - z**2 / 2 - np.sum(2 / (depth * lam**3) * np.sin(lam * z) * walls))
-
-
-def exact_flow_rate(width):
-    """Flow rate of the film in a channel of the given width from the series solution."""
-    k = (2 * np.arange(400) + 1) * np.pi / 2
-    return nusselt_rate * width * (1 - 12 * depth / width * np.sum(np.tanh(k * width / (2 * depth)) / k**5))
-
-
-# ## Model
-#
-# Both methods solve the full Navier-Stokes equations on a short slab of the channel whose
-# upstream and downstream faces are joined by a periodic condition. Gravity acts as a body force.
-
 methods = {"Taylor-Hood finite elements": (FiniteElement(element=TaylorHood()), StructuredTetrahedralMesher, 1),
            "staggered finite differences": (FiniteDifference(gradient=CentralDifference(), diffusion=CentralLaplacian()),
                                             StructuredHexahedralMesher, 5)}
 
 
-def solve(method, aspect, cells):
-    """Velocity field for a channel of width aspect * depth with `cells` cells over the depth."""
+def solve(method, channel, cells):
+    """Velocity field in a channel with `cells` cells over the depth of the film."""
     spatial, mesher, along = methods[method]
-    width, across = aspect * depth, round(aspect * cells)
-    channel = Box(length=along * width / across, width=width, height=depth)
     faces = channel.boundaries
     model = IncompressibleNavierStokes(
         domain=channel.volume, material=oil,
@@ -92,18 +100,14 @@ def solve(method, aspect, cells):
         initial_conditions=(InitialValue(model.velocity, (0.0, 0.0, 0.0)),))
     numerics = Numerics(spatial=spatial, initial_guess={model.velocity: (0.0, 0.0, 0.0)},
                         nonlinear_solver=Newton(linear_solver=SparseDirect(), absolute_tolerance=1e-12, relative_tolerance=1e-10))
-    mesh = mesher(cells=(along, across, cells)).generate(channel)
-    velocity = Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_stationary().field(model.velocity)
-    return velocity, channel
+    mesh = mesher(cells=(along, round(channel.size[1] / depth * cells), cells)).generate(channel)
+    return Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_stationary().field(model.velocity)
 
 
-aspects = (0.5, 1.0, 2.0, 4.0, 8.0)
-channels = {aspect: solve("Taylor-Hood finite elements", aspect, 16) for aspect in aspects}
+flows = {aspect: solve("Taylor-Hood finite elements", channel, 16) for aspect, channel in films.items()}
 studies = {"Taylor-Hood finite elements": (4, 8, 16), "staggered finite differences": (8, 16, 32)}
-surface_speed = lambda velocity, channel: velocity.evaluate([[channel.length / 2, channel.width / 2, depth]])[0, 0]
-errors = {method: [abs(surface_speed(*solve(method, 4.0, cells)) / exact_velocity(2 * depth, depth, 4 * depth) - 1) for cells in levels]
-          for method, levels in studies.items()}
-
+surface_speeds = {method: [solve(method, film, cells).evaluate([[length / 2, width / 2, depth]])[0, 0] for cells in levels]
+                  for method, levels in studies.items()}
 
 # ## Results
 #
@@ -111,30 +115,30 @@ errors = {method: [abs(surface_speed(*solve(method, 4.0, cells)) / exact_velocit
 # cross-section. Relative to the Nusselt film, narrow channels carry far less. The mesh study
 # compares the speed at the middle of the free surface for both methods.
 
+k = (2 * np.arange(400) + 1) * np.pi / 2
+exact_rate = lambda aspect: 1 - 12 / aspect * np.sum(np.tanh(k * aspect / 2) / k**5)
+exact_surface_speed = 2 * nusselt_speed * (0.5 - np.sum(2 / k[:50]**3 * np.sin(k[:50]) / np.cosh(k[:50] * width / (2 * depth))))
+rates = {aspect: mean_value(flow, component=0) * depth / nusselt_rate for aspect, flow in flows.items()}
+errors = {method: np.abs(np.array(speeds) / exact_surface_speed - 1) for method, speeds in surface_speeds.items()}
+
 print(" W/H   flow rate / (W q_N)   exact series   deviation")
-rates = {aspect: mean_value(velocity, component=0) * channel.width * depth for aspect, (velocity, channel) in channels.items()}
 for aspect, rate in rates.items():
-    exact = exact_flow_rate(aspect * depth)
-    print(f"{aspect:4.1f} {rate / (aspect * depth * nusselt_rate):18.6f} {exact / (aspect * depth * nusselt_rate):14.6f} {rate / exact - 1:+11.1e}")
+    print(f"{aspect:4.1f} {rate:18.6f} {exact_rate(aspect):14.6f} {rate / exact_rate(aspect) - 1:+11.1e}")
 for method, levels in studies.items():
     print(f"{method}, W/H = 4, {levels} cells over the depth: surface-speed error " + ", ".join(f"{e:.1e}" for e in errors[method]))
-
 
 # ## Figure
 #
 # The velocity over the cross-section for $W/H=4$, the flow rate against the channel width, and
 # the mesh study of both methods.
 
-velocity, channel = channels[4.0]
-section = Plane(origin=(channel.length / 2, 0, 0), normal=(1, 0, 0))
 wide = np.geomspace(0.25, 20, 200)
-
 fig = plots.figure(layout=[["field", "field"], ["rate", "study"]], size=(13, 9))
-plots.section(velocity, plane=section, component=lambda u, position: u[:, 0] / nusselt_speed, limits=(0, 1), contours=9,
-              subdivisions=2, label="u / surface speed of the Nusselt film", xlabel="y across the channel [m]",
-              ylabel="z above the bottom [m]", title="Velocity down the channel, W/H = 4", ax=fig["field"])
-plots.line(wide, {"exact series": [exact_flow_rate(a * depth) / (a * depth * nusselt_rate) for a in wide]},
-           points={"finite elements": (list(rates), [rate / (a * depth * nusselt_rate) for a, rate in rates.items()])},
+plots.section(flows[4.0], plane=Plane(origin=(length / 2, 0, 0), normal=(1, 0, 0)), component=lambda u, position: u[:, 0] / nusselt_speed,
+              limits=(0, 1), contours=9, subdivisions=2, label="u / surface speed of the Nusselt film",
+              xlabel="y across the channel [m]", ylabel="z above the bottom [m]", title="Velocity down the channel, W/H = 4",
+              ax=fig["field"])
+plots.line(wide, {"exact series": [exact_rate(aspect) for aspect in wide]}, points={"finite elements": (list(rates), list(rates.values()))},
            scale="logx", ylimits=(0, 1.02), xlabel="aspect ratio W/H", ylabel="flow rate / (W q_N)",
            title="Side walls reduce the flow rate", legend="upper left", ax=fig["rate"])
 plots.line(y={method: ([1 / cells for cells in levels], errors[method]) for method, levels in studies.items()}, markers=True,
@@ -142,9 +146,8 @@ plots.line(y={method: ([1 / cells for cells in levels], errors[method]) for meth
            ax=fig["study"])
 plots.show()
 
-
 # ## Going further
 #
-# Tilt the channel further and the film speeds up with $\sin\beta$; a shear stress on the free
-# surface (wind) changes the profile near the surface. The same slab with a round bottom gives the
-# flow in a partly filled pipe.
+# Add a width to `film_flow_side_walls_3d_geometry.py` and write the STEP files again. Tilt the
+# channel further and the film speeds up with $\sin\beta$; a shear stress on the free surface
+# (wind) changes the profile near the surface.

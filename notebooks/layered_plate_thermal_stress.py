@@ -3,7 +3,8 @@ Requires the installed, activated OneSimulation runtime.
 
 A coated plate is cooled from the deposition temperature. The two layers contract differently, so
 the plate bends and the coating ends up in compression. The stress field is compared with the
-closed-form bilayer solution, and the stress concentration at the free edge is shown.
+closed-form bilayer solution, and the stress concentration at the free edge is shown. The plate is
+read from a STEP file.
 """
 
 
@@ -22,6 +23,11 @@ closed-form bilayer solution, and the stress concentration at the free edge is s
 #
 # The plate is long in the third direction and is in plane strain, $u_z=0$.
 #
+# A thin slab of one half of the 60 mm long plate comes from the CAD file
+# `layered_plate_thermal_stress.step`; `layered_plate_thermal_stress_coating.step` holds the
+# coating, which marks the region of the second material. The script
+# `layered_plate_thermal_stress_geometry.py` builds both with the CAD objects of OneSimulation.
+#
 # **Reference.** Away from the ends the plate behaves like a bilayer beam (Timoshenko, 1925). With
 # $E_i'=E_i/(1-\nu_i^2)$ and the thermal strain $e_i=(1+\nu_i)\alpha_i\Delta T$,
 #
@@ -34,7 +40,7 @@ from dataclasses import replace
 import numpy as np
 
 from onesim.cad.d2 import Plane
-from onesim.cad.d3 import Box
+from onesim.cad.exchange import load
 from onesim.materials import IsotropicSolid
 from onesim.meshing import Geometric, Piecewise, StructuredHexahedralMesher, Uniform
 from onesim.numerics import Numerics
@@ -49,40 +55,37 @@ from onesim.visualization import theme, plots
 
 theme.set()
 
-half_length, substrate, coating, slab = 0.030, 0.010, 0.002, 0.0005
-layers = {"substrate": (130e9, 0.28, 3.0e-6), "coating": (70e9, 0.17, 5.0e-7)}
-deposition, final = 1073.15, 423.15
+# ## Geometry and mesh
+#
+# `load` returns the slab with its faces `x_min` ... `z_max` and the coating. The hexahedral mesh
+# is graded towards the interface and the free end.
 
+plate, coat = load("layered_plate_thermal_stress.step"), load("layered_plate_thermal_stress_coating.step")
+faces = plate.boundaries
+half_length, thickness, slab = plate.size
+coating = coat.size[1]
+substrate = thickness - coating
+across = Piecewise(((substrate, Geometric(12, ratio=40.0, toward="end")), (coating, Geometric(6, ratio=8.0))))
+mesh = StructuredHexahedralMesher(cells=(24, 18, 1), grading=(Geometric(24, ratio=50.0, toward="end"), across, Uniform(1))).generate(plate)
 
-def bilayer_stress(y):
-    """Axial stress of the bilayer beam at the height y."""
-    stiffness, load = np.zeros((2, 2)), np.zeros(2)
-    for (E, nu, alpha), (lower, upper) in zip(layers.values(), ((0, substrate), (substrate, substrate + coating))):
-        moments = [(upper**k - lower**k) / k for k in (1, 2, 3)]
-        stiffness += E / (1 - nu**2) * np.array([moments[:2], moments[1:]])
-        load += E / (1 - nu**2) * (1 + nu) * alpha * (final - deposition) * np.array(moments[:2])
-    strain, curvature = np.linalg.solve(stiffness, load)
-    E, nu, alpha = (np.where(np.asarray(y) > substrate, c, s) for s, c in zip(*layers.values()))
-    return E / (1 - nu**2) * (strain + curvature * np.asarray(y) - (1 + nu) * alpha * (final - deposition))
-
+view = plots.Camera(elevation=90, azimuth=-90)
+fig = plots.figure(1, 2, size=(15, 4.5))
+plots.geometry([plate.named("substrate"), coat.named("coating")], camera=view, title="Slab of the half plate", ax=fig[0])
+plots.mesh(mesh, groups=("all",), legend=False, camera=view, title=f"{mesh.cell_count} hexahedra", ax=fig[1])
+plots.show()
 
 # ## Model
 #
-# A thin slab of one half of the 60 mm long plate: $u_z=0$ on both slab faces gives plane strain,
-# and the mid-span is a symmetry plane, held at its lower edge. The material properties are given
-# layer by layer, and the mesh is graded towards the interface and the free end.
-# The uniform final temperature comes from a heat-conduction model and enters the mechanics as
-# thermal strain.
+# $u_z=0$ on both slab faces gives plane strain, and the mid-span is a symmetry plane, held at its
+# lower edge. The material properties are given layer by layer. The uniform final temperature
+# comes from a heat-conduction model and enters the mechanics as thermal strain.
 
-plate = Box(length=half_length, width=substrate + coating, height=slab)
-faces = plate.boundaries
-coat = Box(length=half_length, width=coating, height=slab, origin=(0.0, substrate, 0.0))
+layers = {"substrate": (130e9, 0.28, 3.0e-6), "coating": (70e9, 0.17, 5.0e-7)}
+deposition, final = 1073.15, 423.15
 layered = lambda index, unit: regionwise(((coat, layers["coating"][index]),), default=layers["substrate"][index], unit=unit)
 material = replace(IsotropicSolid(density=3000.0, specific_heat_capacity=700.0, thermal_conductivity=30.0,
                                   youngs_modulus=1e9, poisson_ratio=0.3, thermal_expansion_coefficient=1e-6),
                    youngs_modulus=layered(0, "Pa"), poisson_ratio=layered(1, "1"), thermal_expansion_coefficient=layered(2, "1/K"))
-across = Piecewise(((substrate, Geometric(12, ratio=40.0, toward="end")), (coating, Geometric(6, ratio=8.0))))
-mesh = StructuredHexahedralMesher(cells=(24, 18, 1), grading=(Geometric(24, ratio=50.0, toward="end"), across, Uniform(1))).generate(plate)
 numerics = Numerics(spatial=FiniteElement(element=Lagrange(order=2)), linear_solver=SparseDirect())
 
 heat = HeatConduction(domain=plate.volume, material=material)
@@ -99,10 +102,22 @@ problem = Problem(name="Coated plate", geometry=plate, physics=(solid,), boundar
     couplings=(FieldCoupling(source=cooled.field(heat.temperature), target=solid.temperature, transfer=FiniteElementEvaluation()),))
 stress = Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_stationary().field(solid.stress)
 
-
 # ## Results
 #
-# The axial stress at mid-span against the bilayer solution.
+# The axial stress at mid-span against the bilayer solution of Timoshenko.
+
+
+def bilayer_stress(y):
+    """Axial stress of the bilayer beam at the height y."""
+    stiffness, load_vector = np.zeros((2, 2)), np.zeros(2)
+    for (E, nu, alpha), (lower, upper) in zip(layers.values(), ((0, substrate), (substrate, substrate + coating))):
+        moments = [(upper**k - lower**k) / k for k in (1, 2, 3)]
+        stiffness += E / (1 - nu**2) * np.array([moments[:2], moments[1:]])
+        load_vector += E / (1 - nu**2) * (1 + nu) * alpha * (final - deposition) * np.array(moments[:2])
+    strain, curvature = np.linalg.solve(stiffness, load_vector)
+    E, nu, alpha = (np.where(np.asarray(y) > substrate, c, s) for s, c in zip(*layers.values()))
+    return E / (1 - nu**2) * (strain + curvature * np.asarray(y) - (1 + nu) * alpha * (final - deposition))
+
 
 heights = {"lower face": 2e-6, "substrate at the interface": substrate - 2e-6, "coating at the interface": substrate + 2e-6,
            "upper face": substrate + coating - 2e-6}
@@ -110,7 +125,6 @@ at_mid_span = stress.evaluate([[1e-6, y, slab / 2] for y in heights.values()])[:
 print(f"{'position':28s} simulation [MPa]   bilayer [MPa]")
 for (label, y), value in zip(heights.items(), at_mid_span):
     print(f"{label:28s} {value / 1e6:16.2f} {bilayer_stress(y) / 1e6:15.2f}")
-
 
 # ## Figure
 #
@@ -135,9 +149,9 @@ plots.line(1e3 * distance, {"peel stress σ_yy": interface[:, 1] / 1e6, "shear s
            title="Stress concentration at the free edge", ax=fig[2])
 plots.show()
 
-
 # ## Going further
 #
-# Make the coating thinner and the stress in it approaches the film limit
+# Make the coating thinner in `layered_plate_thermal_stress_geometry.py`, write the files again,
+# and the stress in it approaches the film limit
 # $E_c'(1+\nu)\,\Delta\alpha\,\Delta T$; add a compliant interlayer and watch the edge stresses
 # drop.

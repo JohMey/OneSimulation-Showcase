@@ -2,8 +2,9 @@
 Requires the installed, activated OneSimulation runtime.
 
 A laser flash heats the front face of a ceramic disc and the temperature rise of the rear face is
-recorded. The three-dimensional simulation is compared with the exact series solution, and the
-thermal diffusivity is read off the computed curve as in the real measurement.
+recorded. The disc is read from a STEP file; the three-dimensional simulation is compared with the
+exact series solution, and the thermal diffusivity is read off the computed curve as in the real
+measurement.
 """
 
 
@@ -21,7 +22,9 @@ thermal diffusivity is read off the computed curve as in the real measurement.
 # measurement at room temperature and in a furnace at 800 °C, where radiation makes the losses
 # large.
 #
-# The disc (12.7 mm diameter, 2 mm thick) is a full 3D solid with
+# The disc (12.7 mm diameter, 2 mm thick) comes from the CAD file `flash_method_axisymmetric.step`
+# with the named faces `front`, `rear` and `rim`; the script `flash_method_axisymmetric_geometry.py`
+# builds it with the CAD objects of OneSimulation. It is a full 3D solid with
 #
 # $$\rho c_p\,\partial_t T = k\,\nabla^2 T,\qquad -k\,\partial_n T = h\,(T-T_\infty)\ \text{on every face},$$
 #
@@ -35,7 +38,8 @@ import numpy as np
 from scipy.optimize import brentq
 from scipy.special import j0, j1
 
-from onesim.cad.d2 import Circle, Plane
+from onesim.cad.d2 import Plane
+from onesim.cad.exchange import load
 from onesim.materials import IsotropicSolid
 from onesim.meshing import Geometric, TriangularMesher, extrude
 from onesim.numerics import Numerics
@@ -49,7 +53,29 @@ from onesim.visualization import theme, plots
 
 theme.set()
 
-radius, thickness, layer = 6.35e-3, 2.0e-3, 0.15e-3
+# ## Geometry and mesh
+#
+# `load` returns the disc with its named faces. Its cross-section is meshed with triangles and
+# extruded through the thickness with thin layers at the heated face; `geometry=disc` binds the
+# mesh to the faces of the part.
+
+disc = load("flash_method_axisymmetric.step")
+faces = disc.boundaries
+radius, thickness = disc.size[0] / 2, disc.size[2]
+outline = TriangularMesher(target_size=radius / 4, minimum_size=2 * np.pi * radius / 28).generate(
+    disc.section((0, 0, 1), origin=(0, 0, thickness / 2)))
+mesh = extrude(outline, thickness, Geometric(10, ratio=14.0), geometry=disc)
+
+view = plots.Camera(elevation=28, azimuth=-60)
+fig = plots.figure(1, 2, size=(14, 5))
+plots.geometry(disc, selection={"front": faces.front, "rear": faces.rear, "rim": faces.rim}, labels=False, camera=view,
+               title="Disc with its named faces", ax=fig[0])
+plots.mesh(mesh, groups=("all",), legend=False, camera=view, title=f"{mesh.cell_count} tetrahedra", ax=fig[1])
+plots.show()
+
+# ## Material and flash
+
+layer = 0.15e-3
 ceramic = IsotropicSolid(density=2600.0, specific_heat_capacity=808.0, thermal_conductivity=3.98,
                          youngs_modulus=9.6e10, poisson_ratio=0.24, thermal_expansion_coefficient=5.7e-6)
 diffusivity = ceramic.thermal_conductivity / (ceramic.density * ceramic.specific_heat_capacity)
@@ -85,22 +111,15 @@ def exact_rise(h, times, modes=(250, 150)):
 
 # ## Simulation
 #
-# The disc is a triangle mesh of the circle, extruded through the thickness with thin layers at the
-# heated face. Quadratic elements, a third-order BDF integrator and adaptive time steps resolve
-# the flash layer at the start and the slow cooling at the end.
-
-face = TriangularMesher(target_size=radius / 4, local_sizes={"circumference": 2 * np.pi * radius / 28}).generate(
-    Circle(radius=radius))
-mesh = extrude(face, thickness, Geometric(10, ratio=14.0), names=("front", "rear"))
-faces = mesh.geometry.boundaries
-
+# Quadratic elements, a third-order BDF integrator and adaptive time steps resolve the flash layer
+# at the start and the slow cooling at the end.
 
 def simulate(case):
     """Temperature history of the disc after the flash for one ambient condition."""
-    model = HeatConduction(domain=mesh.geometry.domain(), material=ceramic, heating=0.0)
+    model = HeatConduction(domain=disc.volume, material=ceramic, heating=0.0)
     problem = Problem(
-        name="Flash method", geometry=mesh.geometry, physics=(model,),
-        boundary_conditions=(ConvectiveHeatFlux(boundary=faces.front | faces.rear | faces.circumference, physics=model,
+        name="Flash method", geometry=disc, physics=(model,),
+        boundary_conditions=(ConvectiveHeatFlux(boundary=faces.all, physics=model,
                                                 heat_transfer_coefficient=loss[case], ambient_temperature=ambient[case]),),
         initial_conditions=(InitialValue(model.temperature, lambda x, y, z: ambient[case] + flash(z)),))
     numerics = Numerics(spatial=FiniteElement(element=Lagrange(order=2)), time_integrator=BDF(order=3),
@@ -147,8 +166,8 @@ for panel, instant in zip((fig[0], fig[1]), (early, half)):
     plots.section(furnace, time=instant, plane=Plane(origin=(0, 0, 0), normal=(0, 1, 0)), component=rise, contours=10,
                   subdivisions=3, aspect=3.0, label="T - T_inf [K]", title=f"Section through the axis, {1e3 * instant:.0f} ms",
                   ax=panel)
-plots.surface(furnace, time=half, boundary=faces.rear | faces.circumference, component=rise, subdivisions=2, edges=True,
-              camera=plots.Camera(elevation=28, azimuth=-60), label="T - T_inf [K]",
+plots.surface(furnace, time=half, boundary=faces.rear | faces.rim, component=rise, subdivisions=2, edges=True,
+              camera=view, label="T - T_inf [K]",
               title=f"Rear face and rim, {1e3 * half:.0f} ms", ax=fig[2])
 plots.line(points=signals, reference=exact, hlines={"half of the loss-free rise": 0.5}, xlabel="time [ms]",
            ylabel="rear-face rise [K]", title="Rear-face signal: simulation and exact series", ax=fig[3])
@@ -157,6 +176,7 @@ plots.show()
 
 # ## Going further
 #
-# Replace the linearised radiation by the full Stefan-Boltzmann law (`RadiationCooling`), model a
-# finite laser pulse as a time-dependent heat flux on the front face, or shrink the radius until
-# the rim losses dominate.
+# Change the disc in `flash_method_axisymmetric_geometry.py` and write the STEP file again: shrink
+# the radius until the rim losses dominate. Replace the linearised radiation by the full
+# Stefan-Boltzmann law (`RadiationCooling`), or model a finite laser pulse as a time-dependent heat
+# flux on the front face.

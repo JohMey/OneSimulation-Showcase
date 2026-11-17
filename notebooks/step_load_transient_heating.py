@@ -2,8 +2,9 @@
 Requires the installed, activated OneSimulation runtime.
 
 A silicon disc is heated on the central part of its top face by a heat flux that drops to a lower
-level after 0.25 s. The three-dimensional temperature history is computed with quadratic finite
-elements and an implicit integrator and compared with the exact Fourier-Bessel series.
+level after 0.25 s. The disc is read from a STEP file; the three-dimensional temperature history
+is computed with quadratic finite elements and an implicit integrator and compared with the exact
+Fourier-Bessel series.
 """
 
 
@@ -18,6 +19,10 @@ elements and an implicit integrator and compared with the exact Fourier-Bessel s
 # $\rho c_p\,\partial_t T=\nabla\cdot(k\nabla T)$. The whole top face radiates to the surroundings
 # at 293.15 K (linearised, $h_r=4\varepsilon\sigma T_a^3$); the bottom and the rim are insulated.
 #
+# The disc comes from the CAD file `step_load_transient_heating.step` with the named faces `top`
+# and `insulated`; the script `step_load_transient_heating_geometry.py` builds it with the CAD
+# objects of OneSimulation.
+#
 # **Reference.** The problem has an exact solution, a series in $J_0(\lambda_m r)$ over the roots
 # of $J_1(\lambda R)=0$ (Carslaw and Jaeger, *Conduction of Heat in Solids*). Each load level
 # switched on at $t_j$ adds a steady part and a decaying part with the rates
@@ -28,8 +33,9 @@ from scipy.optimize import brentq
 from scipy.special import j0, j1, jn_zeros
 
 from onesim.cad.d2 import Plane
+from onesim.cad.exchange import load
 from onesim.materials import IsotropicSolid
-from onesim.meshing import ExplicitGeometry, Geometric, disc_blocks, extrude, merge_blocks
+from onesim.meshing import Geometric, disc_blocks, extrude, merge_blocks
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import SparseDirect
@@ -41,7 +47,30 @@ from onesim.visualization import theme, plots
 
 theme.set()
 
-radius, height, spot = 0.010, 0.004, 0.004
+# ## Geometry and mesh
+#
+# `load` returns the disc with its named faces. `disc_blocks` meshes its cross-section with a
+# centre block, a ring up to the spot edge and a ring out to the rim, so the edge of the heated
+# spot lies on element faces; `extrude` carries the cells through the thickness and
+# `geometry=disc` binds them to the faces of the part. The cells are graded towards the spot edge
+# and the top face.
+
+disc = load("step_load_transient_heating.step")
+faces = disc.boundaries
+radius, height, spot = disc.size[0] / 2, disc.size[2], 0.004
+blocks = disc_blocks((0, 0), (spot, radius), 4, (4, 6), core=0.45,
+                     gradings=(Geometric(4, ratio=3.0, toward="end"), Geometric(6, ratio=6.0)))
+mesh = extrude(merge_blocks(blocks, order=2), height, Geometric(4, ratio=4.0, toward="end"), geometry=disc)
+
+view = plots.Camera(elevation=30, azimuth=-60)
+fig = plots.figure(1, 2, size=(14, 5))
+plots.geometry(disc, selection={"top": faces.top, "insulated": faces.insulated}, labels=False, camera=view,
+               title="Disc with its named faces", ax=fig[0])
+plots.mesh(mesh, groups=("all",), legend=False, camera=view, title=f"{mesh.cell_count} quadratic hexahedra", ax=fig[1])
+plots.show()
+
+# ## Parameters and reference
+
 conductivity, density, heat_capacity, ambient = 148.0, 2330.0, 712.0, 293.15
 diffusivity, radiation = conductivity / (density * heat_capacity), 4 * 0.7 * 5.670e-8 * ambient**3
 high, low, switch, end_time, time_step = 2.0e6, 0.5e6, 0.25, 1.0, 0.00625
@@ -63,37 +92,20 @@ def exact_rise(r, times, modes=(2000, 200)):
                          np.zeros(len(radial))) for t in times])
 
 
-# ## Mesh and model
+# ## Model
 #
-# `disc_blocks` builds the disc from a centre block, a ring up to the spot edge and a ring out to
-# the rim, so the edge of the heated spot lies on element faces. The cells are graded towards the
-# spot edge and the top face. The spot carries the radiation loss together with the stepped load,
-# written as a convective condition with the ambient temperature $T_a+q(t)/h_r$. The backward
-# Euler integrator evaluates the load at the end of each step, so the switch is placed between two
-# step ends: the steps up to 0.25 s see the high load, all later steps the low one.
-
-def face_name(point, normal):
-    """Name of a boundary face from its position."""
-    x, y, z = point
-    if abs(z - height) < 1e-9 * height:
-        return "spot" if np.hypot(x, y) < spot else "top_ring"
-    return "insulated"
-
-
-disc = ExplicitGeometry(dimension=3, boundary_names=("spot", "top_ring", "insulated"), classifier=face_name)
-faces = disc.boundaries
-blocks = disc_blocks((0, 0), (spot, radius), 4, (4, 6), core=0.45,
-                     gradings=(Geometric(4, ratio=3.0, toward="end"), Geometric(6, ratio=6.0)))
-mesh = extrude(merge_blocks(blocks, order=2), height, Geometric(4, ratio=4.0, toward="end"), geometry=disc)
+# The top face carries the radiation loss; on the spot the stepped load is added, written as a
+# convective condition with the ambient temperature $T_a+q(t)/h_r$. The backward Euler integrator
+# evaluates the load at the end of each step, so the switch is placed between two step ends: the
+# steps up to 0.25 s see the high load, all later steps the low one.
 
 silicon = IsotropicSolid(density=density, specific_heat_capacity=heat_capacity, thermal_conductivity=conductivity,
                          youngs_modulus=130e9, poisson_ratio=0.28, thermal_expansion_coefficient=2.6e-6)
-model = HeatConduction(domain=disc.domain(), material=silicon, heating=0.0)
-load = step(switch + time_step / 2, before=high, after=low)
+model = HeatConduction(domain=disc.volume, material=silicon, heating=0.0)
+heating = step(switch + time_step / 2, before=high, after=low)
 problem = Problem(name="Disc heated by a stepped spot load", geometry=disc, physics=(model,), boundary_conditions=(
-    ConvectiveHeatFlux(boundary=faces.spot, physics=model, heat_transfer_coefficient=radiation,
-                       ambient_temperature=ambient + (1 / radiation) * load),
-    ConvectiveHeatFlux(boundary=faces.top_ring, physics=model, heat_transfer_coefficient=radiation, ambient_temperature=ambient),
+    ConvectiveHeatFlux(boundary=faces.top, physics=model, heat_transfer_coefficient=radiation,
+                       ambient_temperature=lambda x, y, z, t: ambient + np.where(np.hypot(x, y) < spot, heating(t) / radiation, 0.0)),
     HeatFlux(boundary=faces.insulated, physics=model, value=0.0)),
     initial_conditions=(InitialValue(model.temperature, ambient),))
 numerics = Numerics(spatial=FiniteElement(element=Lagrange(order=2)), linear_solver=SparseDirect(), time_integrator=BackwardEuler())
@@ -126,8 +138,8 @@ profiles = {f"t = {t:.2f} s": (1e3 * r, temperature.evaluate(top, time=t).ravel(
 exact_profiles = {f"t = {t:.2f} s": (1e3 * r, ambient + exact_rise(r, [t])[0]) for t in (switch, end_time)}
 
 fig = plots.figure(2, 2, size=(14, 10))
-plots.surface(temperature, time=switch, boundary=faces.spot | faces.top_ring | faces.insulated, subdivisions=3,
-              camera=plots.Camera(elevation=30, azimuth=-60), label="T [K]", title="Temperature at 0.25 s", ax=fig[0])
+plots.surface(temperature, time=switch, boundary=faces.all, subdivisions=3,
+              camera=view, label="T [K]", title="Temperature at 0.25 s", ax=fig[0])
 plots.section(temperature, time=switch, plane=Plane(origin=(0, 0, 0), normal=(0, 1, 0)), contours=12, subdivisions=3,
               label="T [K]", title="Section through the axis at 0.25 s", ax=fig[1])
 plots.line(points={"simulation": (times, ambient + centre)}, reference={"exact series": (times[1:], ambient + series[1:])},
@@ -140,5 +152,7 @@ plots.show()
 
 # ## Going further
 #
-# Replace the linearised radiation by the full $\varepsilon\sigma(T^4-T_a^4)$ law, add
-# temperature-dependent silicon properties, or replace the step by a train of pulses.
+# Change the disc in `step_load_transient_heating_geometry.py` and write the STEP file again: a
+# thinner disc heats through faster and follows the load step more sharply. Replace the linearised
+# radiation by the full $\varepsilon\sigma(T^4-T_a^4)$ law, add temperature-dependent silicon properties, or
+# replace the step by a train of pulses.
