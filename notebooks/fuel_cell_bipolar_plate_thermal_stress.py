@@ -103,33 +103,8 @@ temperature, stress and displacement levels and a three-level mesh study.
 
 from dataclasses import dataclass
 from hashlib import sha256
-from importlib.metadata import version
 import time
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
-from matplotlib import cm, colors
-from matplotlib.path import Path
-from matplotlib.tri import Triangulation
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from scipy.spatial import Delaunay, cKDTree
 
 from onesim.cad.geometry.primitives import Geometry
@@ -144,29 +119,31 @@ from onesim.physics.heat_transfer import ConvectiveHeatFlux, HeatConduction, Hea
 from onesim.physics.solid_mechanics import (
     FixedDisplacementComponents, IsotropicThermalExpansion, LinearElasticity, Traction, TractionFree,
 )
+from onesim.results.sampling.points.simplex_locator import SimplexLocator
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.field_connections import FieldCoupling
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
 
 mm = 1e-3
-LX, LY, TH2 = 120.0, 90.0, 5.0              # mm: modelled eighth, half thickness
-R0, FILLET = 5.0, 2.5                       # mm: holes and heating element, slit fillets
+LX, LY, TH2 = 120.0, 90.0, 5.0
+R0, FILLET = 5.0, 2.5
 HOLES = ((15.0, 15.0), (15.0, 90.0), (120.0, 15.0))
-SLITS = ((10.0, 20.0, 35.0, 70.0), (35.0, 100.0, 10.0, 20.0))      # x0, x1, y0, y1 in mm
+SLITS = ((10.0, 20.0, 35.0, 70.0), (35.0, 100.0, 10.0, 20.0))
 HEATER = (70.0, 90.0)
-P_heater = 200.0 / 25 / 4                   # W in the modelled eighth (one quarter of a plate)
-h_surr, T_surr = 5.0, 293.15                # outer edges
-h_gas, T_gas = 50.0, 353.15                 # gas slits
-k_ti, k_al = 7.5, 160.0                     # W/(m K)
+P_heater = 200.0 / 25 / 4
+h_surr, T_surr = 5.0, 293.15
+h_gas, T_gas = 50.0, 353.15
+k_ti, k_al = 7.5, 160.0
 E_ti, nu_ti, alpha_ti = 105e9, 0.33, 7.06e-6
-T_ref = 273.15                              # stress-free temperature
-P_active, P_manifold = 1e6, 8e6             # Pa, tie-rod clamping
-LEVELS = ((14.0, 3.5), (10.0, 2.5), (7.0, 1.75))   # (far, near) triangle sizes in mm of the three meshes
-published = {"T_max": 436.0, "T_min": 367.0, "vm_max": 33.0, "w_max": 6.3}   # read from the colour bars
+T_ref = 273.15
+P_active, P_manifold = 1e6, 8e6
+LEVELS = ((14.0, 3.5), (10.0, 2.5), (7.0, 1.75))
+published = {"T_max": 436.0, "T_min": 367.0, "vm_max": 33.0, "w_max": 6.3}
 
 
 # ## Geometry and mesh
@@ -344,7 +321,7 @@ def split_into_quads(p, t, region):
                     m = c + r * (m - c) / np.hypot(*(m - c))
                     break
             else:
-                if key in boundary:            # chord across a tangent point: Newton steps onto the boundary
+                if key in boundary:
                     for _ in range(3):
                         d, e = d_plate(m[None])[0], 1e-7
                         g = np.array([d_plate((m + (e, 0))[None])[0] - d, d_plate((m + (0, e))[None])[0] - d]) / e
@@ -461,8 +438,8 @@ def build_plate(h_far, h_near, layers=1):
                          groups={name: np.array(faces) for name, faces in groups.items()},
                          mesh=HexahedralMesh(geometry, X * mm, kept, groups))
     out["heater_volume"] = float(out["heat"]["mesh"].cell_volumes[out["heat"]["region"] == 2].sum())
-    section_tri = Triangulation(xy[:, 0], xy[:, 1], np.vstack((quads[:, [0, 1, 2]], quads[:, [0, 2, 3]])))
-    out["section_tri"], out["finder"] = section_tri, section_tri.get_trifinder()
+    locator = SimplexLocator.from_arrays(xy, np.vstack((quads[:, [0, 1, 2]], quads[:, [0, 2, 3]])), dimension=2)
+    out["finder"] = lambda x, y: locator.locate(np.column_stack((x, y)))[0]
     out["tri_region"] = np.concatenate((quad_region, quad_region))
     return out
 
@@ -564,7 +541,7 @@ GAUSS_W = np.array([5.0, 8.0, 5.0]) / 18.0
 
 def face_quadrature(coords, faces):
     """3x3 Gauss points and weights on bilinear boundary quadrilaterals."""
-    P = coords[faces]                                           # (n, 4, 3)
+    P = coords[faces]
     s, t = np.meshgrid(GAUSS, GAUSS, indexing="ij")
     s, t, w = s.ravel(), t.ravel(), np.outer(GAUSS_W, GAUSS_W).ravel()
     N = np.stack(((1 - s) * (1 - t), s * (1 - t), s * t, (1 - s) * t), axis=1)
@@ -615,7 +592,7 @@ def measure(data, temperature, displacement, von_mises):
     u = evaluate(displacement, stress["coords"])
     vm = evaluate(von_mises, stress["coords"]).ravel()
     tri = data["finder"](EDGES_XYZ[:, 0] / mm, EDGES_XYZ[:, 1] / mm)
-    edges = EDGES_XYZ[(tri >= 0) & (data["tri_region"][np.maximum(tri, 0)] != 2)]      # inside the elastic mesh
+    edges = EDGES_XYZ[(tri >= 0) & (data["tri_region"][np.maximum(tri, 0)] != 2)]
     vm_edges = evaluate(von_mises, edges).ravel()
     samples = np.vstack((stress["coords"], edges))
     vm_all = np.concatenate((vm, vm_edges))
@@ -741,82 +718,39 @@ for key, label, scale in (("T_max", "T_max [K]", 1.0), ("vm_max", "peak von Mise
 heat_mesh, stress_mesh = fine["data"]["heat"], fine["data"]["stress"]
 
 
-def surface(mesh_data, values, names):
-    faces = np.vstack([mesh_data["groups"][n] for n in names if len(mesh_data["groups"][n])])
-    quads = mesh_data["coords"][faces] / mm
-    face_values = values[faces].mean(axis=1)
-    copies, copy_values = [], []
-    for sx, sy in ((1, 1), (-1, 1), (1, -1), (-1, -1)):
-        q = quads.copy()
-        if sx < 0:
-            q[:, :, 0] = 2 * LX - q[:, :, 0]
-        if sy < 0:
-            q[:, :, 1] = 2 * LY - q[:, :, 1]
-        copies.append(q)
-        copy_values.append(face_values)
-    return np.concatenate(copies), np.concatenate(copy_values)
+def mirrored_surface(mesh_data, names):
+    """Points and triangles of the named faces, completed about the two symmetry planes (lengths in mm)."""
+    faces = np.vstack([mesh_data["groups"][name] for name in names if len(mesh_data["groups"][name])])
+    triangles = np.r_[faces[:, [0, 1, 2]], faces[:, [0, 2, 3]]]
+    base = mesh_data["coords"] / mm
+    copies = [base * (sx, sy, 1) + (2 * LX * (sx < 0), 2 * LY * (sy < 0), 0) for sx, sy in ((1, 1), (-1, 1), (1, -1), (-1, -1))]
+    return np.vstack(copies), np.vstack([triangles + k * len(base) for k in range(4)])
 
 
-fig = plt.figure(figsize=(17, 12.5), constrained_layout=True)
-grid = fig.add_gridspec(2, 6, height_ratios=(1.2, 1.0))
-panels = ((heat_mesh, fine["T"], ("top", "outer_edges", "gas_slits", "tie_rod_holes"), "temperature T [K]", 1.0),
-          (stress_mesh, fine["vm"], ("top_active", "top_manifold", "free"), "von Mises stress [MPa]", 1e-6))
-for col, (mesh_data, values, names, label, scale) in enumerate(panels):
-    ax = fig.add_subplot(grid[0, 3 * col:3 * col + 3], projection="3d")
-    polys, face_values = surface(mesh_data, values * scale, names)
-    norm = colors.Normalize(vmin=face_values.min(), vmax=face_values.max())
-    shades = FIELD_CMAP(norm(face_values))
-    ax.add_collection3d(Poly3DCollection(polys, facecolors=shades, edgecolors=shades, linewidths=0.3))
-    ax.set(xlim=(0, 2 * LX), ylim=(0, 2 * LY), zlim=(0, TH2), xlabel="x [mm]", ylabel="y [mm]")
-    ax.set_zticks([0, 5])
-    ax.set_box_aspect((2 * LX, 2 * LY, 12))
-    ax.view_init(elev=38, azim=-62)
-    ax.set_title(("Temperature of the heated plate" if col == 0 else "von Mises stress"), pad=4)
-    fig.colorbar(cm.ScalarMappable(norm=norm, cmap=FIELD_CMAP), ax=ax, shrink=0.5, pad=0.06, label=label)
-
-ax = fig.add_subplot(grid[1, 0:2])
-X = stress_mesh["coords"] / mm
-top = np.abs(X[:, 2] - TH2) < 1e-9
-tri_top = Triangulation(X[top, 0], X[top, 1])
-w_top = fine["u"][top, 2] * 1e6
-mask = in_heater(fine["data"], X[top, 0][tri_top.triangles].mean(axis=1) * mm, X[top, 1][tri_top.triangles].mean(axis=1) * mm)
-mask |= d_plate(np.column_stack((X[top, 0][tri_top.triangles].mean(axis=1), X[top, 1][tri_top.triangles].mean(axis=1)))) > 0
-tri_top.set_mask(mask)
-shade = ax.tricontourf(tri_top, w_top, levels=30, cmap=FIELD_CMAP)
-ax.tricontour(tri_top, w_top, levels=10, colors=INK, linewidths=0.4)
-ax.set_aspect("equal")
-ax.set(xlabel="x [mm]", ylabel="y [mm]", title="Out-of-plane displacement of the top face")
-fig.colorbar(shade, ax=ax, shrink=0.8, label="w [um]")
-
-ax = fig.add_subplot(grid[1, 2:4])
+top_faces = np.vstack([stress_mesh["groups"][name] for name in ("top_active", "top_manifold")])
 y_line = np.linspace(85.0 - 1e-6, 20.0 + 1e-6, 200)
 line = np.column_stack((np.full(200, 70.0), y_line, np.full(200, 2.5))) * mm
-T_line = evaluate(fine["temperature"], line).ravel()
 s_line = evaluate(fine["stress"], line)
-ax.plot(90 - y_line, s_line[:, 0] / 1e6, color=COPPER, lw=1.6, label="sigma_xx (hoop at the seat)")
-ax.plot(90 - y_line, s_line[:, 1] / 1e6, color="#5F9175", lw=1.6, label="sigma_yy")
-ax.plot(90 - y_line, s_line[:, 2] / 1e6, color=INK, lw=1.0, ls="--", label="sigma_zz (clamping 1 / 8 MPa)")
-ax.axhline(0, color="#8B9A8D", lw=0.7)
-ax.set(xlabel="distance from the heater centre, 90 - y [mm]", ylabel="stress [MPa]",
-       title="Line x = 70 mm, mid-thickness")
-ax.legend(fontsize=8, loc="lower right")
-ax.grid(alpha=0.3)
-ax2 = ax.twinx()
-ax2.plot(90 - y_line, T_line, color=GREEN, lw=1.8)
-ax2.set_ylabel("T [K]", color=GREEN)
-
-ax = fig.add_subplot(grid[1, 4:6])
-for key, label, colour in (("T_max", "T_max - 273.15 K", GREEN), ("vm_max", "peak von Mises", COPPER), ("w_max", "w_max", INK)):
-    values = np.array([r[key] for r in runs])
-    if key == "T_max":
-        values = values - 273.15
-    ax.plot(hs, values / values[-1], "o-", color=colour, label=label)
-ax.axhline(1.0, color="#8B9A8D", lw=0.8, ls=":")
-ax.invert_xaxis()
-ax.set(xlabel="cell size at the features h [mm]", ylabel="value / value on the finest mesh", title="Mesh study")
-ax.legend(fontsize=8)
-ax.grid(alpha=0.3)
-plt.show()
+tracked = {"T_max - 273.15 K": np.array([r["T_max"] for r in runs]) - 273.15,
+           "peak von Mises": np.array([r["vm_max"] for r in runs]), "w_max": np.array([r["w_max"] for r in runs])}
+fig = plots.figure(layout=[["temperature"] * 3 + ["stress"] * 3, ["lift", "lift", "line", "line", "study", "study"]], size=(17, 12.5))
+points, triangles = mirrored_surface(heat_mesh, ("top", "outer_edges", "gas_slits", "tie_rod_holes"))
+plots.trisurface(points, triangles, np.tile(fine["T"], 4), camera=plots.Camera(elevation=38, azimuth=-62),
+                 label="temperature T [K]", title="Temperature of the heated plate (lengths in mm)", ax=fig["temperature"])
+points, triangles = mirrored_surface(stress_mesh, ("top_active", "top_manifold", "free"))
+plots.trisurface(points, triangles, np.tile(fine["vm"] * 1e-6, 4), camera=plots.Camera(elevation=38, azimuth=-62),
+                 label="von Mises stress [MPa]", title="von Mises stress (lengths in mm)", ax=fig["stress"])
+plots.heatmap(stress_mesh["coords"][:, 0] / mm, stress_mesh["coords"][:, 1] / mm, fine["u"][:, 2] * 1e6,
+              triangles=np.r_[top_faces[:, [0, 1, 2]], top_faces[:, [0, 2, 3]]], contours=10, label="w [µm]",
+              xlabel="x [mm]", ylabel="y [mm]", title="Out-of-plane displacement of the top face", ax=fig["lift"])
+plots.line(90 - y_line, {"sigma_xx (hoop at the seat)": s_line[:, 0] / 1e6, "sigma_yy": s_line[:, 1] / 1e6,
+                         "sigma_zz (clamping 1 / 8 MPa)": s_line[:, 2] / 1e6},
+           right={"temperature": evaluate(fine["temperature"], line).ravel()}, styles={"sigma_zz (clamping 1 / 8 MPa)": "dashed"},
+           hlines=0.0, xlabel="distance from the heater centre, 90 - y [mm]", ylabel="stress [MPa]", right_label="T [K]",
+           title="Line x = 70 mm, mid-thickness", legend="lower right", ax=fig["line"])
+plots.line(hs, {label: values / values[-1] for label, values in tracked.items()}, hlines=1.0, markers=True,
+           xlabel="cell size at the features h [mm]", ylabel="value / value on the finest mesh", title="Mesh study", ax=fig["study"])
+plots.show()
 
 
 # ## Going further

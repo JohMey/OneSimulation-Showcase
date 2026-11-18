@@ -100,64 +100,38 @@ of this benchmark, the global energy balance and mesh and time-step studies.
 # sensible and latent heat), the latent-heat budget of the plates, and a three-level mesh
 # study and a time-step study (60, 30, 15 min) with observed orders and Richardson estimate.
 
-from dataclasses import dataclass
-from hashlib import sha256
-from importlib.metadata import version
 import time
-
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
-from matplotlib import colors
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from scipy import sparse
 from scipy.sparse.linalg import LinearOperator, gmres, spilu, splu
 
-from onesim.cad.geometry.primitives import Geometry
+from onesim.cad.d3 import Box
 from onesim.materials import IsotropicSolid
-from onesim.meshing.generation.backends.structured.volume.hexahedral import StructuredHexahedralMesh
-from onesim.meshing.generation.contracts.hexahedral_geometry import FACES, affine_hexahedral_geometry
+from onesim.meshing import ExplicitGeometry, Piecewise, StructuredHexahedralMesher, Uniform, region_mesh
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import SparseDirect
-from onesim.numerics.time.methods.backends.imex_sdirk2 import AdaptiveIMEXSDIRK2Provider, IMEXSDIRK2Options
+from onesim.numerics.time import AdaptiveIMEXSDIRK2Provider, IMEXSDIRK2Options, MaxNormStateAlgebra
 from onesim.physics.heat_transfer import ConvectiveHeatFlux, HeatConduction, HeatFlux
+from onesim.results.comparisons import convergence
 from onesim.simulation import Problem, Simulation
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
 
-k_foam, rho_foam, cp_foam = 0.03, 25.0, 2.0              # foam box and lid
-k_cont, rho_cont, cp_cont = 1.0, 2000.0, 800.0           # contents
-k_ice, cp_ice, k_wat, cp_wat, rho_w = 2.3, 2050.0, 0.6, 4200.0, 1000.0   # eutectic plates
-T_pc, dT_pc, L_f = 0.0, 3.5, 333e3                       # degC, K, J/kg
-rho_air, cp_air = 1.204, 1006.0                          # pocket air
-h_out, h_pocket = 5.0, 5.0                               # W/(m^2 K)
-T0_box, T0_contents, T0_plates = 20.0, 5.0, -5.0         # degC
-V_pocket = 0.04 * 0.04 * 0.20                            # one air pocket, m^3
+k_foam, rho_foam, cp_foam = 0.03, 25.0, 2.0
+k_cont, rho_cont, cp_cont = 1.0, 2000.0, 800.0
+k_ice, cp_ice, k_wat, cp_wat, rho_w = 2.3, 2050.0, 0.6, 4200.0, 1000.0
+T_pc, dT_pc, L_f = 0.0, 3.5, 333e3
+rho_air, cp_air = 1.204, 1006.0
+h_out, h_pocket = 5.0, 5.0
+T0_box, T0_contents, T0_plates = 20.0, 5.0, -5.0
+V_pocket = 0.04 * 0.04 * 0.20
 t_end_h = 72.0
 
-# Hourly design-day temperature of Seville (1 June, from 06:00), every 3 h, degC
 t_amb_h = np.arange(0.0, 73.0, 3.0)
 T_amb_tab = np.array([23.1, 27.6, 29.8, 28.5, 23.4, 20.1, 18.1, 17.9, 23.2, 27.7, 29.95, 28.7, 23.6,
                       20.25, 18.25, 18.05, 23.3, 27.85, 30.1, 28.8, 23.75, 20.4, 18.35, 18.15, 23.45])
@@ -168,7 +142,6 @@ def T_ambient(t):
     return np.interp(t / 3600.0, t_amb_h, T_amb_tab)
 
 
-# Published probe temperatures of the benchmark, read from its curves (degC)
 ref_t = np.array([1, 10, 22, 30, 36, 45, 48, 51, 55, 60, 65, 72], float)
 REF = {
     "contents minimum": np.array([4.6, 4.85, 4.2, 5.0, 5.4, 5.4, 5.8, 6.3, 7.5, 9.3, 10.8, 12.6]),
@@ -179,7 +152,7 @@ REF = {
 REF_EVENTS = {"plates average reaches 2 degC": 45.0, "contents maximum reaches 8 degC": 50.5,
               "contents average reaches 8 degC": 55.0}
 
-latent_quarter = rho_w * L_f * 2 * 0.02 * 0.24 / 2 * 0.20      # J, latent heat of the plates in one quarter
+latent_quarter = rho_w * L_f * 2 * 0.02 * 0.24 / 2 * 0.20
 print(f"latent heat of the four plates: {4 * latent_quarter / 1e6:.3f} MJ "
       f"({4 * rho_w * 2 * 0.02 * 0.24 / 2 * 0.20:.2f} kg of ice)")
 print(f"thermal resistance of a 4 cm foam wall incl. film: {1 / h_out + 0.04 / k_foam:.3f} m^2 K/W")
@@ -187,8 +160,8 @@ print(f"thermal resistance of a 4 cm foam wall incl. film: {1 / h_out + 0.04 / k
 
 # ## Geometry and mesh
 #
-# The quarter box is covered by a tensor-product block mesh whose grid lines pass through
-# every material interface: in $x$ and $y$ the breaks are 0, 4, 6, 8 and 20 cm (outer
+# The quarter box is covered by a tensor-product block mesh (a piecewise-uniform grading of
+# the structured hexahedral mesher) whose grid lines pass through every material interface: in $x$ and $y$ the breaks are 0, 4, 6, 8 and 20 cm (outer
 # foam, plate, inner foam, contents), in $z$ 0, 4, 24 and 28 cm (floor, contents and
 # plates, lid). Every hexahedron belongs to exactly one material; the air pocket is left
 # out of the mesh, its walls are a boundary of the solid. A mesh level $m$ has
@@ -196,12 +169,13 @@ print(f"thermal resistance of a 4 cm foam wall incl. film: {1 / h_out + 0.04 / k
 # the three $z$ segments, so on the finest level ($m=3$) a plate is 6 cells thick, the
 # 4 cm foam walls 6 cells and the contents 12 x 12 x 24 cells (cell sizes 3.3-10 mm).
 #
-# OneSimulation assembles each material on its own part of the mesh: the foam (box and
+# `region_mesh` cuts the cells of one material out of it, and OneSimulation assembles each
+# material on its own part of the mesh: the foam (box and
 # lid together; the thin air gap between them is negligible, see above), the contents
 # and the plates, the latter with unit conductivity and capacity so that the
 # phase-dependent values can be applied afterwards. The boundary faces of every part are
-# named by what lies beyond them: the outside, the air pocket, a symmetry plane, or
-# another material (an internal interface, where the parts are joined node by node and
+# named by what lies beyond them (a classifier looking just across the face along its
+# outward normal): the outside, the air pocket, a symmetry plane, or another material (an internal interface, where the parts are joined node by node and
 # no condition is imposed).
 
 X_BREAKS = (0.0, 0.04, 0.06, 0.08, 0.20)
@@ -226,54 +200,27 @@ def axis(breaks, counts):
                                             for a, b, n in zip(breaks[:-1], breaks[1:], counts)])
 
 
-@dataclass(frozen=True, eq=False, kw_only=True)
-class BoxPart(Geometry):
-    """One material of the quarter box with its named boundary faces."""
-
-    dimension = 3
-    names: tuple = ("outside", "pocket", "symmetry", "interface")
-
-    def boundary_groups(self):
-        return {**{name: (name,) for name in self.names}, "all": self.names}
+quarter_box = Box(length=X_BREAKS[-1], width=X_BREAKS[-1], height=Z_BREAKS[-1])
 
 
-class PartMesh(StructuredHexahedralMesh):
-    """Hex8 block mesh of the cells of one material of the quarter box."""
+def beyond_face(point, normal):
+    """Name a boundary face of a part by what lies beyond it."""
+    if np.isclose(point[0], 0.2) or np.isclose(point[1], 0.2):
+        return "symmetry"
+    beyond = int(material_at(*(np.asarray(point) + 1e-6 * np.asarray(normal))))
+    return {OUTSIDE: "outside", POCKET: "pocket"}.get(beyond, "interface")
 
-    def __init__(self, xs, zs, part):
-        cx, cz = 0.5 * (xs[1:] + xs[:-1]), 0.5 * (zs[1:] + zs[:-1])
-        I, J, K = np.nonzero(material_at(*np.meshgrid(cx, cx, cz, indexing="ij")) == part)
-        corners = ((0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0), (0, 0, 1), (1, 0, 1), (1, 1, 1), (0, 1, 1))
-        used = np.zeros((len(xs), len(xs), len(zs)), bool)
-        for p, q, r in corners:
-            used[I + p, J + q, K + r] = True
-        index = -np.ones(used.shape, dtype=np.int64)
-        index[used] = np.arange(used.sum())
-        ii, jj, kk = np.nonzero(used)
-        data = affine_hexahedral_geometry(np.column_stack((xs[ii], xs[jj], zs[kk])),
-                                          np.column_stack([index[I + p, J + q, K + r] for p, q, r in corners]))
-        self.coordinates, self.cells, self.cell_volumes = data.coordinates, data.cells, data.volumes
-        self.cell_count = len(self.cells)
-        self.shape = (len(xs) - 1, len(xs) - 1, len(zs) - 1)
-        self.mesh_id = f"quarter-box-{part}:" + sha256(self.coordinates.tobytes() + self.cells.tobytes()).hexdigest()
-        faces = np.concatenate([self.cells[:, list(face)] for face in FACES])
-        owner = np.tile(np.arange(self.cell_count), len(FACES))
-        _, inverse, counts = np.unique(np.sort(faces, axis=1), axis=0, return_inverse=True, return_counts=True)
-        single = counts[inverse.ravel()] == 1
-        groups = {name: [] for name in BoxPart().names}
-        centres = self.coordinates[self.cells].mean(axis=1)
-        for face, cell in zip(faces[single], owner[single]):
-            centre = self.coordinates[face].mean(axis=0)
-            if np.isclose(centre[0], 0.2) or np.isclose(centre[1], 0.2):
-                name = "symmetry"
-            else:
-                beyond = material_at(*(centre + 1e-6 * (centre - centres[cell]) / np.linalg.norm(centre - centres[cell])))
-                name = {OUTSIDE: "outside", POCKET: "pocket"}.get(int(beyond), "interface")
-            groups[name].append(tuple(face))
-        names = tuple(name for name in groups if groups[name])
-        self.geometry = BoxPart(names=names)
-        self._facets = {name: groups[name] for name in names}
-        self._carrier = self._build_carrier()
+
+part_names = ExplicitGeometry(dimension=3, boundary_names=("outside", "pocket", "symmetry", "interface"),
+                              classifier=beyond_face)
+
+
+def part_mesh(m, part):
+    """Hex8 cells of one material, cut from a block mesh whose grid lines follow every interface."""
+    segments = lambda breaks, counts: Piecewise(tuple((b - a, Uniform(n)) for a, b, n in zip(breaks[:-1], breaks[1:], counts)))
+    grading = (segments(X_BREAKS, (2 * m, 2 * m, m, 4 * m)),) * 2 + (segments(Z_BREAKS, (2 * m, 8 * m, 2 * m)),)
+    block = StructuredHexahedralMesher(cells=tuple(g.cells for g in grading), grading=grading).generate(quarter_box)
+    return region_mesh(block, lambda centres: material_at(*centres.T) == part, geometry=part_names)
 
 
 # ## Model
@@ -292,7 +239,8 @@ def assemble(mesh, k, rho_cp, outside=0.0, pocket=0.0):
     geometry = mesh.geometry
     model = HeatConduction(domain=geometry.domain(), material=material, heating=0.0)
     conditions = []
-    for name in geometry.names:
+    present = [n for n in geometry.boundary_groups()["all"] if mesh.facets(getattr(geometry.boundaries, n))]
+    for name in present:
         h = {"outside": outside, "pocket": pocket}.get(name, 0.0)
         selection = getattr(geometry.boundaries, name)
         conditions.append(ConvectiveHeatFlux(boundary=selection, physics=model, heat_transfer_coefficient=h,
@@ -313,7 +261,7 @@ def build_level(m):
     shape = (len(xs), len(xs), len(zs))
     key = lambda X: np.ravel_multi_index((np.searchsorted(xs, X[:, 0] - 1e-9), np.searchsorted(xs, X[:, 1] - 1e-9),
                                           np.searchsorted(zs, X[:, 2] - 1e-9)), shape)
-    parts = {part: PartMesh(xs, zs, part) for part in (FOAM, CONTENTS, PLATES)}
+    parts = {part: part_mesh(m, part) for part in (FOAM, CONTENTS, PLATES)}
     keys = np.unique(np.concatenate([key(mesh.coordinates) for mesh in parts.values()]))
     n = len(keys)
     nodes = np.column_stack([v[i] for v, i in zip((xs, xs, zs), np.unravel_index(keys, shape))])
@@ -402,7 +350,7 @@ class QuarterBoxModel:
         self.v_plates = np.asarray(o["M_plates"].sum(axis=1)).ravel()
         self.plate_nodes = np.nonzero(self.v_plates > 0)[0]
         self.C_pocket = rho_air * cp_air * V_pocket
-        self.scale = np.r_[self.c + self.v_plates * rho_w * cp_wat, self.C_pocket]   # J/K, for error norms
+        self.scale = np.r_[self.c + self.v_plates * rho_w * cp_wat, self.C_pocket]
 
     def energy(self, T):
         return np.r_[self.c * T[:-1] + self.v_plates * plate_enthalpy(T[:-1])[0], self.C_pocket * T[-1]]
@@ -439,20 +387,6 @@ class QuarterBoxModel:
                             [-a * self.b_pocket[None, :], np.array([[self.C_pocket + a * self.s_pocket]])]], format="csc")
 
 
-class StoredHeatAlgebra:
-    """State algebra of the integrator: linear combinations, and a max-norm of the stored
-    heat per node expressed in kelvin (|dE_i| / heat capacity of the node)."""
-
-    def __init__(self, scale):
-        self.scale = scale
-
-    def weighted_sum(self, states, weights):
-        return sum(w * s for s, w in zip(states, weights))
-
-    def distance(self, a, b):
-        return float(np.max(np.abs(a - b) / self.scale))
-
-
 # ## Solve
 #
 # The integrator advances the stored heat $E$ with a fixed step $\Delta t$ (30 min on all
@@ -479,14 +413,14 @@ def integrate(level, dt_min=30.0, keep_h=(24.0,)):
     vol = level["volume"]
     in_contents, in_plates = vol["contents"] > 0, vol["plates"] > 0
     T = np.full(level["n"] + 1, T0_box)
-    T[:-1][in_contents] = T0_contents       # closed regions: the contents and plates set their own nodes
+    T[:-1][in_contents] = T0_contents
     T[:-1][in_plates] = T0_plates
     E = model.energy(T)
     dt = 60.0 * dt_min
-    loose = 1e9                              # step-size control off: every step is accepted
+    loose = 1e9
     integrator = AdaptiveIMEXSDIRK2Provider(
         IMEXSDIRK2Options(relative_tolerance=1e-12, absolute_tolerance=loose, minimum_step=dt, maximum_step=dt),
-        algebra=StoredHeatAlgebra(model.scale))
+        algebra=MaxNormStateAlgebra(scale=model.scale))
     memory = dict(stage_q=[], lu=None, history=[(-dt, T.copy()), (0.0, T.copy())])
     counts = dict(newton=0, krylov=0, factorizations=0, max_iterations=0)
 
@@ -503,8 +437,6 @@ def integrate(level, dt_min=30.0, keep_h=(24.0,)):
         for iteration in range(1, 40):
             Ek = model.energy(Tk)
             residual = Ek - base - a * model.rate(Tk, t)
-            # Newton in the stored heat of the plate nodes (smooth in the melting range) and in
-            # the temperature elsewhere: right-scale the temperature Jacobian by dT/dE.
             _, dH = plate_enthalpy(Tk[plates])
             scale = np.ones(len(Tk))
             scale[plates] = 1.0 / (model.c[plates] + model.v_plates[plates] * dH)
@@ -516,7 +448,7 @@ def integrate(level, dt_min=30.0, keep_h=(24.0,)):
             du, info = gmres(J, -residual, M=LinearOperator(J.shape, memory["lu"].solve), rtol=1e-10, atol=0.0,
                              restart=40, maxiter=2, callback=lambda r: calls.__setitem__(0, calls[0] + 1),
                              callback_type="pr_norm")
-            if info != 0 or calls[0] > 20:      # Jacobian has drifted: refresh the factorization
+            if info != 0 or calls[0] > 20:
                 memory["lu"] = splu(J)
                 counts["factorizations"] += 1
                 if info != 0:
@@ -529,7 +461,7 @@ def integrate(level, dt_min=30.0, keep_h=(24.0,)):
             T_new[plates] = model.temperature(E_new, Tk)[plates]
             change = np.max(np.abs(T_new - Tk))
             Tk = T_new
-            if change < 1e-5:                   # quadratic convergence: the remaining error is ~1e-10 K
+            if change < 1e-5:
                 break
         counts["max_iterations"] = max(counts["max_iterations"], iteration)
         memory["stage_q"].append(model.heat_in(Tk, t))
@@ -557,7 +489,7 @@ def integrate(level, dt_min=30.0, keep_h=(24.0,)):
         memory["stage_q"] = []
         outcome = integrator.advance(E, no_explicit_rate, implicit_rate, t, dt, implicit_stage_solver=stage_solver)
         q1, q2 = memory["stage_q"]
-        heat_in += dt * ((1 - GAMMA) * q1 + GAMMA * q2)      # heat in, with the weights of the scheme
+        heat_in += dt * ((1 - GAMMA) * q1 + GAMMA * q2)
         E, t = outcome.state, outcome.end_time
         T = model.temperature(E, memory["history"][1][1])
         memory["history"] = [memory["history"][1], (t, T.copy())]
@@ -661,15 +593,11 @@ print(f"mean heat leak while the plates melt (0-45 h): {4 * np.mean(P['q_in'][P[
 # repeats level 2 with $\Delta t=60$, 30 and 15 min; for a second-order integrator the
 # differences should drop by a factor of four per halving.
 
-def richardson(f, h):
-    ratio = (f[0] - f[1]) / (f[1] - f[2])
-    if ratio <= 0:
+def order_and_estimate(values, sizes):
+    estimate = convergence(values, sizes)
+    if estimate.order is None:
         return np.nan, np.nan
-    lo, hi = 0.05, 8.0
-    for _ in range(200):
-        p = 0.5 * (lo + hi)
-        lo, hi = (lo, p) if (h[0]**p - h[1]**p) / (h[1]**p - h[2]**p) > ratio else (p, hi)
-    return p, f[2] + (f[2] - f[1]) * h[2]**p / (h[1]**p - h[2]**p)
+    return estimate.order, estimate.extrapolated
 
 
 QUANTITIES = {
@@ -687,11 +615,11 @@ print("\nquantity                              m = 1     m = 2     m = 3   chang
 study = {}
 for name, f in QUANTITIES.items():
     values = np.array([f(runs[m]) for m in (1, 2, 3)])
-    p, extrapolated = richardson(values, h_rel)
-    asymptotic = 0.5 < p < 6.0                  # otherwise the three meshes are not in the asymptotic range
+    p, extrapolated = order_and_estimate(values, h_rel)
+    asymptotic = 0.5 < p < 6.0
     study[name] = values
     in_time = np.array([f(time_study[dt_min]) for dt_min in dt_rel])
-    p_t, _ = richardson(in_time, dt_rel)
+    p_t, _ = order_and_estimate(in_time, dt_rel)
     print(f"{name:36s} " + "".join(f"{v:9.3f} " for v in values) + f"   {values[2] - values[1]:+8.3f}  "
           + (f"   {p:4.2f}  {extrapolated:9.3f}" if asymptotic else "   (not asymptotic)")
           + f"   " + " / ".join(f"{v:.4f}" for v in in_time) + f"   {p_t:5.2f}")
@@ -709,130 +637,37 @@ for name, f in QUANTITIES.items():
 level = fine["level"]
 xs, zs = level["xs"], level["zs"]
 T24 = fine["kept"][24]
-grid_q = np.full((len(xs), len(xs), len(zs)), np.nan)
+quarter = np.full((len(xs), len(xs), len(zs)), np.nan)
 ii, jj, kk = (np.searchsorted(v, level["nodes"][:, c] - 1e-9) for c, v in ((0, xs), (1, xs), (2, zs)))
-grid_q[ii, jj, kk] = T24[:-1]
-grid_q[np.isnan(grid_q)] = T24[-1]                   # inside the air pocket: the pocket air temperature
-grid = np.concatenate((grid_q, grid_q[-2::-1]), axis=0)
-grid = np.concatenate((grid, grid[:, -2::-1]), axis=1)
-xf = np.concatenate((xs, 0.4 - xs[-2::-1])) * 100     # cm
-zf = zs * 100
-norm = colors.Normalize(vmin=-1.0, vmax=29.0)
-cmap = matplotlib.colormaps["onesimulation"]
-
-fig = plt.figure(figsize=(17, 11.5), constrained_layout=True)
-gs = fig.add_gridspec(2, 3, height_ratios=(1.05, 1.0))
-
-ax = fig.add_subplot(gs[0, 0], projection="3d")
-polys, values = [], []
-n2 = len(xs) - 1                                       # index of the mid-plane x = y = 20 cm
-
-
-def add_face(fixed_axis, index, ranges):
-    """Quads of one grid plane over the index ranges of the two free axes."""
-    (a0, a1), (b0, b1) = ranges
-    for a in range(a0, a1):
-        for b in range(b0, b1):
-            idx = []
-            for da, db in ((0, 0), (1, 0), (1, 1), (0, 1)):
-                p = [0, 0, 0]
-                free = [ax_ for ax_ in range(3) if ax_ != fixed_axis]
-                p[fixed_axis], p[free[0]], p[free[1]] = index, a + da, b + db
-                idx.append(tuple(p))
-            polys.append([(xf[p[0]], xf[p[1]], zf[p[2]]) for p in idx])
-            values.append(np.mean([grid[p] for p in idx]))
-
-
-nx, nz = len(xf) - 1, len(zf) - 1
-add_face(2, nz, ((0, nx), (0, n2)))                    # top, y < 20 cm
-add_face(2, nz, ((0, n2), (n2, nx)))                   # top, x < 20 cm, y > 20 cm
-add_face(0, nx, ((0, n2), (0, nz)))                    # side x = 40 cm, y < 20 cm
-add_face(1, nx, ((0, n2), (0, nz)))                    # side y = 40 cm, x < 20 cm
-add_face(0, n2, ((n2, nx), (0, nz)))                   # cut plane x = 20 cm
-add_face(1, n2, ((n2, nx), (0, nz)))                   # cut plane y = 20 cm
-ax.add_collection3d(Poly3DCollection(polys, facecolors=cmap(norm(np.array(values))), edgecolors="none"))
-ax.set(xlim=(0, 40), ylim=(0, 40), zlim=(0, 28), xlabel="x [cm]", ylabel="y [cm]", zlabel="z [cm]")
-ax.set_box_aspect((40, 40, 28))
-ax.view_init(elev=26, azim=40)
-ax.set_title("Temperature after 24 h (one quarter cut away)")
-fig.colorbar(matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax, shrink=0.6, pad=0.08, label="T [°C]")
-
-levels_T = np.linspace(-1, 29, 31)
-ax = fig.add_subplot(gs[0, 1])
+quarter[ii, jj, kk] = T24[:-1]
+quarter[np.isnan(quarter)] = T24[-1]
+box = np.concatenate((quarter, quarter[-2::-1]), axis=0)
+box = np.concatenate((box, box[:, -2::-1]), axis=1)
+xf, zf = np.concatenate((xs, 0.4 - xs[-2::-1])) * 100, zs * 100
 k14 = int(np.argmin(abs(zs - 0.14)))
-X, Y = np.meshgrid(xf, xf, indexing="ij")
-shade = ax.contourf(X, Y, grid[:, :, k14], levels=levels_T, cmap=FIELD_CMAP, extend="both")
-ax.contour(X, Y, grid[:, :, k14], levels=[0, 2, 4, 6, 8, 12, 16, 20, 24], colors=INK, linewidths=0.6)
-for a, b in ((4, 6), (34, 36)):
-    for rect in (((a, 8), b - a, 24), ((8, a), 24, b - a)):
-        ax.add_patch(plt.Rectangle(*rect, fill=False, ec=CREAM, lw=0.8, ls="--"))
-ax.add_patch(plt.Rectangle((8, 8), 24, 24, fill=False, ec=CREAM, lw=0.8))
-ax.set_aspect("equal")
-ax.set(xlabel="x [cm]", ylabel="y [cm]", title=f"Section z = {zs[k14]*100:.0f} cm after 24 h (plates dashed)")
-fig.colorbar(shade, ax=ax, shrink=0.8, label="T [°C]", ticks=np.arange(0, 30, 4))
-
-ax = fig.add_subplot(gs[0, 2])
-Xz, Zz = np.meshgrid(xf, zf, indexing="ij")
-section = grid[:, n2, :]
-shade = ax.contourf(Xz, Zz, section, levels=levels_T, cmap=FIELD_CMAP, extend="both")
-ax.contour(Xz, Zz, section, levels=[0, 2, 4, 6, 8, 12, 16, 20, 24], colors=INK, linewidths=0.6)
-for a in (4, 34):
-    ax.add_patch(plt.Rectangle((a, 4), 2, 20, fill=False, ec=CREAM, lw=0.8, ls="--"))
-ax.add_patch(plt.Rectangle((8, 4), 24, 20, fill=False, ec=CREAM, lw=0.8))
-ax.axhline(24, color=CREAM, lw=0.6, ls=":")
-ax.set_aspect("equal")
-ax.set(xlabel="x [cm]", ylabel="z [cm]", title="Vertical mid-section y = 20 cm after 24 h")
-fig.colorbar(shade, ax=ax, shrink=0.8, label="T [°C]", ticks=np.arange(0, 30, 4))
-
-ax = fig.add_subplot(gs[1, 0])
-styles = {"contents minimum": (GREEN, "--"), "contents average": (GREEN, "-"), "contents maximum": (GREEN, ":"),
-          "plates average": (COPPER, "-")}
-for name, key in KEYS.items():
-    colour, line = styles[name]
-    ax.plot(P["t"], P[key], line, color=colour, lw=1.6, label=f"{name} (3D FEM)")
-    ax.plot(ref_t, REF[name], "o" if "plates" in name else "s", color=colour, ms=4.5, mfc="none")
-ax.plot([], [], "s", color=INK, mfc="none", label="published probes")
-ax.axhspan(2, 8, color=GREEN, alpha=0.08, lw=0)
-ax.axhline(2, color="#8B9A8D", lw=0.8, ls="--")
-ax.axhline(8, color="#8B9A8D", lw=0.8, ls="--")
-ax.set(xlabel="time [h]", ylabel="T [°C]", title="Probe temperatures vs published benchmark", xlim=(0, 72), ylim=(-6, 16))
-ax.set_xticks(np.arange(0, 73, 12))
-ax.grid(alpha=0.3)
-ax.legend(fontsize=7.5, loc="upper left")
-twin = ax.twinx()
-twin.plot(t_amb_h, T_amb_tab, color="#A85539", lw=0.8, alpha=0.6)
-twin.set_ylabel("ambient air [°C] (thin line)", color="#A85539")
-twin.set_ylim(-20, 32)
-
-ax = fig.add_subplot(gs[1, 1])
-ax.plot(P["t"], P["melt"], color=COPPER, lw=1.8, label="melted fraction of the plates")
-for m, style in ((1, ":"), (2, "--")):
-    ax.plot(runs[m]["probes"]["t"], runs[m]["probes"]["melt"], style, color=COPPER, lw=1.0, label=f"mesh m = {m}")
-ax.set(xlabel="time [h]", ylabel="melted fraction", title="Melting of the plates and heat leak", xlim=(0, 72), ylim=(0, 1.05))
-ax.set_xticks(np.arange(0, 73, 12))
-ax.grid(alpha=0.3)
-twin = ax.twinx()
-twin.plot(P["t"], 4 * P["q_in"], color=GREEN, lw=1.4, label="heat flow into the box")
-twin.set_ylabel("heat flow into the box [W]", color=GREEN)
-twin.set_ylim(0, 14)
-lines = ax.get_legend_handles_labels()[0] + twin.get_legend_handles_labels()[0]
-ax.legend(lines, [l.get_label() for l in lines], fontsize=7.5, loc="lower right")
-
-ax = fig.add_subplot(gs[1, 2])
+isotherms = [0, 2, 4, 6, 8, 12, 16, 20, 24]
 names = list(QUANTITIES)
-ms_ = np.array([1, 2, 3])
-ax.plot(ms_, study[names[0]], "o-", color=GREEN, label="contents average at 24 h [°C]")
-ax.plot(ms_, study[names[1]], "s-", color="#5F9175", label="contents maximum at 24 h [°C]")
-ax.set(xlabel="mesh level m (cell size ~ 1/m)", ylabel="T [°C]", title="Mesh study")
-ax.set_xticks(ms_)
-ax.grid(alpha=0.3)
-twin = ax.twinx()
-twin.plot(ms_, study[names[3]], "^-", color=COPPER, label="plates reach 2 °C [h]")
-twin.plot(ms_, study[names[4]], "v-", color="#A85539", label="contents maximum reaches 8 °C [h]")
-twin.set_ylabel("event time [h]", color=COPPER)
-lines = ax.get_legend_handles_labels()[0] + twin.get_legend_handles_labels()[0]
-ax.legend(lines, [l.get_label() for l in lines], fontsize=7.5, loc="center right")
-plt.show()
+mesh_levels = np.array([1, 2, 3])
+fig = plots.figure(2, 3, size=(17, 11.5))
+plots.heatmap(xf, xf, box[:, :, k14], limits=(-1, 29), contours=isotherms, label="T [°C]", xlabel="x [cm]", ylabel="y [cm]",
+              title=f"Section z = {zs[k14] * 100:.0f} cm after 24 h", ax=fig[0])
+plots.heatmap(xf, zf, box[:, len(xs) - 1, :], limits=(-1, 29), contours=isotherms, label="T [°C]", xlabel="x [cm]",
+              ylabel="z [cm]", title="Vertical mid-section y = 20 cm after 24 h", ax=fig[1])
+plots.line(y={name: (P["t"], P[key]) for name, key in KEYS.items()}, points={name: (ref_t, REF[name]) for name in KEYS},
+           right={"ambient air": (t_amb_h, T_amb_tab)}, hlines={"storage window 2 to 8 °C": 2.0, "": 8.0},
+           xlimits=(0, 72), ylimits=(-6, 16), xlabel="time [h]", ylabel="T [°C]", right_label="ambient air [°C]",
+           title="Probes (markers: published benchmark)", legend="upper left", ax=fig[2])
+plots.line(y={"melted fraction of the plates": (P["t"], P["melt"]),
+              **{f"mesh m = {m}": (runs[m]["probes"]["t"], runs[m]["probes"]["melt"]) for m in (1, 2)}},
+           styles={"mesh m = 1": "dotted", "mesh m = 2": "dashed"}, xlimits=(0, 72), ylimits=(0, 1.05),
+           xlabel="time [h]", ylabel="melted fraction", title="Melting of the plates", ax=fig[3])
+plots.line(P["t"], {"heat flow into the box": 4 * P["q_in"]}, xlimits=(0, 72), xlabel="time [h]",
+           ylabel="heat flow into the box [W]", title="Heat leak", ax=fig[4])
+plots.line(mesh_levels, {"contents average at 24 h [°C]": study[names[0]], "contents maximum at 24 h [°C]": study[names[1]]},
+           right={"plates reach 2 °C [h]": study[names[3]], "contents maximum reaches 8 °C [h]": study[names[4]]},
+           markers=True, xlabel="mesh level m (cell size ~ 1/m)", ylabel="T [°C]", right_label="event time [h]",
+           title="Mesh study", legend="center right", ax=fig[5])
+plots.show()
 
 
 # ## Going further

@@ -60,35 +60,11 @@ high-accuracy reference values, with a three-level mesh study.
 
 from dataclasses import dataclass, replace
 from hashlib import sha256
-from importlib.metadata import version
 import time
-
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
-from matplotlib.colors import TwoSlopeNorm
-from matplotlib.tri import LinearTriInterpolator, Triangulation
-from scipy.optimize import brentq
 import netgen.occ as occ
 from netgen.meshing import MeshingParameters
+import numpy as np
+from scipy.optimize import brentq
 
 from onesim.cad.geometry.primitives import Geometry
 from onesim.materials import NewtonianFluid
@@ -102,25 +78,26 @@ from onesim.numerics.linear import SparseDirect
 from onesim.numerics.nonlinear import Newton
 from onesim.physics.hydrodynamics import FixedVelocity, FlowTraction, IncompressibleNavierStokes, NoSlipWall
 from onesim.simulation import Problem, Simulation
-from onesim.simulation.initial_conditions.values import InitialValue
-from onesim.simulation.problem_definition.boundaries import PeriodicBoundary
+from onesim.simulation.initial_conditions import InitialValue
+from onesim.simulation import PeriodicBoundary
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
 
-L_channel, H = 2.2, 0.41           # m, channel length and height
-xc, yc, R = 0.2, 0.2, 0.05          # m, cylinder centre and radius
-D = 2 * R                           # m, cylinder diameter
-U_max = 0.3                         # m/s, peak inflow speed
-rho, mu = 1.0, 1.0e-3               # kg/m^3, Pa s
+L_channel, H = 2.2, 0.41
+xc, yc, R = 0.2, 0.2, 0.05
+D = 2 * R
+U_max = 0.3
+rho, mu = 1.0, 1.0e-3
 U_mean = 2 * U_max / 3
 reynolds = rho * U_mean * D / mu
-levels = (2 / 3, 1.0, 1.5)          # mesh levels: every cell size scales with 1/level
+levels = (2 / 3, 1.0, 1.5)
 print(f"mean inflow speed {U_mean:.3f} m/s, Re = {reynolds:.1f}")
 
-reference = {   # Schaefer & Turek (1996) intervals and high-accuracy values
+reference = {
     "c_D": ((5.57, 5.59), 5.57953523384),
     "c_L": ((0.0104, 0.0110), 0.010618948146),
     "dp": ((0.1172, 0.1176), 0.11752016697),
@@ -199,11 +176,11 @@ def channel_section(level):
         if abs(edge.center.x - xc) < R + 1e-6 and abs(edge.center.y - yc) < R + 1e-6:
             edge.maxh = h_cyl
     params = MeshingParameters(maxh=h_far, grading=0.15)
-    for r in np.linspace(R, 2 * R, 6):                       # ring around the cylinder
+    for r in np.linspace(R, 2 * R, 6):
         for a in np.linspace(0, 2 * np.pi, 48, endpoint=False):
             params.RestrictH(x=xc + r * np.cos(a), y=yc + r * np.sin(a), z=0,
                              h=h_cyl * (1 + 1.5 * (r - R) / R))
-    for x in np.arange(xc, 1.0, h_wake / 2):                 # near wake
+    for x in np.arange(xc, 1.0, h_wake / 2):
         for y in np.linspace(yc - 1.2 * R, yc + 1.2 * R, 7):
             params.RestrictH(x=x, y=y, z=0, h=h_wake if x > xc + 2 * R else 2.5 * h_cyl)
     ng = occ.OCCGeometry(shape, dim=2).GenerateMesh(mp=params)
@@ -243,7 +220,6 @@ def build_mesh(level):
         else:
             name = "cylinder"
         facets[name].append(tuple(int(n) for n in v))
-    # ten-node cells: edge midpoints, those of edges on the cylinder moved onto the circle
     edges = np.sort(cells[:, list(EDGES)].reshape(-1, 2), axis=1)
     unique, inverse = np.unique(edges, axis=0, return_inverse=True)
     middle = 0.5 * (coords[unique[:, 0]] + coords[unique[:, 1]])
@@ -513,91 +489,33 @@ print(f"\nTwo-dimensionality on the finest mesh: max |w| / U_max = {final['w_max
 
 s2 = final["section"]
 nodes, t6, U = s2["nodes"], s2["t6"], s2["U"]
-sub = np.vstack([t6[:, [0, 3, 5]], t6[:, [3, 1, 4]], t6[:, [5, 4, 2]], t6[:, [3, 4, 5]]])
-tri = Triangulation(nodes[:, 0], nodes[:, 1], sub)
+triangles = np.vstack([t6[:, [0, 3, 5]], t6[:, [3, 1, 4]], t6[:, [5, 4, 2]], t6[:, [3, 4, 5]]])
 speed = np.hypot(U[:, 0], U[:, 1])
-
-# vorticity at the nodes, averaged over the triangles sharing a node
 vorticity, count = np.zeros(len(nodes)), np.zeros(len(nodes))
-local = np.array([[0, 0], [1, 0], [0, 1], [0.5, 0], [0.5, 0.5], [0, 0.5]])
 X, Ut = nodes[t6], U[t6][:, :, :2]
-for n, (s, t) in enumerate(local):
+for n, (s, t) in enumerate(np.array([[0, 0], [1, 0], [0, 1], [0.5, 0], [0.5, 0.5], [0, 0.5]])):
     _, dN = p2_shape(s, t)
     G = np.einsum("ke,tef->tkf", dN, np.linalg.inv(np.einsum("tkd,ke->tde", X, dN)))
     gu = np.einsum("tkf,tkc->tcf", G, Ut)
     np.add.at(vorticity, t6[:, n], gu[:, 1, 0] - gu[:, 0, 1])
     np.add.at(count, t6[:, n], 1)
 vorticity /= count
-
-
-def stream_grid(x0, x1, y0, y1, nx, ny):
-    gx, gy = np.linspace(x0, x1, nx), np.linspace(y0, y1, ny)
-    GX, GY = np.meshgrid(gx, gy)
-    ux = LinearTriInterpolator(tri, U[:, 0])(GX, GY)
-    uy = LinearTriInterpolator(tri, U[:, 1])(GX, GY)
-    inside = np.hypot(GX - xc, GY - yc) < R
-    return gx, gy, np.ma.masked_where(inside, ux.filled(0.0)), np.ma.masked_where(inside, uy.filled(0.0))
-
-
-fig = plt.figure(figsize=(16, 9.6), constrained_layout=True)
-layout = fig.add_gridspec(2, 3, height_ratios=(0.62, 1.0), width_ratios=(1.15, 0.9, 1.0))
-
-ax = fig.add_subplot(layout[0, :])
-filled = ax.tricontourf(tri, speed, levels=np.linspace(0, speed.max(), 41), cmap=FIELD_CMAP)
-gx, gy, ux, uy = stream_grid(0.0, L_channel, 0.0, H, 440, 82)
-ax.streamplot(gx, gy, ux, uy, density=(4.0, 0.9), color=INK, linewidth=0.5, arrowsize=0.6)
-ax.add_patch(plt.Circle((xc, yc), R, color="#D5D7C8", ec=INK, lw=0.8))
-ax.set_aspect("equal")
-ax.set(xlim=(0, L_channel), ylim=(0, H), xlabel="x / m", ylabel="y / m",
-       title=f"Speed |u| and streamlines, Re = {reynolds:.0f} (finest mesh, {final['mesh'].cell_count} curved P2/P1 cells)")
-fig.colorbar(filled, ax=ax, label="|u| / (m/s)", shrink=0.9, pad=0.01, format="%.2f")
-
-ax = fig.add_subplot(layout[1, 0])
 limit = np.percentile(np.abs(vorticity), 99.0)
-filled = ax.tricontourf(tri, np.clip(vorticity, -limit, limit), levels=np.linspace(-limit, limit, 41),
-                        cmap=DIVERGING_CMAP, norm=TwoSlopeNorm(0.0, -limit, limit))
-gx, gy, ux, uy = stream_grid(0.1, 0.45, 0.0, H, 300, 300)
-ax.streamplot(gx, gy, ux, uy, density=2.2, color=INK, linewidth=0.5, arrowsize=0.6)
-ax.add_patch(plt.Circle((xc, yc), R, color="#D5D7C8", ec=INK, lw=0.8))
-ax.axvline(xc + R + final["L_a"], color=COPPER, lw=1.0, ls="--")
-ax.set_aspect("equal")
-ax.set(xlim=(0.1, 0.45), ylim=(0.05, 0.35), xlabel="x / m", ylabel="y / m",
-       title=f"Vorticity and streamlines (L_a = {final['L_a'] * 1e3:.1f} mm)")
-fig.colorbar(filled, ax=ax, label="vorticity / (1/s)", shrink=0.7, format="%.0f")
-
-ax = fig.add_subplot(layout[1, 1])
-segments = []
-theta = np.linspace(0, 1, 9)
-for a, b, m in ((0, 1, 3), (1, 2, 4), (2, 0, 5)):
-    pa, pb, pm = nodes[t6[:, a]], nodes[t6[:, b]], nodes[t6[:, m]]
-    curve = (2 * (1 - theta[:, None, None]) * (0.5 - theta[:, None, None]) * pa[None]
-             + 4 * theta[:, None, None] * (1 - theta[:, None, None]) * pm[None]
-             + theta[:, None, None] * (2 * theta[:, None, None] - 1) * pb[None])
-    segments.append(curve)
-window = (np.abs(nodes[t6[:, 0], 0] - xc) < 0.1) & (np.abs(nodes[t6[:, 0], 1] - yc) < 0.1)
-for curve in segments:
-    ax.plot(curve[:, window, 0], curve[:, window, 1], color=GREEN, lw=0.35)
-ax.add_patch(plt.Circle((xc, yc), R, color="#E4D6A0", ec=COPPER, lw=1.2, zorder=0))
-ax.set_aspect("equal")
-ax.set(xlim=(xc - 0.08, xc + 0.08), ylim=(yc - 0.08, yc + 0.08), xlabel="x / m", ylabel="y / m",
-       title="Graded mesh near the cylinder (curved edges on the circle)")
-
-ax = fig.add_subplot(layout[1, 2])
 h = 1.0 / np.asarray(levels)
-for key, marker, colour, name in (("c_D", "o-", GREEN, "c_D, volume form"), ("c_D_surface", "s--", "#8B9A8D", "c_D, surface integral"),
-                                  ("c_L", "^-", COPPER, "c_L, volume form"), ("dp", "D-", "#214D43", "pressure difference")):
-    accurate = reference[key.replace("_surface", "")][1]
-    ax.loglog(h, [abs(r[key] / accurate - 1) for r in runs], marker, color=colour, label=name)
-ax.loglog(h, 0.5 * abs(runs[0]["c_D"] / 5.57953523384 - 1) * h**2 / h[0] ** 2, ":", color=INK, lw=0.8, label="slope 2")
-ax.axhline(0.01 / 5.58, color=GREEN, lw=0.6, alpha=0.6)
-ax.text(h[0] * 0.97, 0.01 / 5.58 * 1.15, "half-width of the 1996 c_D interval", fontsize=7.5, color=GREEN, ha="right")
-ax.set_xticks(h, [f"{v:.2f}" for v in h])
-ax.minorticks_off()
-ax.set(xlabel="relative cell size 1 / level", ylabel="|value / high-accuracy value - 1|",
-       title="Mesh convergence against the high-accuracy values")
-ax.legend(fontsize=8)
-ax.grid(alpha=0.3, which="both")
-plt.show()
+tracked = {"c_D, volume form": "c_D", "c_D, surface integral": "c_D_surface", "c_L, volume form": "c_L", "pressure difference": "dp"}
+fig = plots.figure(layout=[["speed", "speed", "speed"], ["vorticity", "mesh", "study"]], size=(16, 9.6))
+plots.heatmap(nodes[:, 0], nodes[:, 1], speed, triangles=triangles, label="|u| [m/s]", xlimits=(0, L_channel), ylimits=(0, H),
+              title=f"Speed |u|, Re = {reynolds:.0f}", ax=fig["speed"])
+plots.heatmap(nodes[:, 0], nodes[:, 1], np.clip(vorticity, -limit, limit), triangles=triangles, colormap="diverging",
+              limits=(-limit, limit), label="vorticity [1/s]", xlimits=(0.1, 0.45), ylimits=(0.05, 0.35),
+              title=f"Vorticity, recirculation length {final['L_a'] * 1e3:.1f} mm", ax=fig["vorticity"])
+plots.heatmap(nodes[:, 0], nodes[:, 1], speed, triangles=t6[:, :3], edges=True, label="|u| [m/s]",
+              xlimits=(xc - 0.08, xc + 0.08), ylimits=(yc - 0.08, yc + 0.08), title="Graded mesh near the cylinder", ax=fig["mesh"])
+plots.line(h, {name: [abs(run[key] / reference[key.replace("_surface", "")][1] - 1) for run in runs] for name, key in tracked.items()},
+           slope=2, hlines={"half-width of the 1996 c_D interval": 0.01 / 5.58}, markers=True, scale="loglog",
+           xlabel="relative cell size 1 / level", ylabel="|value / high-accuracy value - 1|",
+           title="Mesh convergence", ax=fig["study"])
+plots.show()
 
 
 # ## Going further

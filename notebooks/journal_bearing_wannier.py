@@ -76,35 +76,11 @@ theory (Sommerfeld) and a run at a moderate Reynolds number.
 
 from dataclasses import dataclass, replace
 from hashlib import sha256
-from importlib.metadata import version
 import gc
 import time
-
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
-from matplotlib.colors import TwoSlopeNorm
-from matplotlib.tri import Triangulation
-from scipy.optimize import brentq
 import sympy as sp
+import numpy as np
+from scipy.optimize import brentq
 
 from onesim.cad.geometry.primitives import Geometry
 from onesim.materials import NewtonianFluid
@@ -119,10 +95,11 @@ from onesim.numerics.nonlinear import Newton
 from onesim.physics.hydrodynamics import IncompressibleNavierStokes, NoSlipWall, RotatingWall
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.field_constraints import MeanValue
-from onesim.simulation.initial_conditions.values import InitialValue
-from onesim.simulation.problem_definition.boundaries import PeriodicBoundary
+from onesim.simulation.initial_conditions import InitialValue
+from onesim.simulation import PeriodicBoundary
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 
 
 # ## Parameters
@@ -133,13 +110,13 @@ print("OneSimulation:", version("onesimulation"))
 # relative eccentricities $\varepsilon=0.5$ and $0.8$. The Stokes limit is obtained with a
 # negligible density ($Re=10^{-6}$); the inertial run uses $Re=\rho\,\Omega R_1C_r/\mu=50$.
 
-R1, R2 = 1.0, 2.0          # journal and bearing radius
-mu, Omega = 1.0, 1.0       # viscosity, journal angular velocity (counter-clockwise)
+R1, R2 = 1.0, 2.0
+mu, Omega = 1.0, 1.0
 clearance = R2 - R1
 eccentricities = (0.5, 0.8)
 re_stokes, re_inertial = 1.0e-6, 50.0
-levels = ((8, 48), (12, 72), (16, 96))   # bipolar grid: cells across the gap x cells around
-thickness = 0.02           # slab thickness (one periodic cell)
+levels = ((8, 48), (12, 72), (16, 96))
+thickness = 0.02
 print(f"R2/R1 = {R2 / R1:.1f}, clearance C_r = {clearance:.2f} R1, eccentricities {eccentricities}")
 
 
@@ -163,8 +140,8 @@ X_, Y_, C_ = sp.symbols("x y c", real=True)
 def wannier_basis():
     r1s, r2s = (X_ + C_) ** 2 + Y_**2, (X_ - C_) ** 2 + Y_**2
     r12 = sp.sqrt(r1s * r2s)
-    ch, sh = (r1s + r2s) / (2 * r12), (r1s - r2s) / (2 * r12)       # cosh xi, sinh xi
-    co = (X_**2 + Y_**2 - C_**2) / r12                              # cos eta
+    ch, sh = (r1s + r2s) / (2 * r12), (r1s - r2s) / (2 * r12)
+    co = (X_**2 + Y_**2 - C_**2) / r12
     xi = sp.log(r1s / r2s) / 2
     terms = [ch, xi * ch, sh, xi * sh, (2 * ch**2 - 1) * co, 2 * sh * ch * co, co, xi * co]
     functions = []
@@ -179,7 +156,6 @@ def wannier_basis():
 
 
 BASIS = wannier_basis()
-# component index in the evaluated stack
 PSI, U, V, UX, UY, VX, VY, W, WX, WY = range(10)
 
 
@@ -220,7 +196,7 @@ def exact_wall(sol, n=512):
     theta = np.linspace(0, 2 * np.pi, n, endpoint=False)
     nx, ny = np.cos(theta), np.sin(theta)
     F = exact_field(sol, sol["d1"] + sol["R1"] * nx, sol["R1"] * ny)
-    dp_dtheta = mu * sol["R1"] * (F[WX] * nx + F[WY] * ny)          # mu * d(omega)/dn along the wall
+    dp_dtheta = mu * sol["R1"] * (F[WX] * nx + F[WY] * ny)
     k = np.fft.fftfreq(n, 1.0 / n)
     modes = np.fft.fft(dp_dtheta)
     modes[1:] /= 1j * k[1:]
@@ -381,7 +357,6 @@ def build_mesh(sol, n_xi, n_eta):
     middle[:, :2] = midpoints(unique, xi3, eta3)
     mesh = CurvedTetMesh(geometry, np.vstack([coords, middle]),
                          np.hstack([cells, 2 * n2 + inverse.reshape(len(cells), 6)]), facets)
-    # six-node section triangles on z = 0 for post-processing
     edges2 = np.sort(np.vstack([triangles[:, [0, 1]], triangles[:, [1, 2]], triangles[:, [2, 0]]]), axis=1)
     unique2, inverse2 = np.unique(edges2, axis=0, return_inverse=True)
     nodes = np.vstack([xy, midpoints(unique2, xi_v, eta_v)])
@@ -501,15 +476,13 @@ def post_process(run):
     Fx = reaction(run, U, P, np.column_stack((phi, zero)))
     Fy = reaction(run, U, P, np.column_stack((zero, phi)))
     T = reaction(run, U, P, np.column_stack((-phi * nodes[:, 1], phi * (nodes[:, 0] - sol["d1"]))))
-    # flux through the line of centres: narrow gap (x < d1 - R1) and wide gap (x > d1 + R1)
     narrow = (sol["d2"] - sol["R2"], sol["d1"] - sol["R1"])
     wide = (sol["d1"] + sol["R1"], sol["d2"] + sol["R2"])
     Q = []
     for a, b in (narrow, wide):
         x = (a + (b - a) * (np.arange(400)[:, None] + GAUSS[None, :]) / 400).ravel()
         Q.append(float(np.sum(sample(run, np.column_stack((x, 0 * x)))[:, 1] * np.tile(GWEIGHT, 400)) * (b - a) / 400))
-    Q_narrow, Q_wide = -Q[0], Q[1]     # psi(journal) - psi(bearing), positive for counter-clockwise rotation
-    # stream function at the grid nodes, integrated along eta = const from the bearing
+    Q_narrow, Q_wide = -Q[0], Q[1]
     n_xi, n_eta, bip = run["n_xi"], run["n_eta"], run["bipolar"]
     XI = run["xi"].reshape(n_xi + 1, n_eta)
     ETA = run["eta"].reshape(n_xi + 1, n_eta)
@@ -522,7 +495,6 @@ def post_process(run):
         uv = sample(run, p0)
         dpsi = (uv[:, 0] * dp[:, 1] - uv[:, 1] * dp[:, 0]).reshape(xs.shape) @ GWEIGHT * (XI[i] - XI[i + 1])
         psi[i] = psi[i + 1] + dpsi
-    # eddy on the wide-gap part of the line of centres: zero of v (centre) and minimum of psi
     xw = np.linspace(wide[0] + 1e-9, wide[1] - 1e-9, 3001)
     vw = sample(run, np.column_stack((xw, 0 * xw)))[:, 1]
     psi_w = np.r_[np.cumsum((0.5 * (vw[1:] + vw[:-1]) * np.diff(xw))[::-1])[::-1], 0.0]
@@ -692,121 +664,50 @@ print(f"attitude angle at Re = 50: {attitude:.2f} deg (Stokes: 90 deg); mass bal
 # section, mesh convergence, and the approach of the exact torque and load to Sommerfeld's
 # lubrication theory as the clearance shrinks (open symbols: OneSimulation).
 
-def section_tri(run):
-    t6 = run["t6"]
-    sub = np.vstack([t6[:, [0, 3, 5]], t6[:, [3, 1, 4]], t6[:, [5, 4, 2]], t6[:, [3, 4, 5]]])
-    return Triangulation(run["nodes"][:, 0], run["nodes"][:, 1], sub)
-
-
-def stream_panel(ax, run, title):
-    tri = section_tri(run)
-    speed = np.hypot(run["U"][:, 0], run["U"][:, 1])
-    filled = ax.tricontourf(tri, speed, levels=np.linspace(0, Omega * R1, 31), cmap=FIELD_CMAP, extend="max")
-    vertex_tri = Triangulation(run["xy"][:, 0], run["xy"][:, 1], run["triangles"])
-    psi, Q = run["psi"], run["Q_wide"]
-    ax.tricontour(vertex_tri, psi, levels=np.linspace(0.04 * Q, 0.96 * Q, 12), colors=INK, linewidths=0.6)
-    if psi.min() < 0:
-        ax.tricontour(vertex_tri, psi, levels=np.linspace(psi.min(), 0, 6)[1:-1], colors=COPPER, linewidths=0.8)
-        ax.tricontour(vertex_tri, psi, levels=[0.0], colors=COPPER, linewidths=0.8, linestyles="--")
-    sol = run["sol"]
-    ax.add_patch(plt.Circle((sol["d1"], 0), sol["R1"], color="#D5D7C8", ec=INK, lw=0.8))
-    ax.add_patch(plt.Circle((sol["d2"], 0), sol["R2"], fill=False, ec=INK, lw=1.2))
-    ax.annotate("", xy=(sol["d1"] - 0.45, 0.45), xytext=(sol["d1"] + 0.45, 0.45),
-                arrowprops=dict(arrowstyle="->", color=INK, connectionstyle="arc3,rad=0.5"))
-    ax.set_aspect("equal")
-    ax.set(xlim=(sol["d2"] - 2.1, sol["d2"] + 2.1), ylim=(-2.1, 2.1), xlabel="x / R1", ylabel="y / R1", title=title)
-    return filled
-
-
-fig = plt.figure(figsize=(19, 9.4), constrained_layout=True)
-grid = fig.add_gridspec(2, 4)
-ax = fig.add_subplot(grid[0, 0])
-stream_panel(ax, stokes[0.5], "Stokes flow, eps = 0.5\nstreamlines (eddy in copper) over the speed")
-ax = fig.add_subplot(grid[0, 1])
-stream_panel(ax, stokes[0.8], "Stokes flow, eps = 0.8")
-ax = fig.add_subplot(grid[0, 2])
-filled = stream_panel(ax, fine_i, f"Re = {re_inertial:.0f}, eps = 0.5")
-fig.colorbar(filled, ax=ax, label="|u| / (Omega R1)", shrink=0.8, format="%.1f")
-
-ax = fig.add_subplot(grid[0, 3])
+split = lambda t6: np.vstack([t6[:, [0, 3, 5]], t6[:, [3, 1, 4]], t6[:, [5, 4, 2]], t6[:, [3, 4, 5]]])
+window = lambda run: dict(xlimits=(run["sol"]["d2"] - 2.1, run["sol"]["d2"] + 2.1), ylimits=(-2.1, 2.1),
+                          xlabel="x / R1", ylabel="y / R1")
 run = stokes[0.5]
-tri = section_tri(run)
 P_nodes = np.zeros(len(run["nodes"]))
 P_nodes[run["t6"][:, :3].ravel()] = run["P"][run["triangles"]].ravel()
 for (a, b), m in (((0, 1), 3), ((1, 2), 4), ((2, 0), 5)):
     P_nodes[run["t6"][:, m]] = 0.5 * (run["P"][run["triangles"][:, a]] + run["P"][run["triangles"][:, b]])
-limit = np.abs(P_nodes).max()
-filled = ax.tricontourf(tri, P_nodes, levels=np.linspace(-limit, limit, 41), cmap=DIVERGING_CMAP,
-                        norm=TwoSlopeNorm(0.0, -limit, limit))
-vertex_tri = Triangulation(run["xy"][:, 0], run["xy"][:, 1], run["triangles"])
-ax.tricontour(vertex_tri, run["psi"], levels=np.linspace(0.08, 0.92, 7) * run["Q_wide"], colors=INK, linewidths=0.4)
-sol = run["sol"]
-ax.add_patch(plt.Circle((sol["d1"], 0), R1, color="#D5D7C8", ec=INK, lw=0.8))
-ax.arrow(sol["d1"], 0, 0, 0.75 * np.sign(run["Fy"]), width=0.03, color=COPPER, length_includes_head=True)
-ax.text(sol["d1"] + 0.1, 0.45 * np.sign(run["Fy"]), "load", color=COPPER, fontsize=9)
-ax.set_aspect("equal")
-ax.set(xlim=(sol["d2"] - 2.1, sol["d2"] + 2.1), ylim=(-2.1, 2.1), xlabel="x / R1", ylabel="y / R1",
-       title="Pressure, eps = 0.5 (Stokes)")
-fig.colorbar(filled, ax=ax, label="p / (mu Omega)", shrink=0.8, format="%.1f")
-
-ax = fig.add_subplot(grid[1, 0])
-wl = walls[0.5]
-order = np.argsort(wl["theta"])
-ax.plot(np.degrees(wl["theta"]), wl["p"] - wl["p"].mean(), color=INK, lw=1.4, label="Wannier (exact), Re = 0")
-for r, marker, colour, label in ((stokes[0.5], "o", GREEN, "OneSimulation, Re = 0"),
-                                 (fine_i, "s", COPPER, f"OneSimulation, Re = {re_inertial:.0f}")):
-    jw = np.flatnonzero(np.abs(r["xi"] - r["xi1"]) < 1e-12)
-    th = np.mod(np.arctan2(r["xy"][jw, 1], r["xy"][jw, 0] - r["sol"]["d1"]), 2 * np.pi)
-    k = np.argsort(th)
-    ax.plot(np.degrees(th[k]), (r["P"][jw] - r["P"][jw].mean())[k], marker, ms=3.2, color=colour, mfc="none",
-            label=label, ls="-" if r is fine_i else "none", lw=0.8)
-ax.set(xlabel="angle on the journal from the wide gap / deg", ylabel="wall pressure / (mu Omega)",
-       title="Pressure on the journal, eps = 0.5", xlim=(0, 360))
-ax.set_xticks([0, 90, 180, 270, 360])
-ax.grid(alpha=0.3)
-ax.legend(fontsize=8)
-
-ax = fig.add_subplot(grid[1, 1])
-Fe = exact_field(run["sol"], run["nodes"][:, 0], run["nodes"][:, 1])
-error = np.hypot(run["U"][:, 0] - Fe[U], run["U"][:, 1] - Fe[V]) / (Omega * R1)
-filled = ax.tricontourf(tri, np.log10(np.maximum(error, 1e-9)), levels=np.linspace(-9, -4, 26), cmap=FIELD_CMAP,
-                        extend="both")
-ax.add_patch(plt.Circle((sol["d1"], 0), R1, color="#D5D7C8", ec=INK, lw=0.8))
-ax.add_patch(plt.Circle((sol["d2"], 0), R2, fill=False, ec=INK, lw=1.0))
-ax.set_aspect("equal")
-ax.set(xlim=(sol["d2"] - 2.1, sol["d2"] + 2.1), ylim=(-2.1, 2.1), xlabel="x / R1", ylabel="y / R1",
-       title=f"Velocity error against Wannier, eps = 0.5\n(grid {run['n_xi']} x {run['n_eta']}, max {error.max():.1e})")
-fig.colorbar(filled, ax=ax, label="log10 |u - u_exact| / (Omega R1)", shrink=0.8, format="%.0f")
-
-ax = fig.add_subplot(grid[1, 2])
-for key, ref, marker, colour, name in (("T", walls[0.5]["T"], "o-", GREEN, "torque"),
-                                       ("Fy", walls[0.5]["Fy"], "s-", COPPER, "load"),
-                                       ("Q_wide", exact[0.5]["Q"], "^-", "#214D43", "flow rate"),
-                                       ("eddy_psi", eddy_exact(exact[0.5])[1], "D--", "#8B9A8D", "eddy strength")):
-    ax.loglog(h, [abs(r[key] / ref - 1) for r in study], marker, color=colour, label=name)
-ax.loglog(h, abs(study[0]["Fy"] / walls[0.5]["Fy"] - 1) * (h / h[0]) ** 4, ":", color=INK, lw=0.8, label="slope 4")
-ax.set_xticks(h, [f"1/{lv[0]}" for lv in levels])
-ax.minorticks_off()
-ax.set(xlabel="grid spacing across the gap (1 / n_xi)", ylabel="relative error against Wannier",
-       title="Mesh convergence, eps = 0.5")
-ax.grid(alpha=0.3, which="both")
-ax.legend(fontsize=8)
-
-ax = fig.add_subplot(grid[1, 3])
-ax.semilogx(gap_ratios, [s[1] for s in sweep], "o-", color=GREEN, label="torque: exact / Sommerfeld")
-ax.semilogx(gap_ratios, [s[2] for s in sweep], "s-", color=COPPER, label="load: exact / Sommerfeld")
-for value, cr, wl_, marker in ((stokes[0.5], 1.0, walls[0.5], "o"), (narrow, 0.1, narrow_wall, "o")):
-    T_s, W_s = sommerfeld(0.5, R1, cr)
-    ax.semilogx([cr], [-value["T"] / T_s], marker, ms=11, mfc="none", color=INK)
-    ax.semilogx([cr], [abs(value["Fy"]) / W_s], "s", ms=11, mfc="none", color=INK)
-ax.plot([], [], "o", ms=9, mfc="none", color=INK, label="OneSimulation")
-ax.axhline(1.0, color=INK, lw=0.8, ls=":")
-ax.invert_xaxis()
-ax.set(xlabel="clearance ratio C_r / R1", ylabel="ratio to lubrication theory",
-       title="Narrow-gap limit (Sommerfeld), eps = 0.5")
-ax.grid(alpha=0.3, which="both")
-ax.legend(fontsize=8)
-plt.show()
+exact_velocity = exact_field(run["sol"], run["nodes"][:, 0], run["nodes"][:, 1])
+error = np.hypot(run["U"][:, 0] - exact_velocity[U], run["U"][:, 1] - exact_velocity[V]) / (Omega * R1)
+wall = walls[0.5]
+journal = {}
+for label, r in (("OneSimulation, Re = 0", stokes[0.5]), (f"OneSimulation, Re = {re_inertial:.0f}", fine_i)):
+    on_journal = np.flatnonzero(np.abs(r["xi"] - r["xi1"]) < 1e-12)
+    angle = np.mod(np.arctan2(r["xy"][on_journal, 1], r["xy"][on_journal, 0] - r["sol"]["d1"]), 2 * np.pi)
+    k = np.argsort(angle)
+    journal[label] = (np.degrees(angle[k]), (r["P"][on_journal] - r["P"][on_journal].mean())[k])
+tracked = {"torque": ("T", walls[0.5]["T"]), "load": ("Fy", walls[0.5]["Fy"]), "flow rate": ("Q_wide", exact[0.5]["Q"]),
+           "eddy strength": ("eddy_psi", eddy_exact(exact[0.5])[1])}
+computed = ((stokes[0.5], 1.0), (narrow, 0.1))
+fig = plots.figure(2, 4, size=(19, 9.4))
+for panel, r, title in ((fig[0], stokes[0.5], "Stokes flow, eps = 0.5"), (fig[1], stokes[0.8], "Stokes flow, eps = 0.8"),
+                        (fig[2], fine_i, f"Re = {re_inertial:.0f}, eps = 0.5")):
+    plots.heatmap(r["xy"][:, 0], r["xy"][:, 1], r["psi"] / r["Q_wide"], triangles=r["triangles"], colormap="diverging",
+                  contours=14, label="stream function / flow rate", title=f"Streamlines, {title}",
+                  ax=panel, **window(r))
+plots.heatmap(run["nodes"][:, 0], run["nodes"][:, 1], P_nodes, triangles=split(run["t6"]), colormap="diverging",
+              label="p / (mu Omega)", title="Pressure, eps = 0.5 (Stokes)", ax=fig[3], **window(run))
+plots.line(points=journal, reference={"Wannier (exact), Re = 0": (np.degrees(wall["theta"]), wall["p"] - wall["p"].mean())},
+           xlimits=(0, 360), xlabel="angle on the journal from the wide gap [deg]", ylabel="wall pressure / (mu Omega)",
+           title="Pressure on the journal, eps = 0.5", ax=fig[4])
+plots.heatmap(run["nodes"][:, 0], run["nodes"][:, 1], np.log10(np.maximum(error, 1e-9)), triangles=split(run["t6"]),
+              limits=(-9, -4), label="log10 |u - u_exact| / (Omega R1)", ax=fig[5],
+              title=f"Velocity error against Wannier (max {error.max():.1e})",
+              **window(run))
+plots.line(h, {name: [abs(r[key] / ref - 1) for r in study] for name, (key, ref) in tracked.items()}, slope=4, markers=True,
+           scale="loglog", xlabel="grid spacing across the gap (1 / n_xi)", ylabel="relative error against Wannier",
+           title="Mesh convergence, eps = 0.5", ax=fig[6])
+plots.line(gap_ratios, {"torque: exact / Sommerfeld": [s[1] for s in sweep], "load: exact / Sommerfeld": [s[2] for s in sweep]},
+           points={"OneSimulation, torque": ([cr for _, cr in computed], [-value["T"] / sommerfeld(0.5, R1, cr)[0] for value, cr in computed]),
+                   "OneSimulation, load": ([cr for _, cr in computed], [abs(value["Fy"]) / sommerfeld(0.5, R1, cr)[1] for value, cr in computed])},
+           hlines=1.0, markers=True, scale="logx", xlabel="clearance ratio C_r / R1", ylabel="ratio to lubrication theory",
+           title="Narrow-gap limit, eps = 0.5", ax=fig[7])
+plots.show()
 
 
 # ## Going further

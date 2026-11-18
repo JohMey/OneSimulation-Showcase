@@ -93,46 +93,23 @@ frequency-domain motion as the time step shrinks.
 # same mesh with the real storage modulus.
 
 from dataclasses import dataclass
-from importlib.metadata import version
 import time
-
-import matplotlib.pyplot as plt
-import matplotlib
-from cycler import cycler
-from matplotlib.colors import LinearSegmentedColormap
-
-# OneSimulation figure style: cream paper, dark-green ink, green-sand-copper field colours
-CREAM, INK, GREEN, COPPER = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
-FIELD_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation", ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
-DIVERGING_CMAP = LinearSegmentedColormap.from_list(
-    "onesimulation_diverging", ["#104F54", "#5E9996", "#F7F2E7", "#D2996E", "#A4472D"])
-for _cmap in (FIELD_CMAP, DIVERGING_CMAP):
-    if _cmap.name not in matplotlib.colormaps:
-        matplotlib.colormaps.register(_cmap)
-plt.rcParams.update({
-    "figure.facecolor": CREAM, "savefig.facecolor": CREAM, "axes.facecolor": "#FFFAF2",
-    "text.color": INK, "axes.labelcolor": INK, "axes.titlecolor": INK, "axes.edgecolor": "#9FA593",
-    "xtick.color": INK, "ytick.color": INK, "grid.color": "#D5D7C8", "image.cmap": "onesimulation",
-    "axes.prop_cycle": cycler(color=[GREEN, COPPER, "#5F9175", "#A85539", "#214D43", "#CD9561", "#8B9A8D"]),
-})
+from petsc4py import PETSc
 import numpy as np
-from matplotlib import cm, colors
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from scipy.optimize import brentq
 from scipy.sparse import coo_matrix
 from scipy.sparse.linalg import splu
-from petsc4py import PETSc
 
 from onesim.cad.geometry.primitives import Geometry
 from onesim.meshing import UnstructuredSimplexMesh
 from onesim.numerics.discretization.geometry.carriers.kernels.simplex.tetrahedral import boundary_faces
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.physics.solid_mechanics import SmallStrainSolid
-from onesim.physics.solid_mechanics.elasticity.models.declarations.linear_elasticity import IsotropicHookeMaterial
-from onesim.physics.solid_mechanics.kinematics.models.voigt_strain import voigt_strain_matrix
+from onesim.physics.solid_mechanics import IsotropicHookeMaterial
+from onesim.physics.solid_mechanics import voigt_strain_matrix
+from onesim.visualization import theme, plots
 
-print("OneSimulation:", version("onesimulation"))
+theme.set()
 start_time = time.perf_counter()
 
 
@@ -142,26 +119,26 @@ start_time = time.perf_counter()
 
 mm = 1e-3
 G_branch = np.array([13.3, 286, 291, 212, 112, 61.6, 29.8, 16.1, 7.83, 4.15, 2.03, 1.11,
-                     0.491, 0.326, 0.0825, 0.126, 0.0373, 0.0118]) * 1e6        # Pa
+                     0.491, 0.326, 0.0825, 0.126, 0.0373, 0.0118]) * 1e6
 tau_branch = np.array([1e-7, 1e-6, 3.16e-6, 1e-5, 3.16e-5, 1e-4, 3.16e-4, 1e-3, 3.16e-3,
-                       1e-2, 3.16e-2, 0.1, 0.316, 1.0, 3.16, 10.0, 100.0, 1000.0])  # s
-G_inf = 58.6e3            # Pa, long-time shear modulus
-K_layer = 0.4e9           # Pa, bulk modulus of the polymer
-rho_layer = 1060.0        # kg/m^3
+                       1e-2, 3.16e-2, 0.1, 0.316, 1.0, 3.16, 10.0, 100.0, 1000.0])
+G_inf = 58.6e3
+K_layer = 0.4e9
+rho_layer = 1060.0
 E_steel, nu_steel, rho_steel = 205e9, 0.28, 7850.0
 
 t_plate, h_layer = 10 * mm, 10 * mm
-pad_w, pad_h = 50 * mm, 50 * mm                  # layer footprint (y, z)
+pad_w, pad_h = 50 * mm, 50 * mm
 A_layer, V_layer = pad_w * pad_h, pad_w * pad_h * h_layer
-tab_y0, tab_y1 = 7 * mm, 43 * mm                 # tab width 36 mm, centred at y = 25 mm
+tab_y0, tab_y1 = 7 * mm, 43 * mm
 y_c, r_hole = 25 * mm, 8 * mm
-z_bolts, z_pin = (-50 * mm, -80 * mm), 127 * mm  # hole centres
+z_bolts, z_pin = (-50 * mm, -80 * mm), 127 * mm
 
-frequency = 3.0                                  # Hz
+frequency = 3.0
 omega = 2 * np.pi * frequency
-q_load = 8.5e6                                   # Pa, documented hole traction amplitude
-F_pin = q_load * np.pi * 2 * r_hole * t_plate    # N, resultant per pin (4.27 kN)
-sweep = (0.125, 0.25, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0)   # Hz
+q_load = 8.5e6
+F_pin = q_load * np.pi * 2 * r_hole * t_plate
+sweep = (0.125, 0.25, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0)
 levels = (1, 2, 3)
 
 
@@ -233,9 +210,9 @@ def plane_blocks(L):
     """Quadrilateral blocks of the (y, z) footprint: (region, bottom, top, left, right, u, v)."""
     n_tab, n_radial, n_margin, n_pad = 2 * L, L + 1, L + 1, 4 * L + 2
     across = np.linspace(0.0, 1.0, n_tab + 1)
-    margin = graded(n_margin, 3.0)                       # fine at the free pad edge
+    margin = graded(n_margin, 3.0)
     z_pad = two_sided(n_pad, 3.0)
-    radial = graded(n_radial, 1 / 2.5)                   # fine at the hole
+    radial = graded(n_radial, 1 / 2.5)
     blocks = []
     for ya, yb, u in ((0.0, tab_y0, margin), (tab_y0, tab_y1, across), (tab_y1, pad_w, 1 - margin[::-1])):
         blocks.append(("pad", line((ya, 0), (yb, 0)), line((ya, pad_h), (yb, pad_h)),
@@ -385,7 +362,7 @@ def build_mesh(L):
 D_steel = np.asarray(IsotropicHookeMaterial(E_steel, nu_steel).tangent_voigt())
 m_vec = np.array([1.0, 1.0, 1.0, 0.0, 0.0, 0.0])
 D_bulk = K_layer * np.outer(m_vec, m_vec)
-D_shear = np.diag([2.0, 2.0, 2.0, 1.0, 1.0, 1.0]) - 2.0 / 3.0 * np.outer(m_vec, m_vec)   # sigma = G * D_shear eps
+D_shear = np.diag([2.0, 2.0, 2.0, 1.0, 1.0, 1.0]) - 2.0 / 3.0 * np.outer(m_vec, m_vec)
 
 
 def assemble(L):
@@ -400,7 +377,7 @@ def assemble(L):
     zero = np.zeros((30, 30))
     for cell, nodes in enumerate(space.cell_dofs):
         _, weights, (basis, gradient, _) = space.element_data(cell, order=3)
-        S = voigt_strain_matrix(gradient)                                  # (q, 30, 6)
+        S = voigt_strain_matrix(gradient)
         SW = (S * weights[:, None, None]).transpose(1, 0, 2).reshape(30, -1)
         local = lambda D: SW @ (S @ D).transpose(1, 0, 2).reshape(30, -1).T
         index = (np.asarray(nodes)[:, None] * 3 + np.arange(3)).ravel()
@@ -431,8 +408,8 @@ def assemble(L):
     def nodes_of(boundary):
         return np.asarray(space.boundary_dofs(mesh.facets(boundary)))
 
-    f_right = pin_load(b.right_hole, (0.0, 0.0, 1.0))           # multiplies cos(wt)
-    f_left = pin_load(b.left_hole, (0.5 / 8.5, 0.0, 1.0))       # multiplies sin(wt)
+    f_right = pin_load(b.right_hole, (0.0, 0.0, 1.0))
+    f_left = pin_load(b.left_hole, (0.5 / 8.5, 0.0, 1.0))
     fixed = np.unique(np.concatenate(
         [3 * nodes_of(b.bottom_holes) + c for c in range(3)]
         + [3 * nodes_of(b.right_hole) + c for c in (0, 1)] + [3 * nodes_of(b.left_hole) + 1]))
@@ -466,7 +443,7 @@ def harmonic(model, G, w, inertia=True):
     """Complex displacement amplitude for shear modulus G (complex) at angular frequency w."""
     M, free = model["M"], model["free"]
     A = M["steel"] + M["bulk"] + G * (M["B1"] + M["B2"]) - (w**2 * M["mass"] if inertia else 0.0)
-    f = model["f_right"] - 1j * model["f_left"]          # cos -> 1, sin -> -i
+    f = model["f_right"] - 1j * model["f_left"]
     u = np.zeros(model["n"], complex)
     u[free] = direct_solver(A.tocsr()[free][:, free])(f[free])
     return u
@@ -596,7 +573,7 @@ sweep_k, sweep_eta = [], []
 for f in sweep:
     G = complex_modulus(f)[0]
     w_r = harmonic(check, G, 2 * np.pi * f).reshape(-1, 3)[check["right_nodes"], 2].mean()
-    k = F_pin / w_r                       # complex stiffness of the right plate at its pin
+    k = F_pin / w_r
     sweep_k.append(k.real)
     sweep_eta.append(k.imag / k.real)
 sweep_k, sweep_eta = np.array(sweep_k), np.array(sweep_eta)
@@ -625,7 +602,7 @@ def richardson(values, h):
 
 h_rel = np.array([1.0 / L for L in levels])
 G_m = abs(G_star)
-w_simple = F_pin * h_layer / (G_star * A_layer)                # rigid-plate simple shear (complex)
+w_simple = F_pin * h_layer / (G_star * A_layer)
 W_simple = np.pi * (F_pin / A_layer) ** 2 * G_star.imag / G_m**2 * V_layer
 
 print("Material (exact Prony moduli at 3 Hz, the input to both solvers)")
@@ -707,31 +684,8 @@ print(f"total run time {time.perf_counter() - start_time:.0f} s")
 space, mesh, groups = model["space"], model["mesh"], model["groups"]
 U = u_fine.reshape(-1, 3)
 coords = np.asarray(mesh.coordinates)
-nodal = np.real(U[: len(coords)])                       # P2 vertex values at the instant t = 0
-
-fig = plt.figure(figsize=(17, 10.5), constrained_layout=True)
-grid = fig.add_gridspec(2, 3, width_ratios=(1.15, 1.0, 1.0))
-
-ax3d = fig.add_subplot(grid[0, 0], projection="3d")
-faces = np.array([f for name in groups for f in groups[name]])
-deformed = coords + 3.0 * nodal
-tri = deformed[faces] / mm
-uz_face = nodal[faces, 2].mean(axis=1) / mm
-lim = np.abs(uz_face).max()
-norm3d = colors.TwoSlopeNorm(vmin=-lim, vcenter=0.0, vmax=lim)
-light = np.abs(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]) @ np.array([0.5, -0.4, 0.75]))
-light /= np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1) + 1e-30
-shade = DIVERGING_CMAP(norm3d(uz_face))
-shade[:, :3] *= (0.65 + 0.35 * light)[:, None]
-ax3d.add_collection3d(Poly3DCollection(tri, facecolors=shade, edgecolors="none", linewidths=0))
-ax3d.set(xlim=(-30, 80), ylim=(-30, 80), zlim=(-100, 150), xlabel="x / mm", ylabel="y / mm", zlabel="z / mm")
-ax3d.set_box_aspect((110, 110, 250))
-ax3d.view_init(elev=18, azim=-62)
-ax3d.set_title("Vertical displacement at peak right-pin force\n(deformation x3)")
-fig.colorbar(cm.ScalarMappable(norm=norm3d, cmap=DIVERGING_CMAP), ax=ax3d, shrink=0.6, pad=0.1, label="u_z / mm")
-
-# Smooth strain fields in the layers: the P2 displacement gradient is averaged at the
-# nodes over the layer cells (nodal recovery) and interpolated with the P2 basis.
+nodal = np.real(U[: len(coords)])
+faces = np.array([face for name in groups for face in groups[name]])
 cell_x = coords[np.asarray(mesh.cells)].mean(axis=1)[:, 0]
 gradient_sum = np.zeros((space.dof_count, 3, 3), complex)
 count = np.zeros(space.dof_count)
@@ -749,84 +703,46 @@ def layer_strain(points):
     return 0.5 * (g + np.swapaxes(g, 1, 2))
 
 
-ax_s = fig.add_subplot(grid[0, 1])
-xs = np.linspace(0.0, 50.0, 251) * mm
-zs = np.linspace(-6.0, 56.0, 311) * mm
-XX, ZZ = np.meshgrid(xs, zs)
+xs, zs = np.linspace(0.0, 50.0, 251) * mm, np.linspace(-6.0, 56.0, 311) * mm
+XX, ZZ = np.meshgrid(xs, zs, indexing="ij")
 in_layers = (layer_index(XX) > 0) & (ZZ > 0.02 * mm) & (ZZ < pad_h - 0.02 * mm)
-eps = layer_strain(np.column_stack((XX[in_layers], np.full(in_layers.sum(), y_c), ZZ[in_layers])))
 gamma_xz = np.full(XX.shape, np.nan)
-gamma_xz[in_layers] = np.abs(2 * eps[:, 0, 2])
-cap = np.ceil(np.nanpercentile(gamma_xz, 99.5) * 10) / 10      # the bonded corners are singular
-im = ax_s.contourf(XX / mm, ZZ / mm, gamma_xz, levels=np.linspace(0, cap, 31), cmap=FIELD_CMAP, extend="max")
-ax_s.contour(XX / mm, ZZ / mm, gamma_xz, levels=np.linspace(0, cap, 11)[1:-1], colors="k", linewidths=0.35, alpha=0.5)
-for name, x0, thickness, footprint in PARTS:
-    if not name.startswith("layer"):
-        z_low = -6.0 if "down" in footprint else 0.0
-        z_high = 56.0 if "up" in footprint else 50.0
-        ax_s.add_patch(plt.Rectangle((x0 / mm, z_low), thickness / mm, z_high - z_low, color="#C9CCBF", lw=0))
-        ax_s.text((x0 + thickness / 2) / mm, 25.0, name if name != "centre" else "central plate",
-                  rotation=90, ha="center", va="center", fontsize=8, color=INK)
-ax_s.set_aspect("equal")
-ax_s.set(xlim=(0, 50), ylim=(-6, 56), xlabel="x / mm", ylabel="z / mm",
-         title="Shear strain amplitude |gamma_xz| in both layers\nsection y = 25 mm (steel in grey)")
-fig.colorbar(im, ax=ax_s, shrink=0.8, label="|gamma_xz|", ticks=np.linspace(0, cap, 6))
-
-ax_c = fig.add_subplot(grid[0, 2])
-yy, zz = np.meshgrid(np.linspace(1.0, 49.0, 193) * mm, np.linspace(1.0, 49.0, 193) * mm)
-mid_x = 2 * t_plate + 1.5 * h_layer
-eps = layer_strain(np.column_stack((np.full(yy.size, mid_x), yy.ravel(), zz.ravel())))
+gamma_xz[in_layers] = np.abs(2 * layer_strain(np.column_stack((XX[in_layers], np.full(in_layers.sum(), y_c), ZZ[in_layers])))[:, 0, 2])
+side = np.linspace(1.0, 49.0, 193) * mm
+YY, ZS = np.meshgrid(side, side, indexing="ij")
+eps = layer_strain(np.column_stack((np.full(YY.size, 2 * t_plate + 1.5 * h_layer), YY.ravel(), ZS.ravel())))
 volumetric = np.trace(eps, axis1=1, axis2=2)
-sigma_xx = np.real(K_layer * volumetric + 2 * G_star * (eps[:, 0, 0] - volumetric / 3)).reshape(yy.shape) / 1e6
-lim = np.ceil(np.abs(sigma_xx).max() * 10) / 10
-im = ax_c.contourf(yy / mm, zz / mm, sigma_xx, levels=np.linspace(-lim, lim, 31), cmap=DIVERGING_CMAP)
-ax_c.contour(yy / mm, zz / mm, sigma_xx, levels=np.linspace(-lim, lim, 11), colors="k", linewidths=0.35, alpha=0.5)
-ax_c.set_aspect("equal")
-ax_c.set(xlabel="y / mm", ylabel="z / mm",
-         title="Peel stress sigma_xx at peak right-pin force\nmid-plane of the right layer (1 mm inside the edges)")
-fig.colorbar(im, ax=ax_c, shrink=0.8, label="sigma_xx / MPa", ticks=np.linspace(-lim, lim, 5))
-
-ax_l = fig.add_subplot(grid[1, 0])
+sigma_xx = np.real(K_layer * volumetric + 2 * G_star * (eps[:, 0, 0] - volumetric / 3)).reshape(YY.shape) / 1e6
 times, w_left_t, _ = startup
-force_t = ramp(times) * F_pin * np.sin(omega * times)
-ax_l.plot(w_left_t / mm, force_t / 1e3, color="#8B9A8D", lw=0.8, label="time domain from rest (64 steps/period)")
 phase = np.linspace(0, 2 * np.pi, 400)
-w_steady = np.real(fine["w_left"] * np.exp(1j * phase))
-ax_l.plot(w_steady / mm, F_pin * np.sin(phase) / 1e3, color=COPPER, lw=2.2, label="frequency domain, steady state")
-ax_l.plot(np.real(-1j * w_simple * np.exp(1j * phase)) / mm, F_pin * np.sin(phase) / 1e3, "--", color=INK, lw=1.2,
-          label="simple-shear layer, rigid plates")
-ax_l.set(xlabel="left pin displacement w / mm", ylabel="left pin force F_z / kN",
-         title=f"Hysteresis loop at {frequency:g} Hz (loop area = energy per cycle)")
-ax_l.legend(fontsize=8, loc="upper left")
-ax_l.grid(alpha=0.3)
-
-ax_f = fig.add_subplot(grid[1, 1])
 fine_f = np.geomspace(0.1, 5.5, 200)
 Gf = complex_modulus(fine_f)
-ax_f.semilogx(fine_f, Gf.real * A_layer / h_layer / 1e6, color=GREEN, lw=1.5, label="k' simple shear  G' A / h")
-ax_f.semilogx(sweep, sweep_k / 1e6, "o", color=GREEN, mfc="none", label="k' 3D damper")
-ax_f.set(xlabel="frequency / Hz", ylabel="storage stiffness k' / (kN/mm)", title="Damper stiffness and loss factor")
-ax_f.grid(alpha=0.3, which="both")
-ax_e = ax_f.twinx()
-ax_e.semilogx(fine_f, Gf.imag / Gf.real, color=COPPER, lw=1.5, label="material G''/G'")
-ax_e.semilogx(sweep, sweep_eta, "s", color=COPPER, mfc="none", label="3D damper loss factor")
-ax_e.set_ylabel("loss factor")
-handles = ax_f.get_legend_handles_labels()[0] + ax_e.get_legend_handles_labels()[0]
-ax_f.legend(handles, [h.get_label() for h in handles], fontsize=8, loc="center left")
-
-ax_m = fig.add_subplot(grid[1, 2])
 W_levels = np.array([runs[L]["W_1"] + runs[L]["W_2"] for L in levels])
 p_W, W_ext = richardson(W_levels, h_rel)
-ax_m.plot(h_rel, W_levels, "o-", color=COPPER, label="3D FEM, P2 tetrahedra")
-ax_m.axhline(W_ext, color=INK, lw=1.0, ls=":", label=f"Richardson estimate {W_ext:.3f} J (order {p_W:.1f})")
-ax_m.axhline(2 * W_simple, color=GREEN, lw=1.0, ls="--", label=f"simple shear, two layers {2*W_simple:.3f} J")
-ax_m.set_xticks(h_rel, [f"L{L}" for L in levels])
-ax_m.invert_xaxis()
-ax_m.set(xlabel="mesh level (relative cell size 1/L)", ylabel="energy dissipated per cycle / J",
-         title="Mesh study of the dissipated energy")
-ax_m.legend(fontsize=8)
-ax_m.grid(alpha=0.3)
-plt.show()
+fig = plots.figure(layout=[["shape"] * 4 + ["shear"] * 4 + ["peel"] * 4,
+                           ["loop"] * 3 + ["stiffness"] * 3 + ["loss"] * 3 + ["study"] * 3], size=(22, 11.5))
+plots.trisurface((coords + 3.0 * nodal) / mm, faces, nodal[:, 2] / mm, colormap="diverging",
+                 camera=plots.Camera(elevation=18, azimuth=-62), label="u_z [mm]",
+                 title="Vertical displacement, deformation x3", ax=fig["shape"])
+plots.heatmap(xs / mm, zs / mm, gamma_xz, limits=(0, np.ceil(np.nanpercentile(gamma_xz, 99.5) * 10) / 10), contours=9,
+              label="|gamma_xz|", xlabel="x [mm]", ylabel="z [mm]",
+              title="Shear strain amplitude, section y = 25 mm", ax=fig["shear"])
+plots.heatmap(side / mm, side / mm, sigma_xx, colormap="diverging", contours=10, label="sigma_xx [MPa]", xlabel="y [mm]",
+              ylabel="z [mm]", title="Peel stress, mid-plane of the right layer", ax=fig["peel"])
+plots.line(y={"time domain from rest (64 steps/period)": (w_left_t / mm, ramp(times) * F_pin * np.sin(omega * times) / 1e3),
+              "frequency domain, steady state": (np.real(fine["w_left"] * np.exp(1j * phase)) / mm, F_pin * np.sin(phase) / 1e3)},
+           reference={"simple-shear layer, rigid plates": (np.real(-1j * w_simple * np.exp(1j * phase)) / mm, F_pin * np.sin(phase) / 1e3)},
+           xlabel="left pin displacement w [mm]", ylabel="left pin force F_z [kN]", legend="upper left",
+           title=f"Hysteresis loop at {frequency:g} Hz", ax=fig["loop"])
+plots.line(points={"3D damper": (sweep, sweep_k / 1e6)}, reference={"simple shear G' A / h": (fine_f, Gf.real * A_layer / h_layer / 1e6)},
+           scale="logx", xlabel="frequency [Hz]", ylabel="storage stiffness k' [kN/mm]", title="Damper stiffness", ax=fig["stiffness"])
+plots.line(points={"3D damper": (sweep, sweep_eta)}, reference={"material G''/G'": (fine_f, Gf.imag / Gf.real)},
+           scale="logx", xlabel="frequency [Hz]", ylabel="loss factor", title="Loss factor", ax=fig["loss"])
+plots.line(h_rel, {"3D FEM, P2 tetrahedra": W_levels},
+           hlines={f"Richardson estimate {W_ext:.3f} J (order {p_W:.1f})": W_ext, f"simple shear, two layers {2 * W_simple:.3f} J": 2 * W_simple},
+           markers=True, xlabel="relative cell size 1/L", ylabel="energy dissipated per cycle [J]",
+           title="Mesh study", ax=fig["study"])
+plots.show()
 
 
 # ## Going further
