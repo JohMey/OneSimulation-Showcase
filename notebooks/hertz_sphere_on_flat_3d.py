@@ -1,552 +1,200 @@
 """OneSimulation example: Hertz point contact of an elastic sphere on an elastic block in 3D.
 Requires the installed, activated OneSimulation runtime.
 
-A steel sphere is pressed onto a steel block. Both bodies are elastic 3D solids on
-non-matching meshes (trilinear hexahedra in the block, linear tetrahedra in the sphere),
-coupled by mortar contact. The contact radius, the pressure distribution, the
-force-approach law and the subsurface stresses on the axis are graded against Hertz's
-point-contact solution, with a three-level mesh study near the contact.
+A steel sphere is pressed onto a steel block. Both bodies are read from STEP files and meshed
+independently (hexahedra in the block, tetrahedra in the sphere); mortar contact couples the two
+non-matching meshes. Contact radius, pressure distribution, force-approach law and the stresses
+below the contact are compared with Hertz's point-contact solution in a three-level mesh study.
 """
 
 
 # # Hertz contact of an elastic sphere on an elastic block
 #
-# A sphere of radius $R$ is pressed onto a flat block. Both are made of the same
-# linear-elastic steel (Young's modulus $E$, Poisson's ratio $\nu$). Hertz's theory for
-# two elastic half-spaces with a paraboloidal gap $r^2/2R$ (H. Hertz, *J. reine angew.
-# Math.* 92, 156-171, 1882; K. L. Johnson, *Contact Mechanics*, Cambridge University
-# Press 1985, Sec. 4.2 and 3.4) predicts for a transmitted force $F$
+# A sphere of radius $R$ is pressed onto a flat block. Both are made of the same linear-elastic
+# steel (Young's modulus $E$, Poisson's ratio $\nu$). Hertz's theory for two elastic half-spaces
+# (K. L. Johnson, *Contact Mechanics*, Cambridge University Press 1985, Sec. 4.2 and 3.4) predicts
+# for a transmitted force $F$
 #
 # $$\frac{1}{E^*}=\frac{1-\nu_1^2}{E_1}+\frac{1-\nu_2^2}{E_2},\qquad
 #   a=\left(\frac{3FR}{4E^*}\right)^{1/3},\qquad
 #   p_0=\frac{3F}{2\pi a^2},\qquad
-#   \delta=\frac{a^2}{R}=\left(\frac{9F^2}{16RE^{*2}}\right)^{1/3},$$
+#   \delta=\left(\frac{9F^2}{16RE^{*2}}\right)^{1/3},$$
 #
-# a circular contact patch of radius $a$ with the elliptical pressure distribution
-# $p(r)=p_0\sqrt{1-r^2/a^2}$, and an approach $\delta$ of distant points. Below the centre
-# of the contact the stresses are known in closed form (Johnson, eq. 3.45):
+# a circular contact patch of radius $a$ with the pressure $p(r)=p_0\sqrt{1-r^2/a^2}$ and an
+# approach $\delta$ of distant points. Below the centre of the contact (Johnson, eq. 3.45)
 #
 # $$\frac{\sigma_z}{p_0}=-\frac{1}{1+z^2/a^2},\qquad
-#   \frac{\sigma_r}{p_0}=\frac{\sigma_\theta}{p_0}=-(1+\nu)\Bigl(1-\frac{z}{a}\arctan\frac{a}{z}\Bigr)
-#   +\frac{1}{2}\,\frac{1}{1+z^2/a^2}.$$
+#   \frac{\sigma_r}{p_0}=-(1+\nu)\Bigl(1-\frac{z}{a}\arctan\frac{a}{z}\Bigr)+\frac{1}{2}\,\frac{1}{1+z^2/a^2}.$$
 #
-# The largest shear stress $\tau_1=|\sigma_r-\sigma_z|/2$ does not occur on the surface
-# but **below** it: for $\nu=0.3$ it reaches $0.31\,p_0$ at a depth $z\approx0.48\,a$, which
-# is where rolling-contact fatigue starts.
+# The largest shear stress $\tau_1=|\sigma_r-\sigma_z|/2$ occurs **below** the surface: for
+# $\nu=0.3$ it reaches $0.31\,p_0$ at the depth $z\approx0.48\,a$, where rolling-contact fatigue
+# starts.
 #
-# **The model is genuinely three-dimensional.** The sphere is the lower half of a full
-# sphere, held by a frictionless rigid platen on its equatorial plane; the block is a
-# finite cuboid on a frictionless support. One quarter of the assembly is computed, with
-# symmetry rollers on the planes $x=0$ and $y=0$. The stress field varies in all three
-# coordinates; the contact patch, the pressure and the subsurface stresses come out of
-# the 3D solution, nothing is prescribed.
+# One quarter of the assembly is computed. The block comes from the CAD file
+# `hertz_sphere_on_flat_3d.step` (faces `x_min` to `z_max`), the quarter of the lower half sphere
+# from `hertz_sphere_on_flat_3d_sphere.step` (faces `plane_x`, `plane_y`, `equator`, `surface`). The
+# script `hertz_sphere_on_flat_3d_geometry.py` builds both with the CAD objects of OneSimulation.
 #
-# **Reference kind.** Hertz's formulas are the exact elasticity solution for two
-# half-spaces. Local quantities (contact radius, pressure distribution, peak pressure,
-# subsurface stress on the axis) depend only on the transmitted force and the local
-# geometry as long as the bodies are much larger than $a$ (here the block is $10a$ and the
-# sphere $20a$), so they are compared directly with Hertz for the force that the
-# simulation transmits. The approach of the platen to the block support contains, in
-# addition to the Hertz term $\propto F^{2/3}$, a far-field term that is linear in $F$,
-# depends on the finite bodies and can have either sign; it is separated by a two-parameter fit
-# $\delta=c_1F^{2/3}+c_2F$ over five load levels, and $c_1$ is compared with Hertz. A
-# three-level mesh study near the contact gives the observed order and a Richardson
-# estimate.
-#
-# **Methods used.**
-# - Spatial: continuous Galerkin finite elements, trilinear hexahedra (Q1) on a graded
-#   tensor-product mesh of the block, linear tetrahedra (P1) on a graded unstructured
-#   CAD mesh of the sphere; the two meshes do not match at the contact surface.
-# - Contact: segment-to-segment **mortar** coupling (exact polygon clipping of the
-#   projected block and sphere facets) with Lagrange multipliers for the normal contact
-#   pressure; frictionless.
-# - Nonlinear solver: primal-dual active-set method (semi-smooth Newton) for the
-#   Signorini complementarity conditions on the condensed contact compliance.
-# - Linear solver: sparse direct LU (SuperLU) of the block-diagonal stiffness, reused for
-#   all load levels.
-# - Loading: quasi-static, five imposed approaches of the platen.
+# | face | condition |
+# |---|---|
+# | block `x_min`, `y_min`; sphere `plane_x`, `plane_y` | symmetry |
+# | block `z_min` | frictionless support |
+# | sphere `equator` | frictionless rigid platen, pressed down by the approach |
+# | block `z_max` against sphere `surface` | frictionless mortar contact |
 
-from dataclasses import dataclass
-from hashlib import sha256
-from itertools import product
-import time
-import gc
 import numpy as np
-from scipy.optimize import brentq
-from scipy.spatial import cKDTree
 
-from onesim.cad.geometry.backends.occt.provider import OcctCadProvider
-from onesim.cad.geometry.ports.kernel_port import SphereRequest
-from onesim.cad.geometry.primitives import Geometry
-from onesim.cad.operations.execution.model_geometry import GeometryService
-from onesim.meshing import UnstructuredSimplexMesh
-from onesim.meshing.generation.backends.cad.in_memory_cad import build_file_free_mesher
-from onesim.meshing.generation.backends.structured.volume.hexahedral import StructuredHexahedralMesh
-from onesim.meshing.generation.contracts.hexahedral_geometry import CORNERS, FACES, affine_hexahedral_geometry
-from onesim.meshing.generation.contracts.requests import (
-    HighOrderMeshControl, MeshGenerationRequest, MeshRefinement, MeshRefinementSupport, SpatialMeshControl,
-)
-from onesim.meshing.generation.operations.geometry.model_mesh import CadMeshingService
-from onesim.numerics.discretization.geometry.carriers.kernels.simplex.tetrahedral import boundary_faces
+from onesim.cad.exchange import load
+from onesim.meshing import Geometric, Piecewise, StructuredHexahedralMesher, TetrahedralMesher, Uniform
+from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.physics.solid_mechanics import MortarBody, MortarContact, SmallStrainSolid
+from onesim.results.comparisons import convergence
+from onesim.results.derived import max_shear, strain_from_gradient, voigt
 from onesim.visualization import theme, plots
 
 theme.set()
 
-
-# ## Parameters
+# ## Geometry and meshes
 #
-# A bearing-steel ball of 20 mm diameter on a steel block. The largest imposed approach
-# gives a contact radius of about 0.5 mm ($a/R\approx0.05$) and a peak pressure of about
-# 3.7 GPa, typical of a heavily loaded rolling bearing. The model is linear elastic
-# (no yielding). The block is a $10a\times10a\times10a$ quarter, the sphere has
-# $R=20a$.
+# The expected contact radius is 0.5 mm. The block gets `n` uniform hexahedra per contact radius
+# under the contact and graded cells away from it; the cells of the sphere grow with the distance
+# from the contact point. Three levels are meshed.
 
-E, nu = 210e9, 0.30
-R = 10e-3
-a_ref = 0.5e-3
-E_star = 1.0 / (2.0 * (1.0 - nu**2) / E)
-block_size = 10 * a_ref
-patch = 1.2 * a_ref
-grading = 1.45
-SPHERE_GRADING = ((0.3 * a_ref, 2.0 * a_ref), (0.8 * a_ref, 5 * a_ref))
-delta_max = a_ref**2 / R
-deltas = delta_max * np.linspace(0.4, 1.0, 5)
-mesh_levels = ((7.1, 7.7), (9.2, 10.0), (12.0, 13.0))
-G = E / (2 * (1 + nu))
-lam = E * nu / ((1 + nu) * (1 - 2 * nu))
-print(f"E* = {E_star / 1e9:.1f} GPa, largest approach {delta_max * 1e6:.1f} um")
+block, sphere = load("hertz_sphere_on_flat_3d.step"), load("hertz_sphere_on_flat_3d_sphere.step")
+lower, upper = block.boundaries, sphere.boundaries
+radius, width, patch, levels = sphere.size[2], block.size[0], 0.5e-3, (7, 9, 12)
+block_meshes = [StructuredHexahedralMesher(cells=(round(1.2 * n) + 7, round(1.2 * n) + 7, n + 7), grading=(
+    *2 * (Piecewise(((1.2 * patch / width, Uniform(round(1.2 * n))), (1 - 1.2 * patch / width, Geometric(7, first=patch / n)))),),
+    Piecewise(((1 - patch / width, Geometric(7, first=patch / n, toward="end")), (patch / width, Uniform(n)))))).generate(block)
+    for n in levels]
+sphere_meshes = [TetrahedralMesher(target_size=radius / 4, size_field=lambda points: np.clip(
+    patch / (1.08 * n) + 0.35 * (np.linalg.norm(points, axis=1) - 1.15 * patch), patch / (1.08 * n), radius / 4)).generate(sphere)
+    for n in levels]
 
-
-# ## Geometry and mesh
-#
-# **Block.** A graded tensor-product mesh of trilinear hexahedra: uniform cells of size
-# $h$ over the contact region ($0\le x,y\le1.2a$, depth $0\ldots a$), then growing by a
-# factor 1.45 per cell to the outer faces. Its top face is split into the potential
-# contact patch and the free remainder.
-#
-# **Sphere.** OneSimulation's CAD kernel cuts one octant out of a sphere; the free
-# tetrahedral mesher grades it from cells of size $h_s$ around the pole (ball of radius
-# $1.15a$) via $0.3a$ and $0.8a$ to the global size $0.25R$. The octant is mirrored so that
-# its pole touches the block at the origin and its flat equatorial face lies at $z=R$.
-# The curved surface is split into the cap above the contact patch ($r<2a$) and the rest.
-#
-# Boundary conditions on every face:
-#
-# | body | face | condition |
-# |---|---|---|
-# | block | $x=0$, $y=0$ | symmetry roller ($u_x=0$, $u_y=0$) |
-# | block | bottom $z=-10a$ | frictionless support ($u_z=0$) |
-# | block | $x=10a$, $y=10a$ | traction-free |
-# | block | top, outside the patch | traction-free |
-# | block | top patch $x,y\le1.2a$ | mortar contact (slave side) |
-# | sphere | $x=0$, $y=0$ | symmetry roller |
-# | sphere | equatorial plane $z=R$ | frictionless rigid platen ($u_z=0$) |
-# | sphere | cap $r<2a$ | mortar contact (master side) |
-# | sphere | rest of the spherical surface | traction-free |
-#
-# The load is the approach $\delta$ of the platen towards the block support, imposed as
-# a normal offset of the contact gap.
-
-BLOCK_FACES = ("x_min", "x_max", "y_min", "y_max", "z_min", "top_patch", "top_free")
-SPHERE_FACES = ("plane_x", "plane_y", "equator", "cap", "surface")
-
-
-@dataclass(frozen=True, eq=False, kw_only=True)
-class BlockQuarter(Geometry):
-    """Quarter block with its top face split into the contact patch and the free part."""
-
-    dimension = 3
-
-    def boundary_groups(self):
-        return {**{name: (name,) for name in BLOCK_FACES}, "all": BLOCK_FACES}
-
-
-@dataclass(frozen=True, eq=False, kw_only=True)
-class SphereQuarter(Geometry):
-    """Quarter of the lower half sphere: two symmetry planes, equator, cap and surface."""
-
-    dimension = 3
-
-    def boundary_groups(self):
-        return {**{name: (name,) for name in SPHERE_FACES}, "all": SPHERE_FACES}
-
-
-class GradedHexMesh(StructuredHexahedralMesh):
-    """Trilinear hexahedra on a tensor product of three graded node axes."""
-
-    def __init__(self, geometry, axes):
-        self.geometry, self.shape, self.axes = geometry, tuple(len(x) - 1 for x in axes), axes
-        dims = tuple(len(x) for x in axes)
-        X = np.stack(np.meshgrid(*axes, indexing="ij"), -1).reshape(-1, 3)
-        cells = np.array([[np.ravel_multi_index(tuple(np.add(i, c)), dims) for c in CORNERS]
-                          for i in product(*(range(n) for n in self.shape))])
-        data = affine_hexahedral_geometry(X, cells)
-        self.coordinates, self.cells, self.cell_volumes = data.coordinates, data.cells, data.volumes
-        self.cell_count = len(self.cells)
-        self.mesh_id = "hex:" + sha256(self.coordinates.tobytes() + self.cells.tobytes()).hexdigest()
-        self._facets = {name: [] for name in BLOCK_FACES}
-        sides = ("x_min", "x_max", "y_min", "y_max", "z_min", "z_max")
-        for index, cell in zip(product(*(range(n) for n in self.shape)), self.cells):
-            for side, face in enumerate(FACES):
-                axis = side // 2
-                if index[axis] == (self.shape[axis] - 1 if side % 2 else 0):
-                    name = sides[side]
-                    if name == "z_max":
-                        corners = self.coordinates[cell[list(face)], :2]
-                        name = "top_patch" if corners.max() <= patch * (1 + 1e-9) else "top_free"
-                    self._facets[name].append(tuple(cell[list(face)]))
-        self._carrier = self._build_carrier()
-
-
-def graded_axis(h, fine, length):
-    """Uniform nodes of spacing h up to `fine`, then geometric growth up to `length`."""
-    nodes = list(np.arange(0.0, fine + 0.5 * h, h))
-    step = h
-    while nodes[-1] < length * (1 - 1e-9):
-        step *= grading
-        nodes.append(min(nodes[-1] + step, length))
-    if length - nodes[-2] < 0.5 * (nodes[-2] - nodes[-3]):
-        nodes.pop(-2)
-    return np.array(nodes)
-
-
-def block_mesh(n):
-    h = a_ref / n
-    xy = graded_axis(h, patch, block_size)
-    z = -graded_axis(h, a_ref, block_size)[::-1]
-    return GradedHexMesh(BlockQuarter(), (xy, xy, z))
-
-
-def sphere_mesh(ns):
-    kernel = OcctCadProvider()
-    cad = GeometryService("hertz_sphere", kernel)
-    ball = cad.construct(kernel.create_sphere, SphereRequest(cad.reference("ball"), R))
-    octant = cad.boolean("intersection", ball, cad.box(width=R, height=R, depth=R, name="box"), name="octant")
-    body = next(e.entity_id for e in octant.data.entities if e.kind == "body")
-    pole = (0.0, 0.0, R)
-    controls = tuple(MeshRefinement(body, size, "volume", MeshRefinementSupport("ball", pole, radius))
-                     for size, radius in ((a_ref / ns, 1.15 * a_ref), *SPHERE_GRADING))
-    request = MeshGenerationRequest(
-        octant.reference.artifact_id, octant.reference.version, global_size=0.25 * R, refinements=controls,
-        max_candidate_cells=2_000_000, high_order=HighOrderMeshControl(polynomial_order=1),
-        spatial=SpatialMeshControl("free_tetrahedral", body, engine="cad_native", boundary_conforming=False))
-    native = CadMeshingService(provider_factory=build_file_free_mesher).generate(octant, request)
-    X = np.array(native.data.coordinates, dtype=float)
-    C = np.array(native.data.cells)[:, [0, 2, 1, 3]]
-    X[:, 2] = R - X[:, 2]
-    groups = {name: [] for name in SPHERE_FACES}
-    for facet in boundary_faces(C, X):
-        P = X[list(facet.vertices)]
-        if np.all(np.abs(P[:, 0]) < 1e-12 * R):
-            name = "plane_x"
-        elif np.all(np.abs(P[:, 1]) < 1e-12 * R):
-            name = "plane_y"
-        elif np.all(np.abs(P[:, 2] - R) < 1e-12 * R):
-            name = "equator"
-        else:
-            name = "cap" if np.hypot(P[:, 0], P[:, 1]).max() < 2 * a_ref else "surface"
-        groups[name].append(facet.vertices)
-    mesh = UnstructuredSimplexMesh(geometry=SphereQuarter(), coordinates=X, cells=C, boundary_facets=groups)
-    return mesh, groups
-
+view = plots.Camera(elevation=18, azimuth=225)
+fig = plots.figure(1, 3, size=(18, 6))
+plots.geometry([block.named("block"), sphere.named("sphere")], camera=view, title="Quarter of the block and of the lower half sphere", ax=fig[0])
+plots.mesh(block_meshes[0], groups=("all",), legend=False, camera=view, title=f"Block: {block_meshes[0].cell_count} hexahedra", ax=fig[1])
+plots.mesh(sphere_meshes[0], groups=("all",), legend=False, camera=view, title=f"Sphere: {sphere_meshes[0].cell_count} tetrahedra", ax=fig[2])
+plots.show()
 
 # ## Model
 #
-# Each body is a `MortarBody` (a small-strain linear-elastic 3D solid with its supports
-# and tractions); `MortarContact` couples the block patch (slave) to the sphere cap
-# (master) along the contact normal $-z$, from the sphere into the block.
+# Both bodies are steel. The platen on the equator of the sphere is moved towards the block in five
+# steps up to the approach $a^2/R$; the contact conditions are solved on each of the three levels.
 
-steel = SmallStrainSolid(youngs_modulus=E, poisson_ratio=nu, kinematics="volume")
+youngs_modulus, poisson_ratio = 210e9, 0.30
+contact_modulus = youngs_modulus / (2 * (1 - poisson_ratio**2))
+approaches = patch**2 / radius * np.linspace(0.4, 1.0, 5)
+steel = SmallStrainSolid(youngs_modulus=youngs_modulus, poisson_ratio=poisson_ratio, kinematics="volume")
+results = [MortarContact(
+    slave=MortarBody(solid=steel, mesh=block_mesh, boundary=lower.z_max,
+                     displacements=((lower.x_min, "x", 0.0), (lower.y_min, "y", 0.0), (lower.z_min, "z", 0.0)),
+                     tractions=((lower.x_max, (0.0, 0.0, 0.0)), (lower.y_max, (0.0, 0.0, 0.0)))),
+    master=MortarBody(solid=steel, mesh=sphere_mesh, boundary=upper.surface,
+                      displacements=((upper.plane_x, "x", 0.0), (upper.plane_y, "y", 0.0), (upper.equator, "z", 0.0))),
+    normal=(0.0, 0.0, -1.0)).solve(times=tuple(range(1, len(approaches) + 1)), normal_offset=lambda t: -approaches[int(round(t)) - 1])
+    for block_mesh, sphere_mesh in zip(block_meshes, sphere_meshes)]
 
-
-def contact_model(block_grid, sphere_grid):
-    b, s = block_grid.geometry.boundaries, sphere_grid.geometry.boundaries
-    block = MortarBody(
-        solid=steel, mesh=block_grid, boundary=b.top_patch,
-        displacements=((b.x_min, "x", 0.0), (b.y_min, "y", 0.0), (b.z_min, "z", 0.0)),
-        tractions=((b.x_max, (0.0, 0.0, 0.0)), (b.y_max, (0.0, 0.0, 0.0)), (b.top_free, (0.0, 0.0, 0.0))),
-    )
-    sphere = MortarBody(
-        solid=steel, mesh=sphere_grid, boundary=s.cap,
-        displacements=((s.plane_x, "x", 0.0), (s.plane_y, "y", 0.0), (s.equator, "z", 0.0)),
-        tractions=((s.surface, (0.0, 0.0, 0.0)),),
-    )
-    return MortarContact(slave=block, master=sphere, normal=(0.0, 0.0, -1.0))
-
-
-# ## Solve
+# ## Contact patch and pressure
 #
-# For every mesh level the five load levels are solved with one factorization. The
-# post-processing computes the stresses from the displacement fields: in the block the
-# exact strain of each trilinear cell at its centre, in the sphere the constant strain of
-# each tetrahedron. All Hertz values below use the force that the simulation transmits.
+# The transmitted force follows from the contact pressures; the factor 4 completes the quarter
+# model. Hertz's contact radius and peak pressure are taken for the force of each level, and the
+# contact radius of the simulation from the second moment of the pressure.
 
-def hertz(force):
-    a = (3 * force * R / (4 * E_star)) ** (1 / 3)
-    return a, 3 * force / (2 * np.pi * a**2)
+forces = [4 * result.normal_pressure @ result.multiplier_measures for result in results]
+hertz_radius = [(3 * force[-1] * radius / (4 * contact_modulus)) ** (1 / 3) for force in forces]
+hertz_peak = [3 * force[-1] / (2 * np.pi * a**2) for force, a in zip(forces, hertz_radius)]
+distance = [np.hypot(result.multiplier_coordinates[:, 0], result.multiplier_coordinates[:, 1]) for result in results]
+pressure = [result.normal_pressure[-1] for result in results]
+contact_radius = [np.sqrt(2.5 * (result.multiplier_measures @ (p * r**2)) / (result.multiplier_measures @ p))
+                  for result, p, r in zip(results, pressure, distance)]
 
-
-def axis_stresses(z, a, p0):
-    s = z / a
-    sz = -p0 / (1 + s**2)
-    sr = p0 * (-(1 + nu) * (1 - s * np.arctan2(1.0, s)) + 0.5 / (1 + s**2))
-    return sz, sr
-
-
-s_scan = np.linspace(1e-4, 3, 300001)
-tau_scan = 0.5 * np.subtract(*axis_stresses(s_scan, 1.0, 1.0)[::-1])
-TAU_HERTZ, Z_HERTZ = tau_scan.max(), s_scan[np.argmax(tau_scan)]
-print(f"Hertz: max shear on the axis {TAU_HERTZ:.4f} p0 at z = {Z_HERTZ:.4f} a (nu = {nu})")
-
-
-def stress_tensor(strain):
-    eye = np.eye(3)
-    return lam * np.trace(strain, axis1=-2, axis2=-1)[..., None, None] * eye + 2 * G * strain
-
-
-def block_stresses(grid, X, u):
-    """Strain of every trilinear cell at its centre, from the nodal displacements."""
-    xs, ys, zs = grid.axes
-    index = (np.searchsorted(xs, X[:, 0] - 1e-12), np.searchsorted(ys, X[:, 1] - 1e-12),
-             np.searchsorted(zs, X[:, 2] - 1e-12))
-    U = np.zeros((len(xs), len(ys), len(zs), 3))
-    U[index] = u
-    grad = np.zeros((len(xs) - 1, len(ys) - 1, len(zs) - 1, 3, 3))
-    dU = (np.diff(U, axis=0), np.diff(U, axis=1), np.diff(U, axis=2))
-    widths = (np.diff(xs)[:, None, None, None], np.diff(ys)[None, :, None, None], np.diff(zs)[None, None, :, None])
-    avg = {0: lambda A: 0.25 * (A[:, :-1, :-1] + A[:, 1:, :-1] + A[:, :-1, 1:] + A[:, 1:, 1:]),
-           1: lambda A: 0.25 * (A[:-1, :, :-1] + A[1:, :, :-1] + A[:-1, :, 1:] + A[1:, :, 1:]),
-           2: lambda A: 0.25 * (A[:-1, :-1] + A[1:, :-1] + A[:-1, 1:] + A[1:, 1:])}
-    for k in range(3):
-        grad[..., :, k] = avg[k](dU[k]) / widths[k]
-    strain = 0.5 * (grad + np.swapaxes(grad, -1, -2))
-    centres = np.stack(np.meshgrid(*(0.5 * (x[1:] + x[:-1]) for x in (xs, ys, zs)), indexing="ij"), -1)
-    return centres, stress_tensor(strain)
-
-
-def tet_stresses(X, C, u):
-    """Constant strain of every linear tetrahedron."""
-    P, V = X[C], u[C]
-    J = np.swapaxes(P[:, 1:] - P[:, :1], 1, 2)
-    dV = np.swapaxes(V[:, 1:] - V[:, :1], 1, 2)
-    grad = dV @ np.linalg.inv(J)
-    strain = 0.5 * (grad + np.swapaxes(grad, -1, -2))
-    return stress_tensor(strain), np.abs(np.linalg.det(J)) / 6
-
-
-def max_shear(stress):
-    principal = np.linalg.eigvalsh(stress)
-    return 0.5 * (principal[..., -1] - principal[..., 0])
-
-
-def run_level(n_block, n_sphere):
-    started = time.perf_counter()
-    block_grid = block_mesh(n_block)
-    sphere_grid, sphere_groups = sphere_mesh(n_sphere)
-    contact = contact_model(block_grid, sphere_grid)
-    result = contact.solve(times=tuple(float(k) for k in range(1, len(deltas) + 1)),
-                           normal_offset=lambda t: -deltas[int(round(t)) - 1])
-    w, xc = result.multiplier_measures, result.multiplier_coordinates
-    r = np.hypot(xc[:, 0], xc[:, 1])
-    forces = 4 * result.normal_pressure @ w
-    p = result.normal_pressure[-1]
-    force = forces[-1]
-    a_h, p0_h = hertz(force)
-    a_moment = np.sqrt(2.5 * (w @ (p * r**2)) / (w @ p))
-    fit = lambda a: np.sqrt(np.clip(1 - (r / a) ** 2, 0, None))
-    misfit = lambda a: (w * (p - (w * p * fit(a)).sum() / (w * fit(a) ** 2).sum() * fit(a)) ** 2).sum()
-    trial = np.linspace(0.7 * a_h, 1.3 * a_h, 241)
-    a_fit = trial[np.argmin([misfit(a) for a in trial])]
-    p0_fit = (w * p * fit(a_fit)).sum() / (w * fit(a_fit) ** 2).sum()
-    hertz_p = p0_h * fit(a_h)
-    rms = np.sqrt((w * (p - hertz_p) ** 2).sum() / (w * hertz_p**2).sum())
-    inner = r < 0.8 * a_h
-    rms_inner = np.sqrt((w * (p - hertz_p) ** 2)[inner].sum() / (w * hertz_p**2)[inner].sum())
-    centres, sigma = block_stresses(block_grid, result.slave_coordinates, result.slave_displacement[-1])
-    z_axis = -centres[0, 0, :, 2]
-    tau_axis = max_shear(sigma[0, 0])
-    order = np.argsort(z_axis)
-    z_axis, tau_axis, sz_axis, sx_axis = (z_axis[order], tau_axis[order],
-                                          sigma[0, 0, order, 2, 2], sigma[0, 0, order, 0, 0])
-    k = int(np.argmax(tau_axis))
-    zz = z_axis[k - 1:k + 2]
-    coeff = np.polyfit(zz, tau_axis[k - 1:k + 2], 2)
-    z_peak = -coeff[1] / (2 * coeff[0])
-    tau_peak = np.polyval(coeff, z_peak)
-    design = np.column_stack((forces ** (2 / 3), forces))
-    c1, c2 = np.linalg.lstsq(design, deltas, rcond=None)[0]
-    tree = cKDTree(result.master_coordinates)
-    Xs = np.asarray(sphere_grid.coordinates)
-    Cs = np.asarray(sphere_grid.cells)
-    us = result.master_displacement[-1][tree.query(Xs)[1]]
-    sigma_s, vol_s = tet_stresses(Xs, Cs, us)
-    tau_s = max_shear(sigma_s)
-    level = dict(
-        n=(n_block, n_sphere), h=a_ref / n_block, hex=block_grid.cell_count, tets=sphere_grid.cell_count,
-        dofs=3 * (len(block_grid.coordinates) + len(Xs)), contact_nodes=len(w), forces=forces, force=force,
-        a_h=a_h, p0_h=p0_h, a_moment=a_moment, a_fit=a_fit, p0_fit=p0_fit, p_max=p.max(), rms=rms, rms_inner=rms_inner,
-        r=r, p=p, z_axis=z_axis, tau_axis=tau_axis, sz_axis=sz_axis, sx_axis=sx_axis, z_peak=z_peak,
-        tau_peak=tau_peak, c1=c1, c2=c2, gap=result.averaged_gap[-1], pressure=p,
-        block_axes=block_grid.axes, block_centres=centres, block_tau=max_shear(sigma),
-        Xs=Xs, Cs=Cs, tau_s=tau_s, vol_s=vol_s, sphere_groups=sphere_groups,
-        seconds=time.perf_counter() - started,
-    )
-    del contact, result, block_grid, sphere_grid
-    gc.collect()
-    return level
-
-
-levels = []
-for n_block, n_sphere in reversed(mesh_levels):
-    lv = run_level(n_block, n_sphere)
-    levels.insert(0, lv)
-    print(f"h = a/{n_block:<4} block {lv['hex']:6d} hexahedra, sphere {lv['tets']:6d} tetrahedra, "
-          f"{lv['dofs']:6d} unknowns, {lv['contact_nodes']} contact nodes: "
-          f"F = {lv['force']:.1f} N, a = {lv['a_moment'] * 1e3:.4f} mm  ({lv['seconds']:.0f} s)")
-fine = levels[-1]
-
-
-# ## Comparison with the reference
+# ## Stresses below the contact
 #
-# All Hertz values use the force transmitted on the finest mesh. The pressure is
-# compared node by node with the Hertz ellipse (RMS deviation weighted with the mortar
-# areas); the contact radius is measured from the second moment of the pressure and from
-# a least-squares ellipse fit; the axis stresses are those of the first column of block
-# cells (centres at $x=y=h/2\approx0.04a$, where they differ from the axis values by far
-# less than the discretization error). Complementarity: no penetration and zero
-# pressure wherever the surfaces are open. The far-field coefficient $c_2$ comes out
-# negative: the platen and the support sit at a finite distance from the contact, where
-# a half-space would still move, so the finite assembly is slightly stiffer than two
-# half-spaces referred to infinitely distant points.
+# The displacement of the block is differentiated in its finite-element space at the centres of
+# the cells next to the axis; `strain_from_gradient` gives the strain, Hooke's law the stress and
+# `max_shear` the largest shear stress. A parabola through the three samples around the maximum
+# gives its size and depth.
 
-def deviation(value, reference):
-    return f"{value:12.4g}  {reference:12.4g}  {100 * (value / reference - 1):+7.2f} %"
+lame = youngs_modulus * poisson_ratio / ((1 + poisson_ratio) * (1 - 2 * poisson_ratio))
+shear_modulus = youngs_modulus / (2 * (1 + poisson_ratio))
+hooke = lambda strain: 2 * shear_modulus * strain + lame * np.trace(strain, axis1=1, axis2=2)[:, None, None] * np.eye(3)
+spaces = [FiniteElement(element=Lagrange(order=1)).bind_space(mesh) for mesh in block_meshes]
+across = [np.unique(np.round(np.asarray(mesh.coordinates)[:, 0], 12)) for mesh in block_meshes]
+down = [-np.unique(np.round(np.asarray(mesh.coordinates)[:, 2], 12))[::-1] for mesh in block_meshes]
+depths = [((nodes[1:] + nodes[:-1]) / 2)[(nodes[1:] + nodes[:-1]) / 2 < 3 * a] for nodes, a in zip(down, hertz_radius)]
+axis_stress = [hooke(strain_from_gradient(space.gradient(result.slave_displacement[-1], np.column_stack(
+    (np.full_like(depth, nodes[1] / 2), np.full_like(depth, nodes[1] / 2), -depth)))))
+    for space, result, depth, nodes in zip(spaces, results, depths, across)]
+axis_shear = [max_shear(voigt(stress)) / peak for stress, peak in zip(axis_stress, hertz_peak)]
+parabolas = [np.polyfit(depth[k - 1:k + 2] / a, shear[k - 1:k + 2], 2)
+             for depth, shear, a in zip(depths, axis_shear, hertz_radius) for k in [shear.argmax()]]
+largest_shear = [c[2] - c[1] ** 2 / (4 * c[0]) for c in parabolas]
+hertz_axial = lambda s: -1 / (1 + s**2)
+hertz_radial = lambda s: -(1 + poisson_ratio) * (1 - s * np.arctan2(1.0, s)) + 0.5 / (1 + s**2)
+scale = np.linspace(0.01, 3.0, 600)
+hertz_shear = (hertz_radial(scale) - hertz_axial(scale)) / 2
 
+print(f"finest level: transmitted force {forces[-1][-1]:.1f} N, Hertz contact radius {1e3 * hertz_radius[-1]:.4f} mm, "
+      f"peak pressure {hertz_peak[-1] / 1e9:.3f} GPa")
+print("cells per contact radius   hexahedra   tetrahedra   a / a_Hertz   largest shear / p0   at the depth z / a")
+for n, block_mesh, sphere_mesh, a, a_hertz, shear, c in zip(levels, block_meshes, sphere_meshes, contact_radius, hertz_radius, largest_shear, parabolas):
+    print(f"{n:24d} {block_mesh.cell_count:11d} {sphere_mesh.cell_count:12d} {a / a_hertz:13.4f} {shear:20.4f} {-c[1] / (2 * c[0]):19.3f}")
+print(f"Hertz: largest shear {hertz_shear.max():.4f} p0 at the depth {scale[hertz_shear.argmax()]:.3f} a")
+study = convergence([a / a_hertz for a, a_hertz in zip(contact_radius, hertz_radius)], [patch / n for n in levels])
+print(f"contact radius: change between the two finest levels {100 * study.change:.2f} %")
+relative_depth = depths[-1] / hertz_radius[-1]
+print(f"axis stresses on the finest level, largest deviation from Hertz for z < 3a: "
+      f"axial {np.abs(axis_stress[-1][:, 2, 2] / hertz_peak[-1] - hertz_axial(relative_depth)).max():.3f} p0, "
+      f"radial {np.abs(axis_stress[-1][:, 0, 0] / hertz_peak[-1] - hertz_radial(relative_depth)).max():.3f} p0")
 
-a_h, p0_h = fine["a_h"], fine["p0_h"]
-c1_hertz = (9 / (16 * R * E_star**2)) ** (1 / 3)
-print(f"Finest mesh: transmitted force F = {fine['force']:.1f} N (full sphere)")
-print("quantity                                   OneSimulation     Hertz      deviation")
-print("contact radius a, pressure moment [mm]  ", deviation(fine["a_moment"] * 1e3, a_h * 1e3))
-print("contact radius a, ellipse fit [mm]      ", deviation(fine["a_fit"] * 1e3, a_h * 1e3))
-print("peak pressure p0, ellipse fit [GPa]     ", deviation(fine["p0_fit"] / 1e9, p0_h / 1e9))
-print("largest nodal pressure [GPa]            ", deviation(fine["p_max"] / 1e9, p0_h / 1e9))
-print("max subsurface shear tau1 / p0          ", deviation(fine["tau_peak"] / p0_h, TAU_HERTZ))
-print("depth of the max shear z / a            ", deviation(fine["z_peak"] / a_h, Z_HERTZ))
-print("Hertz coefficient c1 of delta(F)        ", deviation(fine["c1"], c1_hertz))
-print(f"far-field compliance c2 = {fine['c2'] * 1e9:+.3f} nm/N "
-      f"(delta_far / delta at the largest load: {fine['c2'] * fine['force'] / deltas[-1]:+.3f})")
-print(f"RMS deviation of the nodal pressures from the Hertz ellipse: {100 * fine['rms']:.1f} % over the whole "
-      f"contact, {100 * fine['rms_inner']:.1f} % for r < 0.8a")
-z_ref = fine["z_axis"]
-sz_ref, sr_ref = axis_stresses(z_ref, a_h, p0_h)
-band = z_ref < 3 * a_h
-print(f"axis stresses for z < 3a, max |FE - Hertz| / p0: sigma_z {np.abs(fine['sz_axis'] - sz_ref)[band].max() / p0_h:.3f}, "
-      f"sigma_r {np.abs(fine['sx_axis'] - sr_ref)[band].max() / p0_h:.3f}")
-print(f"largest penetration {max(0.0, -fine['gap'].min()) * 1e9:.2e} nm, "
-      f"max |gap x pressure| {np.max(np.abs(fine['gap'] * fine['pressure'])):.1e} N/m")
+# ## Force-approach law
+#
+# Besides the Hertz term $\propto F^{2/3}$ the approach of the platen contains a part that is
+# linear in $F$ and belongs to the finite bodies. A fit $\delta=c_1F^{2/3}+c_2F$ over the five
+# load steps separates the two; $c_1$ is compared with Hertz.
 
-# **Mesh study.** Three meshes with the contact cell size reduced by a factor of about
-# 1.3 each time (block and sphere together). For every level the quantities are
-# normalized with the Hertz values for that level's own transmitted force; the observed
-# order $p$ solves $(f_1-f_2)/(f_2-f_3)=(h_1^p-h_2^p)/(h_2^p-h_3^p)$ and the Richardson
-# estimate is $f_3+(f_3-f_2)/((h_2/h_3)^p-1)$.
-
-def richardson(values, sizes):
-    (f1, f2, f3), (h1, h2, h3) = values, sizes
-    ratio = (f1 - f2) / (f2 - f3)
-    g = lambda p: (h1**p - h2**p) / (h2**p - h3**p) - ratio
-    p = brentq(g, 0.2, 6.0) if g(0.2) * g(6.0) < 0 else float("nan")
-    return p, f3 + (f3 - f2) / ((h2 / h3) ** p - 1)
-
-
-sizes = [lv["h"] for lv in levels]
-print("\nmesh study (ratios to Hertz for each level's own force)")
-print("quantity          " + "".join(f"   h = a/{lv['n'][0]:<5}" for lv in levels)
-      + "  change last two  order  Richardson  vs Hertz")
-for label, key, reference in (("a / a_H", "a_moment", "a_h"), ("p0 fit / p0_H", "p0_fit", "p0_h"),
-                              ("tau1 max / p0_H", "tau_peak", "p0_h")):
-    vals = [lv[key] / lv[reference] for lv in levels]
-    target = TAU_HERTZ if key == "tau_peak" else 1.0
-    p_obs, extrapolated = richardson(vals, sizes)
-    print(f"{label:18s}" + "".join(f"{v:13.5f}" for v in vals)
-          + f"   {100 * (vals[2] / vals[1] - 1):+7.3f} %   {p_obs:5.2f}   {extrapolated:8.5f}"
-          + f"   {100 * (extrapolated / target - 1):+6.2f} %")
-forces = [lv["force"] for lv in levels]
-print(f"transmitted force F [N]: " + ", ".join(f"{f:.1f}" for f in forces)
-      + f"  (change last two {100 * (forces[2] / forces[1] - 1):+.2f} %)")
-
+coefficients = np.linalg.lstsq(np.column_stack((forces[-1] ** (2 / 3), forces[-1])), approaches, rcond=None)[0]
+hertz_coefficient = (9 / (16 * radius * contact_modulus**2)) ** (1 / 3)
+print(f"Hertz coefficient of the approach: fitted {coefficients[0]:.4e}, Hertz {hertz_coefficient:.4e} "
+      f"({100 * (coefficients[0] / hertz_coefficient - 1):+.2f} %); linear part at the largest load "
+      f"{100 * coefficients[1] * forces[-1][-1] / approaches[-1]:+.1f} % of the approach")
 
 # ## Figure
 #
-# Top left: the quarter model in 3D, coloured with the maximum shear stress; the cut
-# planes $x=0$ and $y=0$ show the interior. Top centre: the section $y=0$ around the
-# contact (mirrored to $-x$), sphere above and block below; the white contour marks the
-# Hertz value $0.31p_0$. Top right: contact pressure of every contact node against the
-# Hertz ellipse. Bottom: stresses on the axis against Johnson's closed form, the
-# force-approach law, and the mesh study.
+# The largest shear stress in the block in a section through the axis, the contact pressure at
+# every contact node, the stresses on the axis, the force-approach law and the mesh study.
 
-tau_scale = 1 / p0_h
-xs, ys, zs = fine["block_axes"]
-tau_b = fine["block_tau"] * tau_scale
-quads = ([[(xs[i], 0, zs[j]), (xs[i + 1], 0, zs[j]), (xs[i + 1], 0, zs[j + 1]), (xs[i], 0, zs[j + 1])]
-          for i, j in product(range(len(xs) - 1), range(len(zs) - 1))]
-         + [[(0, ys[i], zs[j]), (0, ys[i + 1], zs[j]), (0, ys[i + 1], zs[j + 1]), (0, ys[i], zs[j + 1])]
-            for i, j in product(range(len(ys) - 1), range(len(zs) - 1))]
-         + [[(xs[i], ys[j], 0), (xs[i + 1], ys[j], 0), (xs[i + 1], ys[j + 1], 0), (xs[i], ys[j + 1], 0)]
-            for i, j in product(range(len(xs) - 1), range(len(ys) - 1))])
-quad_values = ([tau_b[i, 0, j] for i, j in product(range(len(xs) - 1), range(len(zs) - 1))]
-               + [tau_b[0, i, j] for i, j in product(range(len(ys) - 1), range(len(zs) - 1))]
-               + [tau_b[i, j, -1] for i, j in product(range(len(xs) - 1), range(len(ys) - 1))])
-quad_points = np.array(quads, dtype=float).reshape(-1, 3)
-quad_triangles = (4 * np.arange(len(quads))[:, None, None] + np.array([[0, 1, 2], [0, 2, 3]])[None]).reshape(-1, 3)
-Xs, Cs = fine["Xs"], fine["Cs"]
-node_tau, node_volume = np.zeros(len(Xs)), np.zeros(len(Xs))
-np.add.at(node_tau, Cs.ravel(), np.repeat(fine["tau_s"] * tau_scale * fine["vol_s"], 4))
-np.add.at(node_volume, Cs.ravel(), np.repeat(fine["vol_s"], 4))
-node_tau /= node_volume
-sphere_triangles = np.array([facet for name in ("plane_x", "plane_y", "cap", "surface") for facet in fine["sphere_groups"][name]])
-cx, cz = fine["block_centres"][:, 0, :, 0], fine["block_centres"][:, 0, :, 2]
-rr, zz = np.linspace(0, 1.3, 300), np.linspace(1e-3, 4, 400) * a_h
-sz_h, sr_h = axis_stresses(zz, a_h, p0_h)
-FF = np.linspace(0, fine["forces"].max() * 1.05, 200)
-cells_per_radius = np.array([lv["n"][0] for lv in levels])
-fig = plots.figure(2, 3, size=(19, 10.5))
-plots.trisurface(np.r_[quad_points, Xs] * 1e3, np.r_[quad_triangles, sphere_triangles + len(quad_points)],
-                 np.r_[np.repeat(quad_values, 4), node_tau], limits=(0.0, 0.32), camera=plots.Camera(elevation=18, azimuth=225),
-                 label="tau_1 / p0", title="Quarter model, lengths in mm", ax=fig[0])
-plots.heatmap(np.concatenate((-cx[::-1], cx)) / a_h, np.concatenate((cz[::-1], cz)) / a_h,
-              np.concatenate((tau_b[::-1, 0, :], tau_b[:, 0, :])), limits=(0, 0.32), contours=[0.31], label="tau_1 / p0",
-              xlimits=(-2.5, 2.5), ylimits=(-2.5, 0.0), xlabel="x / a", ylabel="z / a",
-              title="Flat body, section y = 0 (line: 0.31)", ax=fig[1])
-plots.line(points={f"OneSimulation, h = a/{lv['n'][0]}": (lv["r"] / lv["a_h"], lv["p"] / lv["p0_h"]) for lv in levels},
-           reference={"Hertz ellipse": (rr, np.sqrt(np.clip(1 - rr**2, 0, None)))}, xlimits=(0, 1.3), xlabel="r / a",
-           ylabel="p / p0", title="Contact pressure at every contact node", ax=fig[2])
-plots.line(points={"-sigma_z": (-fine["sz_axis"] / p0_h, fine["z_axis"] / a_h), "-sigma_r": (-fine["sx_axis"] / p0_h, fine["z_axis"] / a_h),
-                   "tau_1": (fine["tau_axis"] / p0_h, fine["z_axis"] / a_h)},
-           reference={"-sigma_z": (-sz_h / p0_h, zz / a_h), "-sigma_r": (-sr_h / p0_h, zz / a_h),
-                      "tau_1": ((sr_h - sz_h) / (2 * p0_h), zz / a_h)},
-           ylimits=(4, 0), xlabel="stress / p0", ylabel="depth below the contact centre z / a",
-           title="Stresses on the axis (dashed: Hertz)", legend="lower right", ax=fig[3])
-plots.line(FF, {"fit c1 F^(2/3) + c2 F": (fine["c1"] * FF ** (2 / 3) + fine["c2"] * FF) * 1e6},
-           points={"OneSimulation (imposed approach)": (fine["forces"], deltas * 1e6)},
-           reference={"Hertz term c1 F^(2/3)": c1_hertz * FF ** (2 / 3) * 1e6, "fitted c1 F^(2/3)": fine["c1"] * FF ** (2 / 3) * 1e6},
-           xlabel="force on the full sphere F [N]", ylabel="approach [µm]", title="Force-approach law", ax=fig[4])
-plots.line(cells_per_radius, {"contact radius a": [100 * (lv["a_moment"] / lv["a_h"] - 1) for lv in levels],
-                              "p0 (ellipse fit)": [100 * (lv["p0_fit"] / lv["p0_h"] - 1) for lv in levels],
-                              "max shear tau1": [100 * (lv["tau_peak"] / lv["p0_h"] / TAU_HERTZ - 1) for lv in levels],
-                              "RMS pressure deviation": [100 * lv["rms"] for lv in levels]},
-           hlines=0.0, markers=True, xlabel="contact cells per a_ref (block)", ylabel="deviation from Hertz [%]",
-           title="Mesh study", ax=fig[5])
+centres = [(nodes[1:] + nodes[:-1]) / 2 for nodes in (across[-1], down[-1])]
+x, z = (centre[centre < 2.5 * hertz_radius[-1]] for centre in centres)
+section_points = np.column_stack((np.repeat(x, len(z)), np.full(len(x) * len(z), across[-1][1] / 2), -np.tile(z, len(x))))
+section_shear = max_shear(voigt(hooke(strain_from_gradient(spaces[-1].gradient(results[-1].slave_displacement[-1], section_points)))))
+section_shear = section_shear.reshape(len(x), len(z)) / hertz_peak[-1]
+ellipse, load_line = np.linspace(0, 1.3, 300), np.linspace(0, 1.05 * forces[-1][-1], 200)
+fig = plots.figure(layout=[["map", "map", "pressure"], ["axis", "law", "study"]], size=(18, 11))
+plots.heatmap(np.concatenate((-x[::-1], x)) / hertz_radius[-1], -z[::-1] / hertz_radius[-1],
+              np.concatenate((section_shear[::-1, ::-1], section_shear[:, ::-1])), limits=(0, 0.32), contours=[0.31],
+              label="largest shear stress / p0", xlabel="x / a", ylabel="z / a", title="Block below the contact (line: 0.31)", ax=fig["map"])
+plots.line(points={f"simulation, {n} cells per a": (r / a, p / peak) for n, r, p, a, peak in zip(levels, distance, pressure, hertz_radius, hertz_peak)},
+           reference={"Hertz": (ellipse, np.sqrt(np.clip(1 - ellipse**2, 0, None)))}, xlimits=(0, 1.3), xlabel="r / a", ylabel="p / p0",
+           title="Contact pressure at every contact node", legend="lower left", ax=fig["pressure"])
+plots.line(points={"axial": (-axis_stress[-1][:, 2, 2] / hertz_peak[-1], relative_depth), "radial": (-axis_stress[-1][:, 0, 0] / hertz_peak[-1], relative_depth),
+                   "largest shear": (axis_shear[-1], relative_depth)},
+           reference={"axial": (-hertz_axial(scale), scale), "radial": (-hertz_radial(scale), scale), "largest shear": (hertz_shear, scale)},
+           ylimits=(3, 0), xlabel="stress / p0 (compression positive)", ylabel="depth below the contact centre z / a",
+           title="Stresses on the axis: simulation (markers), Hertz (dashed)", legend="lower right", ax=fig["axis"])
+plots.line(load_line, {"fit": 1e6 * (coefficients[0] * load_line ** (2 / 3) + coefficients[1] * load_line)},
+           points={"simulation": (forces[-1], 1e6 * approaches)}, reference={"Hertz term": 1e6 * hertz_coefficient * load_line ** (2 / 3)},
+           xlabel="force on the full sphere [N]", ylabel="approach [µm]", title="Force-approach law", legend="upper left", ax=fig["law"])
+plots.line(levels, {"contact radius": [100 * (a / a_hertz - 1) for a, a_hertz in zip(contact_radius, hertz_radius)],
+                    "largest shear stress": [100 * (shear / hertz_shear.max() - 1) for shear in largest_shear],
+                    "largest nodal pressure": [100 * (p.max() / peak - 1) for p, peak in zip(pressure, hertz_peak)]},
+           hlines=0.0, markers=True, xlabel="cells per contact radius", ylabel="deviation from Hertz [%]", title="Mesh study", ax=fig["study"])
 plots.show()
-
 
 # ## Going further
 #
-# - Give the sphere and the block different materials (for example a ceramic ball on a
-#   steel race): only $E^*$ changes, and the mortar model needs no other modification.
-# - Add a tangential load with `friction_coefficient` to study partial slip (Cattaneo-
-#   Mindlin) under the Hertz pressure.
-# - Replace the sphere by an ellipsoidal or toroidal cap to obtain elliptical Hertz
-#   contacts, as in ball bearings with conforming raceways.
+# Change the radius of the sphere in `hertz_sphere_on_flat_3d_geometry.py`, write the STEP files
+# again and follow the contact radius; give the two bodies different materials, where
+# $1/E^*=(1-\nu_1^2)/E_1+(1-\nu_2^2)/E_2$; or add a friction coefficient and a tangential load.
