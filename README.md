@@ -2,7 +2,9 @@
 
 **A whole simulation lab in one Python package:** CAD, meshing, 16 physics modules, FEM, FVM, FDM and DG, implicit and explicit solvers, multiphysics coupling, plotting and storage behind one API.
 
-**[Documentation](https://johmey.github.io/OneSimulation-Showcase/)** · **[Quickstart](https://johmey.github.io/OneSimulation-Showcase/quickstart.html)** · **[Examples](https://johmey.github.io/OneSimulation-Showcase/examples/index.html)** · **[API reference](https://johmey.github.io/OneSimulation-Showcase/reference/a-physics-api-reference/index.html)** · **[Plans](https://johmey.gumroad.com/l/onesimulation-runtime-abo)** · **[Free for students and courses](https://johmey.gumroad.com/l/onesimulation-education)**
+**[Documentation](https://johmey.github.io/OneSimulation-Showcase/)** · **[Quickstart](https://johmey.github.io/OneSimulation-Showcase/quickstart.html)** · **[Examples](https://johmey.github.io/OneSimulation-Showcase/examples/index.html)** · **[API reference](https://johmey.github.io/OneSimulation-Showcase/reference/a-physics-api-reference/index.html)** · **[Free books](https://johmey.github.io/OneSimulation-Showcase/books.html)** · **[Plans](https://johmey.gumroad.com/l/onesimulation-runtime-abo)**
+
+**Currently not available.** New subscriptions, Education access and notebook orders are paused.
 
 <p>
 <a href="https://johmey.github.io/OneSimulation-Showcase/examples/magnetostatics.html"><img src="https://johmey.github.io/OneSimulation-Showcase/thumbs/hero-magnetostatics.jpg" width="24%" alt="Computed magnetic field of a coil"></a>
@@ -41,7 +43,7 @@ Same 3D Poisson problem, same mesh of 16 × 16 × 16 hexahedra. [The full exampl
 
 ## Install
 
-OneSimulation is delivered as a binary wheel for CPython 3.13 on macOS (Apple Silicon), Linux (x86_64) and Windows (AMD64).
+OneSimulation is delivered as a binary wheel for CPython 3.13 on macOS (Apple Silicon), Linux (x86_64) and Windows (AMD64). The runtime is currently not available for download.
 
 ```bash
 python3.13 -m venv .venv-onesimulation
@@ -53,9 +55,7 @@ The [Quickstart](https://johmey.github.io/OneSimulation-Showcase/quickstart.html
 
 ## Getting it
 
-- **Free for students and course instructors**, after a short check: [apply for Education access](https://johmey.gumroad.com/l/onesimulation-education).
-- **7-day free trial** on every paid plan, from €19 a month: [plans](https://johmey.gumroad.com/l/onesimulation-runtime-abo).
-- **Rather have it built for you?** [Order a simulation notebook](https://johmey.gumroad.com/l/onesimulation-notebook-on-order) at a fixed price.
+**Currently not available.** New subscriptions, Education access and notebook orders are paused. The [plans](https://johmey.gumroad.com/l/onesimulation-runtime-abo) are shown for reference.
 
 OneSimulation is an alpha and a closed binary package. The results shown are numerically verified against references ([verification](https://johmey.github.io/OneSimulation-Showcase/verification.html)); they are not experimentally validated.
 
@@ -65,7 +65,7 @@ The updated English **Showcase (136 pages)** and **Cookbook (433 pages)**
 include a fully worked, user-defined reaction-diffusion equation with direct
 Python API calls, numerical fields and a three-mesh convergence study.
 
-[Download both free PDFs, editable LaTeX sources and the executed notebook](https://github.com/JohMey/OneSimulation-Showcase/releases/tag/custom-equations-2026-11-11).
+[Showcase (PDF)](https://johmey.github.io/OneSimulation-Showcase/books/OneSimulation-Showcase.pdf) · [Cookbook (PDF)](https://johmey.github.io/OneSimulation-Showcase/books/OneSimulation-Cookbook.pdf) · [the worked example online](https://johmey.github.io/OneSimulation-Showcase/examples/custom-equation.html) · [the executed notebook](https://github.com/JohMey/OneSimulation-Showcase/releases/tag/custom-equations-2026-11-11)
 
 The example uses a stationary 2D coefficient-form equation and OneSimulation's
 CG/Jacobi solve. It is checked against an independently derived exact solution;
@@ -81,8 +81,6 @@ and a space–time density plot from 401 saved states.
 [Open the free high-resolution preview and application script](https://github.com/JohMey/OneSimulation-Showcase/releases/tag/sod-weno5-2026-11-10).
 The script defines the model directly through the Python API and requires an
 installed, activated OneSimulation Runtime.
-
-[Explore the OneSimulation Runtime monthly subscription](https://johmey.gumroad.com/l/onesimulation-runtime-abo).
 
 ## Hydrodynamics: vertical shear instability
 
