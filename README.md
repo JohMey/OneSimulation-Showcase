@@ -13,7 +13,7 @@
 <a href="https://johmey.github.io/OneSimulation-Showcase/examples/multiphysics.html"><img src="https://johmey.github.io/OneSimulation-Showcase/thumbs/hero-multiphysics.jpg" width="24%" alt="Computed Joule heating around a hole in a copper plate"></a>
 </p>
 
-Every picture is a real calculation. The [example gallery](https://johmey.github.io/OneSimulation-Showcase/examples/index.html) has one page for each of the sixteen physics modules, with the model, its resolution and its limits.
+Every picture is a real calculation. The [example library](https://johmey.github.io/OneSimulation-Showcase/examples/index.html) holds more than 200 worked notebooks, each compared with a reference, next to one page for each of the sixteen physics modules with the model, its resolution and its limits.
 
 ## One model, five discretizations
 
