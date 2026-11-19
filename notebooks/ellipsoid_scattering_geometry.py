@@ -10,6 +10,10 @@ ellipsoid_scattering.step. The ellipsoid is the part body, the outer sphere the 
 from onesim.cad.d3 import Sphere
 
 body = Sphere(radius=0.1).scaled((1.0, 0.6, 0.4)).named("body")
-for name, outer in (("ellipsoid_scattering_ka025", 3.2), ("ellipsoid_scattering_ka050", 1.6), ("ellipsoid_scattering", 0.8)):
+for name, outer in (
+    ("ellipsoid_scattering_ka025", 3.2),
+    ("ellipsoid_scattering_ka050", 1.6),
+    ("ellipsoid_scattering", 0.8),
+):
     air = Sphere(radius=outer).named("air") - body
     air.save(f"{name}.step")

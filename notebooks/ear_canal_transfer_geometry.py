@@ -13,7 +13,17 @@ from onesim.cad.d3 import Sweep
 radius, bend, first, second = 0.00375, np.radians(60.0), 0.0135, 0.012575
 corner = (0.0, 0.0, first)
 end = (second * np.sin(bend), 0.0, first + second * np.cos(bend))
-circle = Profile(Path((radius, 0.0), (Segment((-radius, 0.0), center=(0.0, 0.0)), Segment((radius, 0.0), center=(0.0, 0.0)))))
+circle = Profile(
+    Path(
+        (radius, 0.0),
+        (
+            Segment((-radius, 0.0), center=(0.0, 0.0)),
+            Segment((radius, 0.0), center=(0.0, 0.0)),
+        ),
+    )
+)
 canal = Sweep(profile=circle, path=((0.0, 0.0, 0.0), corner, end), corner_radius=0.010)
 faces = canal.boundaries
-canal.grouped(entrance=faces.start, eardrum=faces.end, wall=faces.side).save("ear_canal_transfer.step")
+canal.grouped(entrance=faces.start, eardrum=faces.end, wall=faces.side).save(
+    "ear_canal_transfer.step"
+)

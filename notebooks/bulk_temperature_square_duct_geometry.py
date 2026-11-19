@@ -8,4 +8,6 @@ and y_min (the symmetry planes through the duct axis).
 
 from onesim.cad.d3 import Box
 
-Box(length=1.0e-3, width=1.0e-3, height=30.0e-3).save("bulk_temperature_square_duct.step")
+Box(length=1.0e-3, width=1.0e-3, height=30.0e-3).save(
+    "bulk_temperature_square_duct.step"
+)

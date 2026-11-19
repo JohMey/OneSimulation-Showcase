@@ -7,7 +7,6 @@ read from STEP files, is computed with quadratic triangles from 250 Hz to 2 kHz;
 and the diffusion coefficient are compared with the Kirchhoff (Fourier) model of the diffuser.
 """
 
-
 # # Schroeder diffuser
 #
 # M. R. Schroeder (*J. Acoust. Soc. Am.* 57, 149, 1975) proposed wells whose depths follow the
@@ -44,14 +43,16 @@ import numpy as np
 from onesim.cad.exchange import load
 from onesim.meshing import TriangularMesher
 from onesim.numerics.fem import FiniteElement, Lagrange
-from onesim.physics.acoustics import (AcousticHarmonicPressure,
-                                      ComplexPressurePencil,
-                                      ConstantPressureForms,
-                                      PressureAdmittanceBoundary,
-                                      PressureTraceSamples,
-                                      SampledPressureAdmittanceForms,
-                                      SampledPressureVolumeForms,
-                                      pressure_space_volume_samples)
+from onesim.physics.acoustics import (
+    AcousticHarmonicPressure,
+    ComplexPressurePencil,
+    ConstantPressureForms,
+    PressureAdmittanceBoundary,
+    PressureTraceSamples,
+    SampledPressureAdmittanceForms,
+    SampledPressureVolumeForms,
+    pressure_space_volume_samples,
+)
 from onesim.visualization import plots, theme
 from scipy.sparse.linalg import spsolve
 from scipy.special import hankel2
@@ -69,21 +70,49 @@ frequencies = np.array([250.0, 500.0, 1000.0, 2000.0])
 # each at half thickness. The triangles are a sixth of the wavelength at 2 kHz (29 mm) in the open
 # air and 8 mm in the wells.
 
-parts = {"4 periods": load("schroeder_diffuser_scattering.step"), "1 period": load("schroeder_diffuser_scattering_single.step")}
-planes = {name: part.section((0, 0, 1), origin=(0, 0, 0.005)) for name, part in parts.items()}
+parts = {
+    "4 periods": load("schroeder_diffuser_scattering.step"),
+    "1 period": load("schroeder_diffuser_scattering_single.step"),
+}
+planes = {
+    name: part.section((0, 0, 1), origin=(0, 0, 0.005)) for name, part in parts.items()
+}
 outer = planes["1 period"].size[0] / 2
 h = c0 / frequencies.max() / 6
 half_width = {"4 periods": 0.7, "1 period": 0.175}
-meshes = {name: TriangularMesher(target_size=h, size_field=lambda p, w=half_width[name]: np.minimum(
-    h, 0.008 + 0.2 * np.hypot(np.maximum(np.abs(p[:, 0]) - w, 0.0), np.maximum(p[:, 1], 0.0)))).generate(plane)
-    for name, plane in planes.items()}
+meshes = {
+    name: TriangularMesher(
+        target_size=h,
+        size_field=lambda p, w=half_width[name]: np.minimum(
+            h,
+            0.008
+            + 0.2
+            * np.hypot(np.maximum(np.abs(p[:, 0]) - w, 0.0), np.maximum(p[:, 1], 0.0)),
+        ),
+    ).generate(plane)
+    for name, plane in planes.items()
+}
 
 fig = plots.figure(1, 2, size=(16, 6))
-plots.geometry(parts["4 periods"], selection={"wells": parts["4 periods"].boundaries.wells, "wall": parts["4 periods"].boundaries.wall,
-                                              "outer half circle": parts["4 periods"].boundaries.outer},
-               labels=False, camera=plots.Camera(elevation=70, azimuth=-90), title="Air in front of the diffuser, 4 periods (STEP)", ax=fig[0])
-plots.mesh(meshes["4 periods"], groups=("all",), legend=False,
-           title=f"Cross-section, 4 periods: {meshes['4 periods'].cell_count} quadratic triangles", ax=fig[1])
+plots.geometry(
+    parts["4 periods"],
+    selection={
+        "wells": parts["4 periods"].boundaries.wells,
+        "wall": parts["4 periods"].boundaries.wall,
+        "outer half circle": parts["4 periods"].boundaries.outer,
+    },
+    labels=False,
+    camera=plots.Camera(elevation=70, azimuth=-90),
+    title="Air in front of the diffuser, 4 periods (STEP)",
+    ax=fig[0],
+)
+plots.mesh(
+    meshes["4 periods"],
+    groups=("all",),
+    legend=False,
+    title=f"Cross-section, 4 periods: {meshes['4 periods'].cell_count} quadratic triangles",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Model
@@ -98,26 +127,65 @@ def solve_diffuser(name):
     """Pressure at the four frequencies in front of one diffuser."""
     plane, mesh = planes[name], meshes[name]
     space = FiniteElement(element=Lagrange(order=2)).bind_space(mesh)
-    volume = ConstantPressureForms(*SampledPressureVolumeForms(
-        size=space.dof_count, samples=lambda: pressure_space_volume_samples(space),
-        inverse_density=lambda omega, sample: 1 / rho0, compressibility=lambda omega, sample: 1 / impedance / c0)(0.0))
-    rim = [PressureTraceSamples(space.cell_dofs[owner], points, weights, basis)
-           for owner, points, weights, _, basis, _ in map(space.trace_data, mesh.facets(plane.boundaries.outer))]
-    trace = SampledPressureAdmittanceForms(size=space.dof_count, samples=lambda: iter(rim), admittance=lambda omega, sample: 1.0)(0.0)
-    admittance = lambda omega: -1j * hankel2(1, omega.real * outer / c0) / hankel2(0, omega.real * outer / c0) / impedance
+    volume = ConstantPressureForms(
+        *SampledPressureVolumeForms(
+            size=space.dof_count,
+            samples=lambda: pressure_space_volume_samples(space),
+            inverse_density=lambda omega, sample: 1 / rho0,
+            compressibility=lambda omega, sample: 1 / impedance / c0,
+        )(0.0)
+    )
+    rim = [
+        PressureTraceSamples(space.cell_dofs[owner], points, weights, basis)
+        for owner, points, weights, _, basis, _ in map(
+            space.trace_data, mesh.facets(plane.boundaries.outer)
+        )
+    ]
+    trace = SampledPressureAdmittanceForms(
+        size=space.dof_count,
+        samples=lambda: iter(rim),
+        admittance=lambda omega, sample: 1.0,
+    )(0.0)
+    admittance = (
+        lambda omega: -1j
+        * hankel2(1, omega.real * outer / c0)
+        / hankel2(0, omega.real * outer / c0)
+        / impedance
+    )
     y = space.dof_coordinates[:, 1]
     flat = lambda omega: 2 * incident * np.cos(omega.real / c0 * y)
-    flux = lambda omega: -2 * incident * omega.real / c0 * np.sin(omega.real / c0 * y) * y / outer
-    pressure = AcousticHarmonicPressure(
-        operator=ComplexPressurePencil(volume, boundary=PressureAdmittanceBoundary(lambda omega: admittance(omega) * trace)),
-        angular_frequencies=2 * np.pi * frequencies, linear_solver=spsolve,
-        load=lambda omega: trace @ (flux(omega) / rho0 + 1j * omega * admittance(omega) * flat(omega))).run().pressure
+    flux = (
+        lambda omega: -2
+        * incident
+        * omega.real
+        / c0
+        * np.sin(omega.real / c0 * y)
+        * y
+        / outer
+    )
+    pressure = (
+        AcousticHarmonicPressure(
+            operator=ComplexPressurePencil(
+                volume,
+                boundary=PressureAdmittanceBoundary(
+                    lambda omega: admittance(omega) * trace
+                ),
+            ),
+            angular_frequencies=2 * np.pi * frequencies,
+            linear_solver=spsolve,
+            load=lambda omega: trace
+            @ (flux(omega) / rho0 + 1j * omega * admittance(omega) * flat(omega)),
+        )
+        .run()
+        .pressure
+    )
     return dict(space=space, mesh=mesh, pressure=pressure)
 
 
 runs = {name: solve_diffuser(name) for name in planes}
-scattered = lambda name, points: np.asarray(runs[name]["space"].evaluate(runs[name]["pressure"].T, points)) - 2 * incident * np.cos(
-    2 * np.pi * frequencies / c0 * points[:, 1:2])
+scattered = lambda name, points: np.asarray(
+    runs[name]["space"].evaluate(runs[name]["pressure"].T, points)
+) - 2 * incident * np.cos(2 * np.pi * frequencies / c0 * points[:, 1:2])
 
 # ## Reference
 #
@@ -127,13 +195,23 @@ nodes, weights = np.polynomial.legendre.leggauss(24)
 kirchhoff = {}
 for name, periods in (("4 periods", 4), ("1 period", 1)):
     left, width = -periods * 7 * cell / 2, cell - fin
-    wells = [(left + i * cell + cell / 2, (i % 7) ** 2 % 7 * unit) for i in range(7 * periods)]
+    wells = [
+        (left + i * cell + cell / 2, (i % 7) ** 2 % 7 * unit)
+        for i in range(7 * periods)
+    ]
     x_source = np.concatenate([centre + width / 2 * nodes for centre, _ in wells])
     depth = np.repeat([d for _, d in wells], len(nodes))
     kirchhoff[name] = lambda points, f, x_source=x_source, depth=depth: (
-        (np.exp(-4j * np.pi * f / c0 * depth) - 1) * np.tile(weights, len(depth) // len(weights)) * width / 2
-        * (1 + points[:, 1:2] / np.hypot(points[:, :1] - x_source, points[:, 1:2])) / 2
-        * hankel2(0, 2 * np.pi * f / c0 * np.hypot(points[:, :1] - x_source, points[:, 1:2]))).sum(axis=1)
+        (np.exp(-4j * np.pi * f / c0 * depth) - 1)
+        * np.tile(weights, len(depth) // len(weights))
+        * width
+        / 2
+        * (1 + points[:, 1:2] / np.hypot(points[:, :1] - x_source, points[:, 1:2]))
+        / 2
+        * hankel2(
+            0, 2 * np.pi * f / c0 * np.hypot(points[:, :1] - x_source, points[:, 1:2])
+        )
+    ).sum(axis=1)
 
 # ## Results
 #
@@ -144,18 +222,27 @@ theta = np.radians(np.linspace(-90.0, 90.0, 37))
 receivers = 2.8 * np.column_stack((np.sin(theta), np.cos(theta)))
 fine_theta = np.radians(np.linspace(-90.0, 90.0, 361))
 ring = 2.8 * np.column_stack((np.sin(fine_theta), np.cos(fine_theta)))
-diffusion = lambda values: (np.sum(values) ** 2 - np.sum(values**2)) / ((len(values) - 1) * np.sum(values**2))
+diffusion = lambda values: (np.sum(values) ** 2 - np.sum(values**2)) / (
+    (len(values) - 1) * np.sum(values**2)
+)
 polar, model = {}, {}
-print(" case        f [Hz]   diffusion coeff. FE   Kirchhoff   |level difference| where both above -10 dB")
+print(
+    " case        f [Hz]   diffusion coeff. FE   Kirchhoff   |level difference| where both above -10 dB"
+)
 for name in planes:
-    on_ring, at_receivers = np.abs(scattered(name, ring)) ** 2, np.abs(scattered(name, receivers)) ** 2
+    on_ring, at_receivers = (
+        np.abs(scattered(name, ring)) ** 2,
+        np.abs(scattered(name, receivers)) ** 2,
+    )
     for i, f in enumerate(frequencies):
         reference_ring = np.abs(kirchhoff[name](ring, f)) ** 2
         polar[name, f] = 10 * np.log10(on_ring[:, i] / on_ring[:, i].max())
         model[name, f] = 10 * np.log10(reference_ring / reference_ring.max())
         main = (polar[name, f] > -10) & (model[name, f] > -10)
-        print(f" {name:10s} {f:7.0f}   {diffusion(at_receivers[:, i]):19.3f}   {diffusion(np.abs(kirchhoff[name](receivers, f)) ** 2):9.3f}"
-              f"   median {np.median(np.abs(polar[name, f] - model[name, f])[main]):.1f} dB, largest {np.max(np.abs(polar[name, f] - model[name, f])[main]):.1f} dB")
+        print(
+            f" {name:10s} {f:7.0f}   {diffusion(at_receivers[:, i]):19.3f}   {diffusion(np.abs(kirchhoff[name](receivers, f)) ** 2):9.3f}"
+            f"   median {np.median(np.abs(polar[name, f] - model[name, f])[main]):.1f} dB, largest {np.max(np.abs(polar[name, f] - model[name, f])[main]):.1f} dB"
+        )
 
 # ## Figure
 #
@@ -165,15 +252,33 @@ for name in planes:
 
 mesh = meshes["4 periods"]
 x, y = np.asarray(mesh.coordinates).T
-field = runs["4 periods"]["pressure"][1][:len(x)].real
+field = runs["4 periods"]["pressure"][1][: len(x)].real
 fig = plots.figure(layout=[["field", "field"], ["one", "four"]], size=(17, 14))
-plots.heatmap(x, y, field, triangles=np.asarray(mesh.cells), colormap="diverging", limits=(-2.5, 2.5), xlimits=(-1.6, 1.6), ylimits=(-0.25, 1.6),
-              label="pressure / p0", title="Pressure in front of four periods and in the wells at 500 Hz (instantaneous)", ax=fig["field"])
+plots.heatmap(
+    x,
+    y,
+    field,
+    triangles=np.asarray(mesh.cells),
+    colormap="diverging",
+    limits=(-2.5, 2.5),
+    xlimits=(-1.6, 1.6),
+    ylimits=(-0.25, 1.6),
+    label="pressure / p0",
+    title="Pressure in front of four periods and in the wells at 500 Hz (instantaneous)",
+    ax=fig["field"],
+)
 for panel, name in (("one", "1 period"), ("four", "4 periods")):
-    plots.line(np.degrees(fine_theta), {f"{f:.0f} Hz": polar[name, f] for f in (500.0, 1000.0)},
-               reference={f"{f:.0f} Hz": model[name, f] for f in (500.0, 1000.0)}, ylimits=(-30, 3),
-               xlabel="angle from the wall normal [deg]", ylabel="scattered level, normalised [dB]",
-               title=f"{name}: polar response (dashed: Kirchhoff)", legend="lower center", ax=fig[panel])
+    plots.line(
+        np.degrees(fine_theta),
+        {f"{f:.0f} Hz": polar[name, f] for f in (500.0, 1000.0)},
+        reference={f"{f:.0f} Hz": model[name, f] for f in (500.0, 1000.0)},
+        ylimits=(-30, 3),
+        xlabel="angle from the wall normal [deg]",
+        ylabel="scattered level, normalised [dB]",
+        title=f"{name}: polar response (dashed: Kirchhoff)",
+        legend="lower center",
+        ax=fig[panel],
+    )
 plots.show()
 
 # ## Going further

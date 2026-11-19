@@ -9,7 +9,6 @@ couplings in the same problem. The outlet concentrations are compared with a Gra
 estimate, together with the water and solute balances and a three-level mesh study.
 """
 
-
 # # Microchannel H-cell: separation by diffusion
 #
 # The H-cell, the microfluidic "H-filter" (J. P. Brody and P. Yager, *Sensors and Actuators A*
@@ -62,18 +61,24 @@ from onesim.cad.exchange import load
 from onesim.materials import IsotropicSolid, NewtonianFluid
 from onesim.meshing import Geometric, SweepMesher
 from onesim.numerics import Numerics
-from onesim.numerics.fem import (FiniteElement, GalerkinAdvection, Lagrange,
-                                 TaylorHood)
+from onesim.numerics.fem import FiniteElement, GalerkinAdvection, Lagrange, TaylorHood
 from onesim.numerics.field_transfer import FieldInterpolation
 from onesim.numerics.linear import SparseDirect
 from onesim.numerics.nonlinear import Newton
-from onesim.physics.heat_transfer import (ConvectiveHeatTransfer,
-                                          FixedTemperature, HeatFlux)
-from onesim.physics.hydrodynamics import (FixedVelocity, FlowTraction,
-                                          FreeSlipLaw,
-                                          IncompressibleNavierStokes,
-                                          NoSlipWall, WallShear,
-                                          fully_developed_inflow)
+from onesim.physics.heat_transfer import (
+    ConvectiveHeatTransfer,
+    FixedTemperature,
+    HeatFlux,
+)
+from onesim.physics.hydrodynamics import (
+    FixedVelocity,
+    FlowTraction,
+    FreeSlipLaw,
+    IncompressibleNavierStokes,
+    NoSlipWall,
+    WallShear,
+    fully_developed_inflow,
+)
 from onesim.results.comparisons import convergence
 from onesim.results.derived import derived_field
 from onesim.simulation import Problem, Simulation
@@ -93,17 +98,39 @@ theme.set()
 um = 1e-6
 channel = load("microchannel_h_cell_diffusion.step")
 faces = channel.boundaries
-bottom = channel.select(faces=lambda face: face.kind == "plane" and abs(face.center[2]) < 1e-12)
+bottom = channel.select(
+    faces=lambda face: face.kind == "plane" and abs(face.center[2]) < 1e-12
+)
 sizes = [5.0 * um, 4.0 * um, 3.0 * um]
-meshes = [SweepMesher(source=bottom, target_size=size, layers=Geometric(layers, ratio=2.0)).generate(channel)
-          for size, layers in zip(sizes, (2, 3, 4))]
+meshes = [
+    SweepMesher(
+        source=bottom, target_size=size, layers=Geometric(layers, ratio=2.0)
+    ).generate(channel)
+    for size, layers in zip(sizes, (2, 3, 4))
+]
 
 view = plots.Camera(elevation=55, azimuth=-70)
 fig = plots.figure(1, 2, size=(16, 6))
-plots.geometry(channel, selection={"inlet A": faces.inlet_a, "inlet B": faces.inlet_b, "outlets": faces.outlet_a | faces.outlet_b},
-               labels=False, camera=view, title="Lower half of the H-cell with its named faces", ax=fig[0])
-plots.mesh(meshes[-1], groups=("all",), legend=False, camera=view,
-           title=f"Finest mesh: {meshes[-1].cell_count} swept hexahedra", ax=fig[1])
+plots.geometry(
+    channel,
+    selection={
+        "inlet A": faces.inlet_a,
+        "inlet B": faces.inlet_b,
+        "outlets": faces.outlet_a | faces.outlet_b,
+    },
+    labels=False,
+    camera=view,
+    title="Lower half of the H-cell with its named faces",
+    ax=fig[0],
+)
+plots.mesh(
+    meshes[-1],
+    groups=("all",),
+    legend=False,
+    camera=view,
+    title=f"Finest mesh: {meshes[-1].cell_count} swept hexahedra",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Model
@@ -117,32 +144,109 @@ plots.show()
 
 W, L, mean_speed, c0 = 10 * um, 100 * um, 1.0e-4, 1.0
 diffusivities = [1e-10, 5e-11, 1e-11]
-flow = IncompressibleNavierStokes(domain=channel.volume, material=NewtonianFluid(density=1000.0, dynamic_viscosity=1.0e-3))
-solutes = [ConvectiveHeatTransfer(domain=channel.volume, velocity=None, material=IsotropicSolid(
-    density=1.0, specific_heat_capacity=1.0, thermal_conductivity=D, youngs_modulus=1.0, poisson_ratio=0.3,
-    thermal_expansion_coefficient=0.0)) for D in diffusivities]
-transport = Numerics(spatial=FiniteElement(element=Lagrange(order=2), convection=GalerkinAdvection()), linear_solver=SparseDirect())
-numerics = {flow: Numerics(spatial=FiniteElement(element=TaylorHood()), initial_guess={flow.velocity: (0.0, 0.0, 0.0)},
-                           nonlinear_solver=Newton(linear_solver=SparseDirect(), absolute_tolerance=1e-15,
-                                                   relative_tolerance=1e-10, maximum_iterations=10)),
-            **{solute: transport for solute in solutes}}
-results = [Simulation(mesh=dict.fromkeys((flow, *solutes), mesh), numerics=numerics, problem=Problem(
-    name="Microchannel H-cell", geometry=channel, physics=(flow, *solutes),
-    boundary_conditions=(
-        FixedVelocity(boundary=faces.inlet_a, physics=flow,
-                      value=fully_developed_inflow(mesh, faces.inlet_a, mean_velocity=mean_speed, no_slip=faces.walls)),
-        FixedVelocity(boundary=faces.inlet_b, physics=flow,
-                      value=fully_developed_inflow(mesh, faces.inlet_b, mean_velocity=mean_speed, no_slip=faces.walls)),
-        FlowTraction(boundary=faces.outlet_a | faces.outlet_b, physics=flow, value=lambda x, y, z: np.zeros((len(x), 3))),
-        NoSlipWall(boundary=faces.walls, physics=flow),
-        WallShear(boundary=faces.mid_plane, physics=flow, law=FreeSlipLaw()),
-        *[condition for solute in solutes for condition in (
-            FixedTemperature(physics=solute, boundary=faces.inlet_a, value=c0),
-            FixedTemperature(physics=solute, boundary=faces.inlet_b, value=0.0),
-            HeatFlux(physics=solute, boundary=faces.all - faces.inlet_a - faces.inlet_b, value=0.0))]),
-    initial_conditions=(InitialValue(flow.velocity, (0.0, 0.0, 0.0)),),
-    couplings=tuple(FieldCoupling(source=flow.velocity, target=solute.advecting_velocity, transfer=FieldInterpolation())
-                    for solute in solutes))).solve_stationary() for mesh in meshes]
+flow = IncompressibleNavierStokes(
+    domain=channel.volume,
+    material=NewtonianFluid(density=1000.0, dynamic_viscosity=1.0e-3),
+)
+solutes = [
+    ConvectiveHeatTransfer(
+        domain=channel.volume,
+        velocity=None,
+        material=IsotropicSolid(
+            density=1.0,
+            specific_heat_capacity=1.0,
+            thermal_conductivity=D,
+            youngs_modulus=1.0,
+            poisson_ratio=0.3,
+            thermal_expansion_coefficient=0.0,
+        ),
+    )
+    for D in diffusivities
+]
+transport = Numerics(
+    spatial=FiniteElement(element=Lagrange(order=2), convection=GalerkinAdvection()),
+    linear_solver=SparseDirect(),
+)
+numerics = {
+    flow: Numerics(
+        spatial=FiniteElement(element=TaylorHood()),
+        initial_guess={flow.velocity: (0.0, 0.0, 0.0)},
+        nonlinear_solver=Newton(
+            linear_solver=SparseDirect(),
+            absolute_tolerance=1e-15,
+            relative_tolerance=1e-10,
+            maximum_iterations=10,
+        ),
+    ),
+    **{solute: transport for solute in solutes},
+}
+results = [
+    Simulation(
+        mesh=dict.fromkeys((flow, *solutes), mesh),
+        numerics=numerics,
+        problem=Problem(
+            name="Microchannel H-cell",
+            geometry=channel,
+            physics=(flow, *solutes),
+            boundary_conditions=(
+                FixedVelocity(
+                    boundary=faces.inlet_a,
+                    physics=flow,
+                    value=fully_developed_inflow(
+                        mesh,
+                        faces.inlet_a,
+                        mean_velocity=mean_speed,
+                        no_slip=faces.walls,
+                    ),
+                ),
+                FixedVelocity(
+                    boundary=faces.inlet_b,
+                    physics=flow,
+                    value=fully_developed_inflow(
+                        mesh,
+                        faces.inlet_b,
+                        mean_velocity=mean_speed,
+                        no_slip=faces.walls,
+                    ),
+                ),
+                FlowTraction(
+                    boundary=faces.outlet_a | faces.outlet_b,
+                    physics=flow,
+                    value=lambda x, y, z: np.zeros((len(x), 3)),
+                ),
+                NoSlipWall(boundary=faces.walls, physics=flow),
+                WallShear(boundary=faces.mid_plane, physics=flow, law=FreeSlipLaw()),
+                *[
+                    condition
+                    for solute in solutes
+                    for condition in (
+                        FixedTemperature(
+                            physics=solute, boundary=faces.inlet_a, value=c0
+                        ),
+                        FixedTemperature(
+                            physics=solute, boundary=faces.inlet_b, value=0.0
+                        ),
+                        HeatFlux(
+                            physics=solute,
+                            boundary=faces.all - faces.inlet_a - faces.inlet_b,
+                            value=0.0,
+                        ),
+                    )
+                ],
+            ),
+            initial_conditions=(InitialValue(flow.velocity, (0.0, 0.0, 0.0)),),
+            couplings=tuple(
+                FieldCoupling(
+                    source=flow.velocity,
+                    target=solute.advecting_velocity,
+                    transfer=FieldInterpolation(),
+                )
+                for solute in solutes
+            ),
+        ),
+    ).solve_stationary()
+    for mesh in meshes
+]
 velocity = results[-1].field(flow.velocity)
 concentrations = [results[-1].field(solute.temperature) for solute in solutes]
 
@@ -154,41 +258,87 @@ concentrations = [results[-1].field(solute.temperature) for solute in solutes]
 # average).
 
 ports = ("inlet_a", "inlet_b", "outlet_a", "outlet_b")
-water = {port: 2 * velocity.integrate(boundary=getattr(faces, port), normal_component=True).value for port in ports}
-carried = [derived_field(velocity, lambda u, points, c=c: u * np.ravel(c.evaluate(points))[:, None], name="solute_flux",
-                         unit="mol/m^2/s", components=("x", "y", "z")) for c in concentrations]
-solute = [{port: 2 * flux.integrate(boundary=getattr(faces, port), normal_component=True).value for port in ports} for flux in carried]
-print(f"water [pl/s]: in A {-1e15 * water['inlet_a']:.4f}, in B {-1e15 * water['inlet_b']:.4f}, out A {1e15 * water['outlet_a']:.4f}, "
-      f"out B {1e15 * water['outlet_b']:.4f}; out/in - 1 = {-sum(water.values()) / (water['inlet_a'] + water['inlet_b']):+.1e}")
+water = {
+    port: 2
+    * velocity.integrate(boundary=getattr(faces, port), normal_component=True).value
+    for port in ports
+}
+carried = [
+    derived_field(
+        velocity,
+        lambda u, points, c=c: u * np.ravel(c.evaluate(points))[:, None],
+        name="solute_flux",
+        unit="mol/m^2/s",
+        components=("x", "y", "z"),
+    )
+    for c in concentrations
+]
+solute = [
+    {
+        port: 2
+        * flux.integrate(boundary=getattr(faces, port), normal_component=True).value
+        for port in ports
+    }
+    for flux in carried
+]
+print(
+    f"water [pl/s]: in A {-1e15 * water['inlet_a']:.4f}, in B {-1e15 * water['inlet_b']:.4f}, out A {1e15 * water['outlet_a']:.4f}, "
+    f"out B {1e15 * water['outlet_b']:.4f}; out/in - 1 = {-sum(water.values()) / (water['inlet_a'] + water['inlet_b']):+.1e}"
+)
 for D, flows in zip(diffusivities, solute):
-    print(f"solute D = {D:.0e} m²/s [fmol/s]: in {-1e15 * (flows['inlet_a'] + flows['inlet_b']):.4f}, out A {1e15 * flows['outlet_a']:.4f}, "
-          f"out B {1e15 * flows['outlet_b']:.4f}; out/in - 1 = {-sum(flows.values()) / (flows['inlet_a'] + flows['inlet_b']):+.1e}")
+    print(
+        f"solute D = {D:.0e} m²/s [fmol/s]: in {-1e15 * (flows['inlet_a'] + flows['inlet_b']):.4f}, out A {1e15 * flows['outlet_a']:.4f}, "
+        f"out B {1e15 * flows['outlet_b']:.4f}; out/in - 1 = {-sum(flows.values()) / (flows['inlet_a'] + flows['inlet_b']):+.1e}"
+    )
 
 tau = L / mean_speed
 tau_eff = (np.pi / 4) ** 2 * 2.096 * tau
-exchange = lambda D, time, n=np.arange(1, 2001, 2): 0.5 - np.sum(4 / (n * np.pi) ** 2 * np.exp(-(n * np.pi) ** 2 * D * time / (4 * W**2)))
+exchange = lambda D, time, n=np.arange(1, 2001, 2): 0.5 - np.sum(
+    4 / (n * np.pi) ** 2 * np.exp(-((n * np.pi) ** 2) * D * time / (4 * W**2))
+)
 c_b = [flows["outlet_b"] / water["outlet_b"] for flows in solute]
-print("D [m²/s]   c_B simulation [mol/m³]   Graetz-type estimate   deviation   plug-flow estimate   c range in the channel")
+print(
+    "D [m²/s]   c_B simulation [mol/m³]   Graetz-type estimate   deviation   plug-flow estimate   c range in the channel"
+)
 for D, value, c in zip(diffusivities, c_b, concentrations):
     nodal = np.ravel(c.evaluate(meshes[-1].coordinates))
-    print(f"{D:8.0e} {value:25.4f} {c0 * exchange(D, tau_eff):22.4f} {100 * (value / (c0 * exchange(D, tau_eff)) - 1):+10.1f} % "
-          f"{c0 * exchange(D, tau):20.4f}     {nodal.min():+.3f} to {nodal.max():.3f}")
+    print(
+        f"{D:8.0e} {value:25.4f} {c0 * exchange(D, tau_eff):22.4f} {100 * (value / (c0 * exchange(D, tau_eff)) - 1):+10.1f} % "
+        f"{c0 * exchange(D, tau):20.4f}     {nodal.min():+.3f} to {nodal.max():.3f}"
+    )
 
 # ## Mesh study
 #
 # The outlet-B concentration of the large molecule ($D=10^{-11}$ m²/s, the steepest fronts) and
 # the pressure drop from inlet A to the outlets on the three meshes.
 
-c_low = [derived_field(result.field(flow.velocity), lambda u, points, c=result.field(solutes[-1].temperature): u * np.ravel(c.evaluate(points))[:, None],
-                       name="solute_flux", unit="mol/m^2/s", components=("x", "y", "z")).integrate(boundary=faces.outlet_b, normal_component=True).value
-         / result.field(flow.velocity).integrate(boundary=faces.outlet_b, normal_component=True).value for result in results]
+c_low = [
+    derived_field(
+        result.field(flow.velocity),
+        lambda u, points, c=result.field(solutes[-1].temperature): u
+        * np.ravel(c.evaluate(points))[:, None],
+        name="solute_flux",
+        unit="mol/m^2/s",
+        components=("x", "y", "z"),
+    )
+    .integrate(boundary=faces.outlet_b, normal_component=True)
+    .value
+    / result.field(flow.velocity)
+    .integrate(boundary=faces.outlet_b, normal_component=True)
+    .value
+    for result in results
+]
 inlet_point = [[5 * um, -60 * um + 1e-9, 10 * um - 1e-12]]
-drop = [float(result.field(flow.pressure).evaluate(inlet_point)[0]) for result in results]
+drop = [
+    float(result.field(flow.pressure).evaluate(inlet_point)[0]) for result in results
+]
 study_c, study_p = convergence(c_low, sizes), convergence(drop, sizes)
 print("cell size [µm]   hexahedra   c_B for D = 1e-11 [mol/m³]   inlet pressure [Pa]")
 for size, mesh, value, p in zip(sizes, meshes, c_low, drop):
     print(f"{size / um:14.1f} {mesh.cell_count:11d} {value:28.4f} {p:21.4f}")
-print(f"change between the two finest meshes: c_B {100 * study_c.change:+.2f} %, inlet pressure {100 * study_p.change:+.2f} %")
+print(
+    f"change between the two finest meshes: c_B {100 * study_c.change:+.2f} %, inlet pressure {100 * study_p.change:+.2f} %"
+)
 
 # ## Figure
 #
@@ -197,25 +347,64 @@ print(f"change between the two finest meshes: c_B {100 * study_c.change:+.2f} %,
 # outlet-B concentration against the diffusivity with both estimates, and the mesh study.
 
 D_line = np.geomspace(3e-12, 3e-10, 80)
-fig = plots.figure(layout=[["slow"] * 3 + ["fast"] * 3, ["cut 70"] * 3 + ["cut 110"] * 3,
-                           ["outlet"] * 3 + ["mesh"] * 3], size=(16, 15))
+fig = plots.figure(
+    layout=[
+        ["slow"] * 3 + ["fast"] * 3,
+        ["cut 70"] * 3 + ["cut 110"] * 3,
+        ["outlet"] * 3 + ["mesh"] * 3,
+    ],
+    size=(16, 15),
+)
 for panel, index in (("slow", 2), ("fast", 0)):
-    plots.surface(concentrations[index], boundary=faces.mid_plane, limits=(0.0, c0), contours=9, subdivisions=3, aspect=1.0,
-                  label="c [mol/m³]", title=f"D = {diffusivities[index]:.0e} m²/s on the mid-depth plane: c_B = {c_b[index]:.3f} mol/m³",
-                  ax=fig[panel])
+    plots.surface(
+        concentrations[index],
+        boundary=faces.mid_plane,
+        limits=(0.0, c0),
+        contours=9,
+        subdivisions=3,
+        aspect=1.0,
+        label="c [mol/m³]",
+        title=f"D = {diffusivities[index]:.0e} m²/s on the mid-depth plane: c_B = {c_b[index]:.3f} mol/m³",
+        ax=fig[panel],
+    )
 for x_cut in (70, 110):
-    plots.section(concentrations[2], plane=Plane(origin=(x_cut * um, 0.0, 0.0), normal=(1.0, 0.0, 0.0)),
-                  symmetry={"planes": [((0, 0, 1), (0, 0, 10 * um))]}, limits=(0.0, c0), contours=9, subdivisions=3,
-                  label="c [mol/m³]", title=f"D = 1e-11 m²/s, x = {x_cut} µm", xlimits=(-W, W), ylimits=(0.0, 2 * W),
-                  ax=fig[f"cut {x_cut}"])
-plots.line(D_line, {"Graetz-type estimate": [c0 * exchange(D, tau_eff) for D in D_line]},
-           reference={"plug-flow estimate": (D_line, [c0 * exchange(D, tau) for D in D_line])},
-           points={"3D simulation": (diffusivities, c_b)}, hlines={"complete mixing": 0.5 * c0}, scale="logx",
-           ylimits=(0.0, 0.55), xlabel="diffusivity D [m²/s]", ylabel="concentration at outlet B [mol/m³]",
-           title="Separation by molecular size", legend="lower right", ax=fig["outlet"])
-plots.line([size / um for size in sizes], {"3D simulation, D = 1e-11 m²/s": c_low}, markers=True,
-           hlines={"Graetz-type estimate": c0 * exchange(1e-11, tau_eff)}, xlabel="cell size [µm]",
-           ylabel="concentration at outlet B [mol/m³]", title="Mesh study", ax=fig["mesh"])
+    plots.section(
+        concentrations[2],
+        plane=Plane(origin=(x_cut * um, 0.0, 0.0), normal=(1.0, 0.0, 0.0)),
+        symmetry={"planes": [((0, 0, 1), (0, 0, 10 * um))]},
+        limits=(0.0, c0),
+        contours=9,
+        subdivisions=3,
+        label="c [mol/m³]",
+        title=f"D = 1e-11 m²/s, x = {x_cut} µm",
+        xlimits=(-W, W),
+        ylimits=(0.0, 2 * W),
+        ax=fig[f"cut {x_cut}"],
+    )
+plots.line(
+    D_line,
+    {"Graetz-type estimate": [c0 * exchange(D, tau_eff) for D in D_line]},
+    reference={"plug-flow estimate": (D_line, [c0 * exchange(D, tau) for D in D_line])},
+    points={"3D simulation": (diffusivities, c_b)},
+    hlines={"complete mixing": 0.5 * c0},
+    scale="logx",
+    ylimits=(0.0, 0.55),
+    xlabel="diffusivity D [m²/s]",
+    ylabel="concentration at outlet B [mol/m³]",
+    title="Separation by molecular size",
+    legend="lower right",
+    ax=fig["outlet"],
+)
+plots.line(
+    [size / um for size in sizes],
+    {"3D simulation, D = 1e-11 m²/s": c_low},
+    markers=True,
+    hlines={"Graetz-type estimate": c0 * exchange(1e-11, tau_eff)},
+    xlabel="cell size [µm]",
+    ylabel="concentration at outlet B [mol/m³]",
+    title="Mesh study",
+    ax=fig["mesh"],
+)
 plots.show()
 
 # ## Going further

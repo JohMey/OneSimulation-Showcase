@@ -14,9 +14,28 @@ from onesim.cad.d3 import Box, Prism
 
 mm = 1e-3
 width, thickness, run = 1.0 * mm, 0.5 * mm, 1 / np.tan(np.radians(30))
-outer = Profile.rounded_polygon([(7 * mm, 0.0), (17 * mm, 0.0), ((17 - 4 * run) * mm, 4 * mm), ((7 - 4 * run) * mm, 4 * mm)], 1.3 * mm)
-island = Profile.rounded_polygon([((9 - run) * mm, width), ((15 - run) * mm, width), ((15 - 3 * run) * mm, 3 * mm),
-                                  ((9 - 3 * run) * mm, 3 * mm)], 0.3 * mm)
-channel = Box(length=26 * mm, width=width, height=thickness, origin=(-4 * mm, 0.0, 0.0)).named("channel")
-valve = (channel | Prism(profile=outer, height=thickness)) - Prism(profile=island, height=thickness)
+outer = Profile.rounded_polygon(
+    [
+        (7 * mm, 0.0),
+        (17 * mm, 0.0),
+        ((17 - 4 * run) * mm, 4 * mm),
+        ((7 - 4 * run) * mm, 4 * mm),
+    ],
+    1.3 * mm,
+)
+island = Profile.rounded_polygon(
+    [
+        ((9 - run) * mm, width),
+        ((15 - run) * mm, width),
+        ((15 - 3 * run) * mm, 3 * mm),
+        ((9 - 3 * run) * mm, 3 * mm),
+    ],
+    0.3 * mm,
+)
+channel = Box(
+    length=26 * mm, width=width, height=thickness, origin=(-4 * mm, 0.0, 0.0)
+).named("channel")
+valve = (channel | Prism(profile=outer, height=thickness)) - Prism(
+    profile=island, height=thickness
+)
 valve.save("tesla_valve_diodicity.step")

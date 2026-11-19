@@ -8,7 +8,6 @@ with the low-frequency scattering law of a rigid body, built from the ellipsoid'
 added-mass tensor.
 """
 
-
 # # Sound scattered by a rigid ellipsoid
 #
 # A plane wave $p_i=p_0e^{-ik\,\hat{\mathbf d}\cdot\mathbf x}$ with direction
@@ -44,14 +43,16 @@ import numpy as np
 from onesim.cad.exchange import load
 from onesim.meshing import LocalRefinement, TetrahedralMesher, with_order
 from onesim.numerics.fem import FiniteElement, Lagrange
-from onesim.physics.acoustics import (AcousticHarmonicPressure,
-                                      ComplexPressurePencil,
-                                      ConstantPressureForms,
-                                      PressureAdmittanceBoundary,
-                                      PressureTraceSamples,
-                                      SampledPressureAdmittanceForms,
-                                      SampledPressureVolumeForms,
-                                      pressure_space_volume_samples)
+from onesim.physics.acoustics import (
+    AcousticHarmonicPressure,
+    ComplexPressurePencil,
+    ConstantPressureForms,
+    PressureAdmittanceBoundary,
+    PressureTraceSamples,
+    SampledPressureAdmittanceForms,
+    SampledPressureVolumeForms,
+    pressure_space_volume_samples,
+)
 from onesim.visualization import plots, theme
 from scipy.integrate import quad
 from scipy.sparse.linalg import spsolve
@@ -62,7 +63,11 @@ c0, rho0, amplitude = 343.0, 1.204, 1.0
 impedance = rho0 * c0
 axes = np.array([0.10, 0.06, 0.04])
 direction = np.ones(3) / np.sqrt(3)
-cases = {0.25: "ellipsoid_scattering_ka025.step", 0.5: "ellipsoid_scattering_ka050.step", 1.0: "ellipsoid_scattering.step"}
+cases = {
+    0.25: "ellipsoid_scattering_ka025.step",
+    0.5: "ellipsoid_scattering_ka050.step",
+    1.0: "ellipsoid_scattering.step",
+}
 
 # ## Geometry and meshes
 #
@@ -71,16 +76,38 @@ cases = {0.25: "ellipsoid_scattering_ka025.step", 0.5: "ellipsoid_scattering_ka0
 # them to quadratic cells whose edge nodes lie on the curved faces.
 
 parts = {ka: load(name) for ka, name in cases.items()}
-meshes = {ka: with_order(TetrahedralMesher(target_size=2 * np.pi * axes[0] / ka / 6, refinements=(
-    LocalRefinement(region=part.boundaries.body, target_size=0.012),)).generate(part), 2) for ka, part in parts.items()}
+meshes = {
+    ka: with_order(
+        TetrahedralMesher(
+            target_size=2 * np.pi * axes[0] / ka / 6,
+            refinements=(
+                LocalRefinement(region=part.boundaries.body, target_size=0.012),
+            ),
+        ).generate(part),
+        2,
+    )
+    for ka, part in parts.items()
+}
 
 part = parts[1.0]
 view = plots.Camera(elevation=25, azimuth=-50)
 fig = plots.figure(1, 2, size=(15, 7))
-plots.geometry(part, selection={"ellipsoid": part.boundaries.body, "outer sphere": part.boundaries.air}, labels=False, camera=view,
-               title="Air around the ellipsoid, ka = 1 (STEP)", ax=fig[0])
-plots.mesh(meshes[1.0], groups=("all",), legend=False, camera=view, title=f"ka = 1: {meshes[1.0].cell_count} curved quadratic tetrahedra",
-           ax=fig[1])
+plots.geometry(
+    part,
+    selection={"ellipsoid": part.boundaries.body, "outer sphere": part.boundaries.air},
+    labels=False,
+    camera=view,
+    title="Air around the ellipsoid, ka = 1 (STEP)",
+    ax=fig[0],
+)
+plots.mesh(
+    meshes[1.0],
+    groups=("all",),
+    legend=False,
+    camera=view,
+    title=f"ka = 1: {meshes[1.0].cell_count} curved quadratic tetrahedra",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Model
@@ -91,27 +118,62 @@ plots.show()
 # the normal of the ellipsoid. `AcousticHarmonicPressure` solves each frequency on its own mesh.
 
 incident = lambda k, points: amplitude * np.exp(-1j * k * points @ direction)
-body_normal = lambda points: points / axes**2 / np.linalg.norm(points / axes**2, axis=1)[:, None]
-incident_flux = lambda k, points: (body_normal(points) @ direction) * 1j * k * incident(k, points)
+body_normal = (
+    lambda points: points / axes**2 / np.linalg.norm(points / axes**2, axis=1)[:, None]
+)
+incident_flux = (
+    lambda k, points: (body_normal(points) @ direction) * 1j * k * incident(k, points)
+)
 
 
 def solve_ellipsoid(ka):
     """Scattered pressure at one frequency on its mesh."""
     mesh, faces, k = meshes[ka], parts[ka].boundaries, ka / axes[0]
     space = FiniteElement(element=Lagrange(order=2)).bind_space(mesh)
-    volume = ConstantPressureForms(*SampledPressureVolumeForms(
-        size=space.dof_count, samples=lambda: pressure_space_volume_samples(space),
-        inverse_density=lambda omega, sample: 1 / rho0, compressibility=lambda omega, sample: 1 / impedance / c0)(0.0))
-    traces = {face: SampledPressureAdmittanceForms(size=space.dof_count, admittance=lambda omega, sample: 1.0, samples=lambda face=face: iter(
-        [PressureTraceSamples(space.cell_dofs[owner], points, weights, basis)
-         for owner, points, weights, _, basis, _ in map(space.trace_data, mesh.facets(getattr(faces, face)))]))(0.0)
-        for face in ("body", "air")}
+    volume = ConstantPressureForms(
+        *SampledPressureVolumeForms(
+            size=space.dof_count,
+            samples=lambda: pressure_space_volume_samples(space),
+            inverse_density=lambda omega, sample: 1 / rho0,
+            compressibility=lambda omega, sample: 1 / impedance / c0,
+        )(0.0)
+    )
+    traces = {
+        face: SampledPressureAdmittanceForms(
+            size=space.dof_count,
+            admittance=lambda omega, sample: 1.0,
+            samples=lambda face=face: iter(
+                [
+                    PressureTraceSamples(space.cell_dofs[owner], points, weights, basis)
+                    for owner, points, weights, _, basis, _ in map(
+                        space.trace_data, mesh.facets(getattr(faces, face))
+                    )
+                ]
+            ),
+        )(0.0)
+        for face in ("body", "air")
+    }
     outer = parts[ka].size[0] / 2
-    pressure = AcousticHarmonicPressure(
-        operator=ComplexPressurePencil(volume, boundary=PressureAdmittanceBoundary(lambda omega: (1 + 1 / (1j * k * outer)) / impedance * traces["air"])),
-        angular_frequencies=[c0 * k], load=lambda omega: -traces["body"] @ incident_flux(k, space.dof_coordinates) / rho0,
-        linear_solver=spsolve).run().pressure[0]
-    return dict(space=space, mesh=mesh, pressure=pressure, dofs=space.dof_count, outer=outer)
+    pressure = (
+        AcousticHarmonicPressure(
+            operator=ComplexPressurePencil(
+                volume,
+                boundary=PressureAdmittanceBoundary(
+                    lambda omega: (1 + 1 / (1j * k * outer)) / impedance * traces["air"]
+                ),
+            ),
+            angular_frequencies=[c0 * k],
+            load=lambda omega: -traces["body"]
+            @ incident_flux(k, space.dof_coordinates)
+            / rho0,
+            linear_solver=spsolve,
+        )
+        .run()
+        .pressure[0]
+    )
+    return dict(
+        space=space, mesh=mesh, pressure=pressure, dofs=space.dof_count, outer=outer
+    )
 
 
 runs = {ka: solve_ellipsoid(ka) for ka in cases}
@@ -121,12 +183,32 @@ runs = {ka: solve_ellipsoid(ka) for ka in cases}
 # Volume, Lamb's coefficients and the low-frequency law.
 
 volume = 4 * np.pi / 3 * np.prod(axes)
-alpha = np.array([np.prod(axes) * quad(lambda s: 1 / ((a**2 + s) * np.sqrt(np.prod(axes**2 + s))), 0, np.inf)[0] for a in axes])
+alpha = np.array(
+    [
+        np.prod(axes)
+        * quad(lambda s: 1 / ((a**2 + s) * np.sqrt(np.prod(axes**2 + s))), 0, np.inf)[0]
+        for a in axes
+    ]
+)
 added = volume * alpha / (2 - alpha)
-rayleigh = lambda k, points: amplitude * k**2 * np.exp(-1j * k * np.linalg.norm(points, axis=1)) / (4 * np.pi * np.linalg.norm(points, axis=1)) * (
-    -volume + (1 - 1j / (k * np.linalg.norm(points, axis=1))) * ((points / np.linalg.norm(points, axis=1)[:, None]) @ ((volume + added) * direction)))
-print(f"V = {1e6 * volume:.1f} cm3; Lamb coefficients alpha = {np.round(alpha, 4)} (sum {alpha.sum():.4f}); "
-      f"added mass / V = {np.round(added / volume, 4)}")
+rayleigh = (
+    lambda k, points: amplitude
+    * k**2
+    * np.exp(-1j * k * np.linalg.norm(points, axis=1))
+    / (4 * np.pi * np.linalg.norm(points, axis=1))
+    * (
+        -volume
+        + (1 - 1j / (k * np.linalg.norm(points, axis=1)))
+        * (
+            (points / np.linalg.norm(points, axis=1)[:, None])
+            @ ((volume + added) * direction)
+        )
+    )
+)
+print(
+    f"V = {1e6 * volume:.1f} cm3; Lamb coefficients alpha = {np.round(alpha, 4)} (sum {alpha.sum():.4f}); "
+    f"added mass / V = {np.round(added / volume, 4)}"
+)
 
 # ## Results
 #
@@ -135,18 +217,33 @@ print(f"V = {1e6 * volume:.1f} cm3; Lamb coefficients alpha = {np.round(alpha, 4
 
 golden = np.pi * (3 - np.sqrt(5)) * np.arange(400)
 heights = 1 - (np.arange(400) + 0.5) / 200
-directions = np.column_stack((np.sqrt(1 - heights**2) * np.cos(golden), np.sqrt(1 - heights**2) * np.sin(golden), heights))
+directions = np.column_stack(
+    (
+        np.sqrt(1 - heights**2) * np.cos(golden),
+        np.sqrt(1 - heights**2) * np.sin(golden),
+        heights,
+    )
+)
 deviation = {}
 for ka, run in runs.items():
     k = ka / axes[0]
     points = run["outer"] / 2 * directions
-    computed, law = np.asarray(run["space"].evaluate(run["pressure"], points)), rayleigh(k, points)
+    computed, law = np.asarray(
+        run["space"].evaluate(run["pressure"], points)
+    ), rayleigh(k, points)
     deviation[ka] = np.max(np.abs(computed - law)) / np.max(np.abs(law))
-    print(f"ka = {ka:.2f} ({run['dofs']} unknowns, R = {run['outer']:.1f} m): largest deviation from the low-frequency law "
-          f"{deviation[ka]:.3f} of its maximum; RMS |p_s| {np.sqrt(np.mean(np.abs(computed) ** 2)):.3e} Pa "
-          f"(law {np.sqrt(np.mean(np.abs(law) ** 2)):.3e} Pa)")
-orders = [np.log(deviation[b] / deviation[a]) / np.log(b / a) for a, b in ((0.25, 0.5), (0.5, 1.0))]
-print(f"observed order of the deviation in ka: {orders[0]:.2f}, {orders[1]:.2f} (about 2 expected; the reflection of the outer condition adds a floor)")
+    print(
+        f"ka = {ka:.2f} ({run['dofs']} unknowns, R = {run['outer']:.1f} m): largest deviation from the low-frequency law "
+        f"{deviation[ka]:.3f} of its maximum; RMS |p_s| {np.sqrt(np.mean(np.abs(computed) ** 2)):.3e} Pa "
+        f"(law {np.sqrt(np.mean(np.abs(law) ** 2)):.3e} Pa)"
+    )
+orders = [
+    np.log(deviation[b] / deviation[a]) / np.log(b / a)
+    for a, b in ((0.25, 0.5), (0.5, 1.0))
+]
+print(
+    f"observed order of the deviation in ka: {orders[0]:.2f}, {orders[1]:.2f} (about 2 expected; the reflection of the outer condition adds a floor)"
+)
 
 # ## Figure
 #
@@ -158,18 +255,45 @@ fine = runs[1.0]
 surface = np.asarray(fine["mesh"].facets(parts[1.0].boundaries.body))
 nodes = np.unique(surface)
 points = np.asarray(fine["mesh"].coordinates)[nodes]
-total = np.abs(np.asarray(fine["space"].evaluate(fine["pressure"], points)) + incident(1.0 / axes[0], points))
+total = np.abs(
+    np.asarray(fine["space"].evaluate(fine["pressure"], points))
+    + incident(1.0 / axes[0], points)
+)
 low = runs[0.25]
 receivers = low["outer"] / 2 * directions
-simulated, law = np.abs(np.asarray(low["space"].evaluate(low["pressure"], receivers))), np.abs(rayleigh(0.25 / axes[0], receivers))
+simulated, law = np.abs(
+    np.asarray(low["space"].evaluate(low["pressure"], receivers))
+), np.abs(rayleigh(0.25 / axes[0], receivers))
 fig = plots.figure(1, 3, size=(22, 6.5))
-plots.trisurface(points, np.searchsorted(nodes, surface), total, camera=view, label="|p| / p0",
-                 title="Total pressure on the ellipsoid, ka = 1", ax=fig[0])
-plots.line(points={"receivers on r = R/2": (1e3 * law, 1e3 * simulated)}, reference={"equality": ([0, 1e3 * law.max()], [0, 1e3 * law.max()])},
-           xlabel="|p_s|, low-frequency law [mPa]", ylabel="|p_s|, simulation [mPa]", title="Scattered amplitude, ka = 0.25",
-           legend="upper left", ax=fig[1])
-plots.line(np.array(list(deviation)), {"largest deviation": np.array(list(deviation.values()))}, markers=True, slope=2.0, scale="loglog",
-           xlabel="ka", ylabel="deviation from the low-frequency law", title="Approach to the low-frequency law", ax=fig[2])
+plots.trisurface(
+    points,
+    np.searchsorted(nodes, surface),
+    total,
+    camera=view,
+    label="|p| / p0",
+    title="Total pressure on the ellipsoid, ka = 1",
+    ax=fig[0],
+)
+plots.line(
+    points={"receivers on r = R/2": (1e3 * law, 1e3 * simulated)},
+    reference={"equality": ([0, 1e3 * law.max()], [0, 1e3 * law.max()])},
+    xlabel="|p_s|, low-frequency law [mPa]",
+    ylabel="|p_s|, simulation [mPa]",
+    title="Scattered amplitude, ka = 0.25",
+    legend="upper left",
+    ax=fig[1],
+)
+plots.line(
+    np.array(list(deviation)),
+    {"largest deviation": np.array(list(deviation.values()))},
+    markers=True,
+    slope=2.0,
+    scale="loglog",
+    xlabel="ka",
+    ylabel="deviation from the low-frequency law",
+    title="Approach to the low-frequency law",
+    ax=fig[2],
+)
 plots.show()
 
 # ## Going further

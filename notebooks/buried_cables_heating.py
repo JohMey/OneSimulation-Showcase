@@ -7,7 +7,6 @@ is computed with quadratic finite elements on a curved block mesh and compared w
 thermal circuit.
 """
 
-
 # # Heating of buried power cables
 #
 # Three single-core cables of a 132 kV circuit lie in flat formation, 1 m deep and 0.3 m apart.
@@ -42,13 +41,18 @@ from dataclasses import replace
 import numpy as np
 from onesim.cad.exchange import load
 from onesim.materials import IsotropicSolid
-from onesim.meshing import (Geometric, disc_blocks, explicit_mesh,
-                            merge_blocks, o_grid, rectangle_block)
+from onesim.meshing import (
+    Geometric,
+    disc_blocks,
+    explicit_mesh,
+    merge_blocks,
+    o_grid,
+    rectangle_block,
+)
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import SparseDirect
-from onesim.physics.heat_transfer import (FixedTemperature, HeatConduction,
-                                          HeatFlux)
+from onesim.physics.heat_transfer import FixedTemperature, HeatConduction, HeatFlux
 from onesim.simulation import Problem, Simulation, regionwise
 from onesim.visualization import plots, theme
 
@@ -56,7 +60,10 @@ theme.set()
 
 ground = load("buried_cables_heating.step")
 plane = dict(normal=(0, 0, 1), origin=(0, 0, ground.size[2] / 2))
-layers = {name: load(f"buried_cables_heating_{name}.step") for name in ("conductor", "insulation", "sheath", "jacket")}
+layers = {
+    name: load(f"buried_cables_heating_{name}.step")
+    for name in ("conductor", "insulation", "sheath", "jacket")
+}
 regions = {name: layer.sections(**plane) for name, layer in layers.items()}
 radii = (0.019, 0.035, 0.0375, 0.0415)
 conductivities = (400.0, 1 / 3.5, 35.0, 1 / 3.5)
@@ -75,10 +82,17 @@ surface_temperature, loss = 20.0, 1200.0**2 * 25.795e-6
 
 r_c, r_i, r_s, r_e = radii
 neighbour = lambda d: np.log(np.hypot(d, 2 * depth) / d) / (2 * np.pi * soil)
-circuit = surface_temperature + loss * (3.5 / (2 * np.pi) * (np.log(r_i / r_c) + np.log(r_e / r_s))
-                                        + np.log(depth / r_e + np.sqrt((depth / r_e) ** 2 - 1)) / (2 * np.pi * soil)
-                                        + np.array([neighbour(spacing) + neighbour(2 * spacing), 2 * neighbour(spacing),
-                                                    neighbour(spacing) + neighbour(2 * spacing)]))
+circuit = surface_temperature + loss * (
+    3.5 / (2 * np.pi) * (np.log(r_i / r_c) + np.log(r_e / r_s))
+    + np.log(depth / r_e + np.sqrt((depth / r_e) ** 2 - 1)) / (2 * np.pi * soil)
+    + np.array(
+        [
+            neighbour(spacing) + neighbour(2 * spacing),
+            2 * neighbour(spacing),
+            neighbour(spacing) + neighbour(2 * spacing),
+        ]
+    )
+)
 
 
 # ## Geometry and mesh
@@ -92,22 +106,75 @@ circuit = surface_temperature + loss * (3.5 / (2 * np.pi) * (np.log(r_i / r_c) +
 
 section = ground.section(**plane)
 rings = lambda n: round(3 * n / 4)
-count = lambda length, n: max(3, int(np.ceil(np.log(1 + length * (2.0 ** (4 / n) - 1) * n / spacing) / np.log(2.0 ** (4 / n)))))
-xs = ((-half_width, half_width - 1.5 * spacing, "end"), (-1.5 * spacing, 3 * spacing, None), (1.5 * spacing, half_width - 1.5 * spacing, "start"))
-ys = ((-half_width, half_width - depth - spacing / 2, "end"), (-depth - spacing / 2, spacing, None), (-depth + spacing / 2, depth - spacing / 2, "start"))
-blocks = lambda n: [block for centre in centres for block in (
-    *disc_blocks(centre, radii, n, (round(3 * n / 8), rings(n), 2, 2)),
-    *o_grid(centre, radii[-1], spacing / 2, n, rings(n), inner_name=None, radial_grading=Geometric(rings(n), first=0.35 / rings(n))))] + [
-    rectangle_block((x0, y0), lx, ly, (count(lx, n) if x_toward else 3 * n, count(ly, n) if y_toward else n),
-                    (x_toward and Geometric(count(lx, n), first=spacing / n, toward=x_toward),
-                     y_toward and Geometric(count(ly, n), first=spacing / n, toward=y_toward)))
-    for i, (x0, lx, x_toward) in enumerate(xs) for j, (y0, ly, y_toward) in enumerate(ys) if (i, j) != (1, 1)]
+count = lambda length, n: max(
+    3,
+    int(
+        np.ceil(
+            np.log(1 + length * (2.0 ** (4 / n) - 1) * n / spacing)
+            / np.log(2.0 ** (4 / n))
+        )
+    ),
+)
+xs = (
+    (-half_width, half_width - 1.5 * spacing, "end"),
+    (-1.5 * spacing, 3 * spacing, None),
+    (1.5 * spacing, half_width - 1.5 * spacing, "start"),
+)
+ys = (
+    (-half_width, half_width - depth - spacing / 2, "end"),
+    (-depth - spacing / 2, spacing, None),
+    (-depth + spacing / 2, depth - spacing / 2, "start"),
+)
+blocks = lambda n: [
+    block
+    for centre in centres
+    for block in (
+        *disc_blocks(centre, radii, n, (round(3 * n / 8), rings(n), 2, 2)),
+        *o_grid(
+            centre,
+            radii[-1],
+            spacing / 2,
+            n,
+            rings(n),
+            inner_name=None,
+            radial_grading=Geometric(rings(n), first=0.35 / rings(n)),
+        ),
+    )
+] + [
+    rectangle_block(
+        (x0, y0),
+        lx,
+        ly,
+        (count(lx, n) if x_toward else 3 * n, count(ly, n) if y_toward else n),
+        (
+            x_toward and Geometric(count(lx, n), first=spacing / n, toward=x_toward),
+            y_toward and Geometric(count(ly, n), first=spacing / n, toward=y_toward),
+        ),
+    )
+    for i, (x0, lx, x_toward) in enumerate(xs)
+    for j, (y0, ly, y_toward) in enumerate(ys)
+    if (i, j) != (1, 1)
+]
 planar = {n: merge_blocks(blocks(n)).triangulated() for n in (8, 12, 16)}
-meshes = {n: explicit_mesh(section, mesh.coordinates, mesh.cells) for n, mesh in planar.items()}
+meshes = {
+    n: explicit_mesh(section, mesh.coordinates, mesh.cells)
+    for n, mesh in planar.items()
+}
 fig = plots.figure(1, 2, size=(15, 6))
-plots.geometry([layer.named(name) for name, layer in layers.items()], labels=False, camera=plots.Camera(elevation=30, azimuth=-60),
-               title="Conductor, insulation, sheath and jacket of the three cables", ax=fig[0])
-plots.mesh(meshes[12], groups=("all",), legend=False, title=f"Cross-section of the soil block: {meshes[12].cell_count} triangles", ax=fig[1])
+plots.geometry(
+    [layer.named(name) for name, layer in layers.items()],
+    labels=False,
+    camera=plots.Camera(elevation=30, azimuth=-60),
+    title="Conductor, insulation, sheath and jacket of the three cables",
+    ax=fig[0],
+)
+plots.mesh(
+    meshes[12],
+    groups=("all",),
+    legend=False,
+    title=f"Cross-section of the soil block: {meshes[12].cell_count} triangles",
+    ax=fig[1],
+)
 plots.show()
 
 
@@ -117,22 +184,57 @@ plots.show()
 # layers (`sections` returns the three pieces of each layer); the soil is the default. The ground surface and the bottom are held at 20 °C, the sides
 # are insulated. Quadratic elements on all three meshes.
 
-conductivity = regionwise(tuple((piece, k) for pieces, k in zip(regions.values(), conductivities) for piece in pieces),
-                          default=soil, unit="W/m/K")
-heating = regionwise(tuple((piece, loss / (np.pi * radii[0] ** 2)) for piece in regions["conductor"]), default=0.0, unit="W/m^3")
-material = replace(IsotropicSolid(density=1000.0, specific_heat_capacity=1000.0, thermal_conductivity=1.0,
-                                  youngs_modulus=1e9, poisson_ratio=0.3, thermal_expansion_coefficient=0.0),
-                   thermal_conductivity=conductivity)
+conductivity = regionwise(
+    tuple(
+        (piece, k)
+        for pieces, k in zip(regions.values(), conductivities)
+        for piece in pieces
+    ),
+    default=soil,
+    unit="W/m/K",
+)
+heating = regionwise(
+    tuple((piece, loss / (np.pi * radii[0] ** 2)) for piece in regions["conductor"]),
+    default=0.0,
+    unit="W/m^3",
+)
+material = replace(
+    IsotropicSolid(
+        density=1000.0,
+        specific_heat_capacity=1000.0,
+        thermal_conductivity=1.0,
+        youngs_modulus=1e9,
+        poisson_ratio=0.3,
+        thermal_expansion_coefficient=0.0,
+    ),
+    thermal_conductivity=conductivity,
+)
 
 
 faces = section.boundaries
 model = HeatConduction(domain=section.domain(), material=material, heating=heating)
-problem = Problem(name="Buried cables", geometry=section, physics=(model,), boundary_conditions=(
-    FixedTemperature(boundary=faces.y_max | faces.y_min, physics=model, value=surface_temperature),
-    HeatFlux(boundary=faces.x_min | faces.x_max, physics=model, value=0.0)))
-numerics = Numerics(spatial=FiniteElement(element=Lagrange(order=2)), linear_solver=SparseDirect())
-results = [Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_stationary() for mesh in meshes.values()]
-runs = [(result.field(model.temperature), result.field(model.heat_flux), mesh) for result, mesh in zip(results, meshes.values())]
+problem = Problem(
+    name="Buried cables",
+    geometry=section,
+    physics=(model,),
+    boundary_conditions=(
+        FixedTemperature(
+            boundary=faces.y_max | faces.y_min, physics=model, value=surface_temperature
+        ),
+        HeatFlux(boundary=faces.x_min | faces.x_max, physics=model, value=0.0),
+    ),
+)
+numerics = Numerics(
+    spatial=FiniteElement(element=Lagrange(order=2)), linear_solver=SparseDirect()
+)
+results = [
+    Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_stationary()
+    for mesh in meshes.values()
+]
+runs = [
+    (result.field(model.temperature), result.field(model.heat_flux), mesh)
+    for result, mesh in zip(results, meshes.values())
+]
 temperature, heat_flux, mesh = runs[-1]
 
 
@@ -148,8 +250,13 @@ print("triangles     left    middle     right   [°C]")
 for (_, _, m), values in zip(runs, conductors):
     print(f"{m.cell_count:9d} " + " ".join(f"{value:9.4f}" for value in values))
 print("IEC       " + " ".join(f"{value:9.4f}" for value in circuit))
-print("difference on the finest mesh [K]: " + ", ".join(f"{value:+.3f}" for value in conductors[-1] - circuit))
-leaving = temperature.boundary_flux(faces.y_max) + temperature.boundary_flux(faces.y_min)
+print(
+    "difference on the finest mesh [K]: "
+    + ", ".join(f"{value:+.3f}" for value in conductors[-1] - circuit)
+)
+leaving = temperature.boundary_flux(faces.y_max) + temperature.boundary_flux(
+    faces.y_min
+)
 print(f"energy balance: generated {3 * loss:.3f} W/m, leaving {leaving:.3f} W/m")
 
 
@@ -161,23 +268,58 @@ print(f"energy balance: generated {3 * loss:.3f} W/m, leaving {leaving:.3f} W/m"
 
 x = np.linspace(-3, 3, 241)
 surface_flux = heat_flux.evaluate(np.column_stack((x, np.zeros_like(x))))[:, 1]
-line_sources = sum(loss * depth / (np.pi * ((x - cx) ** 2 + depth**2)) for cx, _ in centres)
+line_sources = sum(
+    loss * depth / (np.pi * ((x - cx) ** 2 + depth**2)) for cx, _ in centres
+)
 peak = float(temperature.values.max())
 
 fig = plots.figure(2, 2, size=(14, 10))
-plots.surface(temperature, limits=(surface_temperature, peak), contours=12, subdivisions=2,
-              label="T [°C]", title="Temperature of the cross-section", xlimits=(-1.2, 1.2), ylimits=(-2.0, 0.0),
-              ylabel="y [m] (ground surface at y = 0)", ax=fig[0])
-plots.surface(temperature, limits=(peak - 30, peak), contours=12, edges=True, subdivisions=1,
-              label="T [°C]", title="Middle cable and its mesh", xlimits=(-0.07, 0.07),
-              ylimits=(-depth - 0.07, -depth + 0.07), ax=fig[1])
-plots.line(x, {"finite elements": surface_flux}, reference={"line sources and images": line_sources},
-           xlabel="x [m]", ylabel="heat flux out of the ground [W/m²]", title="Heat flux through the ground surface",
-           ax=fig[2])
-plots.line([m.cell_count for _, _, m in runs],
-           {"outer conductors": conductors[:, 0] - circuit[0], "middle conductor": conductors[:, 1] - circuit[1]},
-           hlines={"IEC 60287": 0.0}, markers=True, xlabel="number of triangles",
-           ylabel="finite elements - IEC 60287 [K]", title="Mesh study", ax=fig[3])
+plots.surface(
+    temperature,
+    limits=(surface_temperature, peak),
+    contours=12,
+    subdivisions=2,
+    label="T [°C]",
+    title="Temperature of the cross-section",
+    xlimits=(-1.2, 1.2),
+    ylimits=(-2.0, 0.0),
+    ylabel="y [m] (ground surface at y = 0)",
+    ax=fig[0],
+)
+plots.surface(
+    temperature,
+    limits=(peak - 30, peak),
+    contours=12,
+    edges=True,
+    subdivisions=1,
+    label="T [°C]",
+    title="Middle cable and its mesh",
+    xlimits=(-0.07, 0.07),
+    ylimits=(-depth - 0.07, -depth + 0.07),
+    ax=fig[1],
+)
+plots.line(
+    x,
+    {"finite elements": surface_flux},
+    reference={"line sources and images": line_sources},
+    xlabel="x [m]",
+    ylabel="heat flux out of the ground [W/m²]",
+    title="Heat flux through the ground surface",
+    ax=fig[2],
+)
+plots.line(
+    [m.cell_count for _, _, m in runs],
+    {
+        "outer conductors": conductors[:, 0] - circuit[0],
+        "middle conductor": conductors[:, 1] - circuit[1],
+    },
+    hlines={"IEC 60287": 0.0},
+    markers=True,
+    xlabel="number of triangles",
+    ylabel="finite elements - IEC 60287 [K]",
+    title="Mesh study",
+    ax=fig[3],
+)
 plots.show()
 
 

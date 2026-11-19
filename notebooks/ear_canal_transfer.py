@@ -8,7 +8,6 @@ impedance and the pressure gain from the entrance to the eardrum are compared wi
 transmission-line model of the canal.
 """
 
-
 # # Ear canal acoustics
 #
 # The outer ear canal leads from the concha to the eardrum. It is about 25 mm long and 7.5 mm wide
@@ -41,14 +40,16 @@ import numpy as np
 from onesim.cad.exchange import load
 from onesim.meshing import TetrahedralMesher
 from onesim.numerics.fem import FiniteElement, Lagrange
-from onesim.physics.acoustics import (AcousticHarmonicPressure,
-                                      ComplexPressurePencil,
-                                      ConstantPressureForms,
-                                      PressureAdmittanceBoundary,
-                                      PressureTraceSamples,
-                                      SampledPressureAdmittanceForms,
-                                      SampledPressureVolumeForms,
-                                      pressure_space_volume_samples)
+from onesim.physics.acoustics import (
+    AcousticHarmonicPressure,
+    ComplexPressurePencil,
+    ConstantPressureForms,
+    PressureAdmittanceBoundary,
+    PressureTraceSamples,
+    SampledPressureAdmittanceForms,
+    SampledPressureVolumeForms,
+    pressure_space_volume_samples,
+)
 from onesim.visualization import plots, theme
 from scipy.sparse.linalg import spsolve
 
@@ -56,7 +57,9 @@ theme.set()
 
 c0, rho0, velocity = 343.0, 1.204, 1e-3
 impedance = rho0 * c0
-length = 0.0135 + 0.012575 - 2 * 0.010 * np.tan(np.radians(30.0)) + 0.010 * np.radians(60.0)
+length = (
+    0.0135 + 0.012575 - 2 * 0.010 * np.tan(np.radians(30.0)) + 0.010 * np.radians(60.0)
+)
 frequencies = np.geomspace(100.0, 10000.0, 121)
 eardrum = lambda f: impedance * (2.0 + 3.0j * (f / 1500.0 - 1500.0 / f))
 
@@ -68,14 +71,32 @@ eardrum = lambda f: impedance * (2.0 + 3.0j * (f / 1500.0 - 1500.0 / f))
 canal = load("ear_canal_transfer.step")
 faces = canal.boundaries
 sizes = (0.0015, 0.0010)
-meshes = {h: TetrahedralMesher(target_size=h, geometry_order=2).generate(canal) for h in sizes}
+meshes = {
+    h: TetrahedralMesher(target_size=h, geometry_order=2).generate(canal) for h in sizes
+}
 
 view = plots.Camera(elevation=15, azimuth=-80)
 fig = plots.figure(1, 2, size=(15, 6.5))
-plots.geometry(canal, selection={"entrance": faces.entrance, "eardrum": faces.eardrum, "canal wall": faces.wall}, labels=False,
-               camera=view, title="Ear canal, 25 mm along its centre line (STEP)", ax=fig[0])
-plots.mesh(meshes[0.0015], groups=("all",), legend=False, camera=view, title=f"{meshes[0.0015].cell_count} curved quadratic tetrahedra",
-           ax=fig[1])
+plots.geometry(
+    canal,
+    selection={
+        "entrance": faces.entrance,
+        "eardrum": faces.eardrum,
+        "canal wall": faces.wall,
+    },
+    labels=False,
+    camera=view,
+    title="Ear canal, 25 mm along its centre line (STEP)",
+    ax=fig[0],
+)
+plots.mesh(
+    meshes[0.0015],
+    groups=("all",),
+    legend=False,
+    camera=view,
+    title=f"{meshes[0.0015].cell_count} curved quadratic tetrahedra",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Model
@@ -92,19 +113,52 @@ def solve_canal(h):
     """Mean pressure on entrance and eardrum over the sweep on one mesh."""
     mesh = meshes[h]
     space = FiniteElement(element=Lagrange(order=2)).bind_space(mesh)
-    volume = ConstantPressureForms(*SampledPressureVolumeForms(
-        size=space.dof_count, samples=lambda: pressure_space_volume_samples(space),
-        inverse_density=lambda omega, sample: 1 / rho0, compressibility=lambda omega, sample: 1 / impedance / c0)(0.0))
-    traces = {face: SampledPressureAdmittanceForms(size=space.dof_count, admittance=lambda omega, sample: 1.0, samples=lambda face=face: iter(
-        [PressureTraceSamples(space.cell_dofs[owner], points, weights, basis)
-         for owner, points, weights, _, basis, _ in map(space.trace_data, mesh.facets(getattr(faces, face)))]))(0.0)
-        for face in ("entrance", "eardrum")}
+    volume = ConstantPressureForms(
+        *SampledPressureVolumeForms(
+            size=space.dof_count,
+            samples=lambda: pressure_space_volume_samples(space),
+            inverse_density=lambda omega, sample: 1 / rho0,
+            compressibility=lambda omega, sample: 1 / impedance / c0,
+        )(0.0)
+    )
+    traces = {
+        face: SampledPressureAdmittanceForms(
+            size=space.dof_count,
+            admittance=lambda omega, sample: 1.0,
+            samples=lambda face=face: iter(
+                [
+                    PressureTraceSamples(space.cell_dofs[owner], points, weights, basis)
+                    for owner, points, weights, _, basis, _ in map(
+                        space.trace_data, mesh.facets(getattr(faces, face))
+                    )
+                ]
+            ),
+        )(0.0)
+        for face in ("entrance", "eardrum")
+    }
     weights = {face: trace @ np.ones(space.dof_count) for face, trace in traces.items()}
-    pressure = AcousticHarmonicPressure(
-        operator=ComplexPressurePencil(volume, boundary=PressureAdmittanceBoundary(lambda omega: traces["eardrum"] / eardrum(omega.real / (2 * np.pi)))),
-        angular_frequencies=2 * np.pi * frequencies, load=lambda omega: 1j * omega * velocity * weights["entrance"], linear_solver=spsolve).run().pressure
-    return dict(space=space, mesh=mesh, pressure=pressure, dofs=space.dof_count,
-                **{face: pressure @ weight / weight.sum() for face, weight in weights.items()})
+    pressure = (
+        AcousticHarmonicPressure(
+            operator=ComplexPressurePencil(
+                volume,
+                boundary=PressureAdmittanceBoundary(
+                    lambda omega: traces["eardrum"] / eardrum(omega.real / (2 * np.pi))
+                ),
+            ),
+            angular_frequencies=2 * np.pi * frequencies,
+            load=lambda omega: 1j * omega * velocity * weights["entrance"],
+            linear_solver=spsolve,
+        )
+        .run()
+        .pressure
+    )
+    return dict(
+        space=space,
+        mesh=mesh,
+        pressure=pressure,
+        dofs=space.dof_count,
+        **{face: pressure @ weight / weight.sum() for face, weight in weights.items()},
+    )
 
 
 runs = {h: solve_canal(h) for h in sizes}
@@ -118,20 +172,37 @@ runs = {h: solve_canal(h) for h in sizes}
 
 k = 2 * np.pi * frequencies / c0
 Zd = eardrum(frequencies)
-line = dict(z_in=impedance * (Zd + 1j * impedance * np.tan(k * length)) / (impedance + 1j * Zd * np.tan(k * length)),
-            gain=Zd / (Zd * np.cos(k * length) + 1j * impedance * np.sin(k * length)))
+line = dict(
+    z_in=impedance
+    * (Zd + 1j * impedance * np.tan(k * length))
+    / (impedance + 1j * Zd * np.tan(k * length)),
+    gain=Zd / (Zd * np.cos(k * length) + 1j * impedance * np.sin(k * length)),
+)
 fine = runs[sizes[-1]]
 result = dict(z_in=fine["entrance"] / velocity, gain=fine["eardrum"] / fine["entrance"])
-print(f"centre-line length {1e3 * length:.2f} mm; unknowns {runs[sizes[0]]['dofs']} and {fine['dofs']}")
-for name, label in (("z_in", "input impedance"), ("gain", "pressure gain eardrum / entrance")):
+print(
+    f"centre-line length {1e3 * length:.2f} mm; unknowns {runs[sizes[0]]['dofs']} and {fine['dofs']}"
+)
+for name, label in (
+    ("z_in", "input impedance"),
+    ("gain", "pressure gain eardrum / entrance"),
+):
     decibels = np.abs(20 * np.log10(np.abs(result[name] / line[name])))
-    print(f"{label}: deviation from the transmission line median {np.median(decibels):.3f} dB, "
-          f"largest {np.max(decibels):.2f} dB at {frequencies[np.argmax(decibels)]:.0f} Hz")
-level, line_level = 20 * np.log10(np.abs(result["gain"])), 20 * np.log10(np.abs(line["gain"]))
-print(f"gain maximum: {level.max():.2f} dB at {frequencies[np.argmax(level)]:.0f} Hz; transmission line {line_level.max():.2f} dB at "
-      f"{frequencies[np.argmax(line_level)]:.0f} Hz (frequency grid 1/26 octave)")
-print(f"change between the meshes: input impedance {np.max(np.abs(fine['entrance'] / runs[sizes[0]]['entrance'] - 1)):.1e}, "
-      f"gain {np.max(np.abs(fine['eardrum'] / fine['entrance'] / (runs[sizes[0]]['eardrum'] / runs[sizes[0]]['entrance']) - 1)):.1e}")
+    print(
+        f"{label}: deviation from the transmission line median {np.median(decibels):.3f} dB, "
+        f"largest {np.max(decibels):.2f} dB at {frequencies[np.argmax(decibels)]:.0f} Hz"
+    )
+level, line_level = 20 * np.log10(np.abs(result["gain"])), 20 * np.log10(
+    np.abs(line["gain"])
+)
+print(
+    f"gain maximum: {level.max():.2f} dB at {frequencies[np.argmax(level)]:.0f} Hz; transmission line {line_level.max():.2f} dB at "
+    f"{frequencies[np.argmax(line_level)]:.0f} Hz (frequency grid 1/26 octave)"
+)
+print(
+    f"change between the meshes: input impedance {np.max(np.abs(fine['entrance'] / runs[sizes[0]]['entrance'] - 1)):.1e}, "
+    f"gain {np.max(np.abs(fine['eardrum'] / fine['entrance'] / (runs[sizes[0]]['eardrum'] / runs[sizes[0]]['entrance']) - 1)):.1e}"
+)
 
 # ## Figure
 #
@@ -140,16 +211,40 @@ print(f"change between the meshes: input impedance {np.max(np.abs(fine['entrance
 
 i = int(np.argmax(level))
 points = np.asarray(fine["mesh"].coordinates)
-spl = 20 * np.log10(np.abs(np.asarray(fine["space"].evaluate(fine["pressure"][i], points))) / 2e-5)
+spl = 20 * np.log10(
+    np.abs(np.asarray(fine["space"].evaluate(fine["pressure"][i], points))) / 2e-5
+)
 fig = plots.figure(1, 3, size=(22, 6.5))
-plots.trisurface(points, np.asarray(fine["mesh"].facets(faces.all)), spl, camera=view, label="sound pressure level [dB]",
-                 title=f"Sound pressure level at {frequencies[i]:.0f} Hz", ax=fig[0])
-plots.line(frequencies, {"|Z_in| / rho c, simulation": np.abs(result["z_in"]) / impedance},
-           reference={"|Z_in| / rho c, simulation": np.abs(line["z_in"]) / impedance}, scale="loglog",
-           xlabel="frequency [Hz]", ylabel="|Z_in| / rho c", title="Input impedance (dashed: transmission line)", ax=fig[1])
-plots.line(frequencies, {"simulation": level}, reference={"transmission line": line_level}, scale="logx",
-           xlabel="frequency [Hz]", ylabel="20 log10 |p_drum / p_entrance| [dB]", title="Pressure gain from entrance to eardrum",
-           legend="upper left", ax=fig[2])
+plots.trisurface(
+    points,
+    np.asarray(fine["mesh"].facets(faces.all)),
+    spl,
+    camera=view,
+    label="sound pressure level [dB]",
+    title=f"Sound pressure level at {frequencies[i]:.0f} Hz",
+    ax=fig[0],
+)
+plots.line(
+    frequencies,
+    {"|Z_in| / rho c, simulation": np.abs(result["z_in"]) / impedance},
+    reference={"|Z_in| / rho c, simulation": np.abs(line["z_in"]) / impedance},
+    scale="loglog",
+    xlabel="frequency [Hz]",
+    ylabel="|Z_in| / rho c",
+    title="Input impedance (dashed: transmission line)",
+    ax=fig[1],
+)
+plots.line(
+    frequencies,
+    {"simulation": level},
+    reference={"transmission line": line_level},
+    scale="logx",
+    xlabel="frequency [Hz]",
+    ylabel="20 log10 |p_drum / p_entrance| [dB]",
+    title="Pressure gain from entrance to eardrum",
+    legend="upper left",
+    ax=fig[2],
+)
 plots.show()
 
 # ## Going further

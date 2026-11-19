@@ -6,7 +6,6 @@ section; the axisymmetric natural modes are solved on quadratic triangles with a
 finite-element space and compared with the NAFEMS target frequencies on three meshes.
 """
 
-
 # # Natural frequencies of a free cylinder (NAFEMS FV41)
 #
 # A thick-walled steel tube, inner radius 1.8 m, outer radius 2.2 m and 10 m long, is free in
@@ -32,16 +31,19 @@ finite-element space and compared with the NAFEMS target frequencies on three me
 # $f=\sqrt{E/\rho}\,/(2L)=250$ Hz; the lateral inertia of the thick wall lowers it slightly.
 
 import numpy as np
-
 from onesim.cad.exchange import load
 from onesim.materials import IsotropicSolid
 from onesim.meshing import TriangularMesher
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Lagrange, RevolvedH1SpaceFactory
 from onesim.numerics.linear import SparseDirect, SparseSymmetricEigenSolver
-from onesim.physics.solid_mechanics import LinearElasticity, TractionFree, structural_modes
+from onesim.physics.solid_mechanics import (
+    LinearElasticity,
+    TractionFree,
+    structural_modes,
+)
 from onesim.simulation import Problem, Simulation
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -57,9 +59,25 @@ sizes = [0.2, 0.1, 0.05]
 meshes = [TriangularMesher(target_size=size).generate(meridian) for size in sizes]
 
 fig = plots.figure(1, 2, size=(14, 7))
-plots.geometry(cylinder, selection={"inner": faces.inner, "outer": faces.outer, "ends": faces.bottom | faces.top}, labels=False,
-               camera=plots.Camera(elevation=25, azimuth=-60), title="Sector of the tube with its named faces", ax=fig[0])
-plots.mesh(meshes[1], groups=("all",), legend=False, title=f"Meridian section: {meshes[1].cell_count} triangles", ax=fig[1])
+plots.geometry(
+    cylinder,
+    selection={
+        "inner": faces.inner,
+        "outer": faces.outer,
+        "ends": faces.bottom | faces.top,
+    },
+    labels=False,
+    camera=plots.Camera(elevation=25, azimuth=-60),
+    title="Sector of the tube with its named faces",
+    ax=fig[0],
+)
+plots.mesh(
+    meshes[1],
+    groups=("all",),
+    legend=False,
+    title=f"Meridian section: {meshes[1].cell_count} triangles",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Model
@@ -70,15 +88,44 @@ plots.show()
 # motion as a null mode, which the modal analysis keeps; a sparse shift-invert solve returns the
 # eight modes nearest 300 Hz.
 
-steel = IsotropicSolid(density=8000.0, specific_heat_capacity=460.0, thermal_conductivity=50.0,
-                       youngs_modulus=200e9, poisson_ratio=0.3, thermal_expansion_coefficient=12e-6)
-model = LinearElasticity(domain=meridian.domain(), material=steel, kinematics="axisymmetric")
-problem = Problem(name="Free cylinder", geometry=meridian, physics=(model,),
-                  boundary_conditions=(TractionFree(boundary=meridian.boundaries.all, physics=model),))
-numerics = Numerics(spatial=FiniteElement(element=Lagrange(order=2), provider=RevolvedH1SpaceFactory()), linear_solver=SparseDirect())
-results = [Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_stationary() for mesh in meshes]
-modes = [structural_modes(result, model, mode_count=8, target_frequency=300.0, zero_eigenvalue_tolerance=1.0,
-                          eigensolver=SparseSymmetricEigenSolver(tolerance=1e-10)) for result in results]
+steel = IsotropicSolid(
+    density=8000.0,
+    specific_heat_capacity=460.0,
+    thermal_conductivity=50.0,
+    youngs_modulus=200e9,
+    poisson_ratio=0.3,
+    thermal_expansion_coefficient=12e-6,
+)
+model = LinearElasticity(
+    domain=meridian.domain(), material=steel, kinematics="axisymmetric"
+)
+problem = Problem(
+    name="Free cylinder",
+    geometry=meridian,
+    physics=(model,),
+    boundary_conditions=(
+        TractionFree(boundary=meridian.boundaries.all, physics=model),
+    ),
+)
+numerics = Numerics(
+    spatial=FiniteElement(element=Lagrange(order=2), provider=RevolvedH1SpaceFactory()),
+    linear_solver=SparseDirect(),
+)
+results = [
+    Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_stationary()
+    for mesh in meshes
+]
+modes = [
+    structural_modes(
+        result,
+        model,
+        mode_count=8,
+        target_frequency=300.0,
+        zero_eigenvalue_tolerance=1.0,
+        eigensolver=SparseSymmetricEigenSolver(tolerance=1e-10),
+    )
+    for result in results
+]
 
 # ## Results
 #
@@ -86,11 +133,24 @@ modes = [structural_modes(result, model, mode_count=8, target_frequency=300.0, z
 
 target = np.array([0.0, 243.53, 377.41, 394.11, 397.72, 405.28])
 lowest = [np.sort(mode_set.frequencies)[:6] for mode_set in modes]
-print("mode   NAFEMS [Hz]   " + "   ".join(f"{size:.2f} m mesh" for size in sizes) + "   deviation on the finest mesh")
+print(
+    "mode   NAFEMS [Hz]   "
+    + "   ".join(f"{size:.2f} m mesh" for size in sizes)
+    + "   deviation on the finest mesh"
+)
 for k, reference in enumerate(target):
-    print(f"{k + 1:4d} {reference:12.2f} " + " ".join(f"{frequencies[k]:13.2f}" for frequencies in lowest)
-          + (f" {100 * (lowest[-1][k] / reference - 1):+14.3f} %" if reference else f" {'(rigid axial motion)':>22s}"))
-print(f"free-bar estimate of the first axial mode: {np.sqrt(200e9 / 8000.0) / 20:.1f} Hz")
+    print(
+        f"{k + 1:4d} {reference:12.2f} "
+        + " ".join(f"{frequencies[k]:13.2f}" for frequencies in lowest)
+        + (
+            f" {100 * (lowest[-1][k] / reference - 1):+14.3f} %"
+            if reference
+            else f" {'(rigid axial motion)':>22s}"
+        )
+    )
+print(
+    f"free-bar estimate of the first axial mode: {np.sqrt(200e9 / 8000.0) / 20:.1f} Hz"
+)
 
 # ## Figure
 #
@@ -99,11 +159,30 @@ print(f"free-bar estimate of the first axial mode: {np.sqrt(200e9 / 8000.0) / 20
 # is left, a few parts in ten thousand, is of the order of the rounding of the published values.
 
 fig = plots.figure(1, 2, size=(15, 5))
-plots.bars([f"mode {k}" for k in range(2, 7)], {f"{size:.2f} m mesh": frequencies[1:] for size, frequencies in zip(sizes, lowest)},
-           reference={"NAFEMS FV41": target[1:]}, ylabel="natural frequency [Hz]", title="Axisymmetric modes of the free cylinder", ax=fig[0])
-plots.line(sizes, {f"mode {k}": [abs(frequencies[k - 1] / target[k - 1] - 1) for frequencies in lowest] for k in range(2, 7)},
-           markers=True, scale="loglog", xlabel="cell size [m]", ylabel="relative deviation from NAFEMS",
-           title="Mesh study", legend="center right", ax=fig[1])
+plots.bars(
+    [f"mode {k}" for k in range(2, 7)],
+    {f"{size:.2f} m mesh": frequencies[1:] for size, frequencies in zip(sizes, lowest)},
+    reference={"NAFEMS FV41": target[1:]},
+    ylabel="natural frequency [Hz]",
+    title="Axisymmetric modes of the free cylinder",
+    ax=fig[0],
+)
+plots.line(
+    sizes,
+    {
+        f"mode {k}": [
+            abs(frequencies[k - 1] / target[k - 1] - 1) for frequencies in lowest
+        ]
+        for k in range(2, 7)
+    },
+    markers=True,
+    scale="loglog",
+    xlabel="cell size [m]",
+    ylabel="relative deviation from NAFEMS",
+    title="Mesh study",
+    legend="center right",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Going further

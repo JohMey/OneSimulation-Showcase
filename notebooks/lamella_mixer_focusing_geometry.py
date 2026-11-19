@@ -13,5 +13,8 @@ from onesim.cad.d3 import Prism
 mm = 1e-3
 outline = [(0, -2), (2, -2), (4, -0.5), (16, -0.5), (16, 0.5), (4, 0.5), (2, 2), (0, 2)]
 sides = ["wall", "wall", "wall", "outlet", "wall", "wall", "wall", "inlet"]
-mixer = Prism(profile=Profile.polygon([(x * mm, y * mm) for x, y in outline], names=sides), height=0.25 * mm)
+mixer = Prism(
+    profile=Profile.polygon([(x * mm, y * mm) for x, y in outline], names=sides),
+    height=0.25 * mm,
+)
 mixer.save("lamella_mixer_focusing.step")

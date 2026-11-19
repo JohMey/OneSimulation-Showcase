@@ -13,10 +13,27 @@ from onesim.cad.d3 import AnnularCylinder, Box, Cylinder
 half_width, piece = 40.0, 0.5
 radii = (0.019, 0.035, 0.0375, 0.0415)
 centres = ((-0.3, -1.0), (0.0, -1.0), (0.3, -1.0))
-soil = Box(length=2 * half_width, width=half_width, height=piece, origin=(-half_width, -half_width, 0.0))
+soil = Box(
+    length=2 * half_width,
+    width=half_width,
+    height=piece,
+    origin=(-half_width, -half_width, 0.0),
+)
 faces = soil.boundaries
-soil.grouped(surface=faces.y_max, bottom=faces.y_min, sides=faces.x_min | faces.x_max).save("buried_cables_heating.step")
-for name, inner, outer in zip(("conductor", "insulation", "sheath", "jacket"), (0.0,) + radii[:-1], radii):
-    layer = [Cylinder(radius=outer, length=piece, origin=(x, y, 0.0)) if inner == 0.0
-             else AnnularCylinder(inner_radius=inner, outer_radius=outer, length=piece, origin=(x, y, 0.0)) for x, y in centres]
+soil.grouped(
+    surface=faces.y_max, bottom=faces.y_min, sides=faces.x_min | faces.x_max
+).save("buried_cables_heating.step")
+for name, inner, outer in zip(
+    ("conductor", "insulation", "sheath", "jacket"), (0.0,) + radii[:-1], radii
+):
+    layer = [
+        (
+            Cylinder(radius=outer, length=piece, origin=(x, y, 0.0))
+            if inner == 0.0
+            else AnnularCylinder(
+                inner_radius=inner, outer_radius=outer, length=piece, origin=(x, y, 0.0)
+            )
+        )
+        for x, y in centres
+    ]
     (layer[0] | layer[1] | layer[2]).save(f"buried_cables_heating_{name}.step")

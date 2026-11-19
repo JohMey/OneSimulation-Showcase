@@ -12,14 +12,26 @@ from onesim.cad.d3 import Prism
 
 cell, fin, unit, outer = 0.05, 0.005, 343.0 / 500.0 / 14, 3.0
 depths = [(n * n % 7) * unit for n in range(7)]
-for name, periods in (("schroeder_diffuser_scattering", 4), ("schroeder_diffuser_scattering_single", 1)):
+for name, periods in (
+    ("schroeder_diffuser_scattering", 4),
+    ("schroeder_diffuser_scattering_single", 1),
+):
     left = -periods * 7 * cell / 2
     segments = [Segment((left, 0.0), name="wall")]
     for index in range(7 * periods):
         depth, start = depths[index % 7], left + index * cell
         if depth > 0:
-            segments += [Segment((start + fin / 2, 0.0), name="wells"), Segment((start + fin / 2, -depth), name="wells"),
-                         Segment((start + cell - fin / 2, -depth), name="wells"), Segment((start + cell - fin / 2, 0.0), name="wells")]
-    segments += [Segment((-left, 0.0), name="wells"), Segment((outer, 0.0), name="wall"),
-                 Segment((-outer, 0.0), center=(0.0, 0.0), name="outer")]
-    Prism(profile=Profile(Path((-outer, 0.0), tuple(segments))), height=0.01).save(f"{name}.step")
+            segments += [
+                Segment((start + fin / 2, 0.0), name="wells"),
+                Segment((start + fin / 2, -depth), name="wells"),
+                Segment((start + cell - fin / 2, -depth), name="wells"),
+                Segment((start + cell - fin / 2, 0.0), name="wells"),
+            ]
+    segments += [
+        Segment((-left, 0.0), name="wells"),
+        Segment((outer, 0.0), name="wall"),
+        Segment((-outer, 0.0), center=(0.0, 0.0), name="outer"),
+    ]
+    Prism(profile=Profile(Path((-outer, 0.0), tuple(segments))), height=0.01).save(
+        f"{name}.step"
+    )

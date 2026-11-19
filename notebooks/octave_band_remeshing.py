@@ -8,7 +8,6 @@ to its upper band edge. The result is compared with one fine mesh for the whole 
 plane-wave formula.
 """
 
-
 # # Remeshing per octave band
 #
 # The element size a frequency-domain acoustic model needs scales with the wavelength: about six
@@ -45,14 +44,16 @@ import numpy as np
 from onesim.cad.exchange import load
 from onesim.meshing import TetrahedralMesher
 from onesim.numerics.fem import FiniteElement, Lagrange
-from onesim.physics.acoustics import (AcousticHarmonicPressure,
-                                      ComplexPressurePencil,
-                                      ConstantPressureForms,
-                                      PressureAdmittanceBoundary,
-                                      PressureTraceSamples,
-                                      SampledPressureAdmittanceForms,
-                                      SampledPressureVolumeForms,
-                                      pressure_space_volume_samples)
+from onesim.physics.acoustics import (
+    AcousticHarmonicPressure,
+    ComplexPressurePencil,
+    ConstantPressureForms,
+    PressureAdmittanceBoundary,
+    PressureTraceSamples,
+    SampledPressureAdmittanceForms,
+    SampledPressureVolumeForms,
+    pressure_space_volume_samples,
+)
 from onesim.visualization import plots, theme
 from scipy.sparse.linalg import spsolve
 
@@ -74,16 +75,37 @@ muffler = load("octave_band_remeshing.step")
 faces = muffler.boundaries
 size = {fc: min(0.100, c0 / (6 * np.sqrt(2) * fc)) for fc in centres}
 fine = size[centres[-1]] / 2
-meshes = {h: TetrahedralMesher(target_size=h, geometry_order=2, curvature_angle=np.pi / 3).generate(muffler)
-          for h in sorted(set(size.values()) | {fine})}
+meshes = {
+    h: TetrahedralMesher(
+        target_size=h, geometry_order=2, curvature_angle=np.pi / 3
+    ).generate(muffler)
+    for h in sorted(set(size.values()) | {fine})
+}
 
 view = plots.Camera(elevation=25, azimuth=-60)
 fig = plots.figure(1, 3, size=(21, 7))
-plots.geometry(muffler, selection={"inlet": faces.inlet, "outlet": faces.outlet, "walls": faces.walls, "symmetry planes": faces.symmetry},
-               labels=False, camera=view, title="Quarter of the muffler (STEP)", ax=fig[0])
+plots.geometry(
+    muffler,
+    selection={
+        "inlet": faces.inlet,
+        "outlet": faces.outlet,
+        "walls": faces.walls,
+        "symmetry planes": faces.symmetry,
+    },
+    labels=False,
+    camera=view,
+    title="Quarter of the muffler (STEP)",
+    ax=fig[0],
+)
 for panel, fc in zip((fig[1], fig[2]), (centres[0], centres[-1])):
-    plots.mesh(meshes[size[fc]], groups=("all",), legend=False, camera=view,
-               title=f"Mesh of the {fc:.0f} Hz band: {meshes[size[fc]].cell_count} tetrahedra", ax=panel)
+    plots.mesh(
+        meshes[size[fc]],
+        groups=("all",),
+        legend=False,
+        camera=view,
+        title=f"Mesh of the {fc:.0f} Hz band: {meshes[size[fc]].cell_count} tetrahedra",
+        ax=panel,
+    )
 plots.show()
 
 # ## Model
@@ -98,19 +120,51 @@ def solve_band(h, frequencies):
     """Transmission loss at the frequencies on the mesh of size h, and the number of unknowns."""
     mesh = meshes[h]
     space = FiniteElement(element=Lagrange(order=2)).bind_space(mesh)
-    volume = ConstantPressureForms(*SampledPressureVolumeForms(
-        size=space.dof_count, samples=lambda: pressure_space_volume_samples(space),
-        inverse_density=lambda omega, sample: 1 / rho0, compressibility=lambda omega, sample: 1 / impedance / c0)(0.0))
-    ports = {face: SampledPressureAdmittanceForms(size=space.dof_count, admittance=lambda omega, sample: 1.0, samples=lambda face=face: iter(
-        [PressureTraceSamples(space.cell_dofs[owner], points, weights, basis)
-         for owner, points, weights, _, basis, _ in map(space.trace_data, mesh.facets(getattr(faces, face)))]))(0.0)
-        for face in ("inlet", "outlet")}
+    volume = ConstantPressureForms(
+        *SampledPressureVolumeForms(
+            size=space.dof_count,
+            samples=lambda: pressure_space_volume_samples(space),
+            inverse_density=lambda omega, sample: 1 / rho0,
+            compressibility=lambda omega, sample: 1 / impedance / c0,
+        )(0.0)
+    )
+    ports = {
+        face: SampledPressureAdmittanceForms(
+            size=space.dof_count,
+            admittance=lambda omega, sample: 1.0,
+            samples=lambda face=face: iter(
+                [
+                    PressureTraceSamples(space.cell_dofs[owner], points, weights, basis)
+                    for owner, points, weights, _, basis, _ in map(
+                        space.trace_data, mesh.facets(getattr(faces, face))
+                    )
+                ]
+            ),
+        )(0.0)
+        for face in ("inlet", "outlet")
+    }
     drive = ports["inlet"] @ np.ones(space.dof_count)
-    pressure = AcousticHarmonicPressure(
-        operator=ComplexPressurePencil(volume, boundary=PressureAdmittanceBoundary(lambda omega: (ports["inlet"] + ports["outlet"]) / impedance)),
-        angular_frequencies=2 * np.pi * frequencies, load=lambda omega: 2j * omega * incident / impedance * drive, linear_solver=spsolve).run().pressure
-    transmitted = np.real(np.sum(pressure.conj() * (ports["outlet"] @ pressure.T).T, axis=1))
-    return dict(tl=10 * np.log10(incident**2 * drive.sum() / transmitted), dofs=space.dof_count)
+    pressure = (
+        AcousticHarmonicPressure(
+            operator=ComplexPressurePencil(
+                volume,
+                boundary=PressureAdmittanceBoundary(
+                    lambda omega: (ports["inlet"] + ports["outlet"]) / impedance
+                ),
+            ),
+            angular_frequencies=2 * np.pi * frequencies,
+            load=lambda omega: 2j * omega * incident / impedance * drive,
+            linear_solver=spsolve,
+        )
+        .run()
+        .pressure
+    )
+    transmitted = np.real(
+        np.sum(pressure.conj() * (ports["outlet"] @ pressure.T).T, axis=1)
+    )
+    return dict(
+        tl=10 * np.log10(incident**2 * drive.sum() / transmitted), dofs=space.dof_count
+    )
 
 
 remeshed = {fc: solve_band(size[fc], bands[fc]) for fc in centres}
@@ -122,16 +176,28 @@ reference = {fc: solve_band(fine, bands[fc]) for fc in centres}
 # the plane-wave formula, and the work in unknowns times frequencies.
 
 m = (chamber_radius / pipe_radius) ** 2
-formula = lambda f: 10 * np.log10(1 + 0.25 * (m - 1 / m) ** 2 * np.sin(2 * np.pi * f / c0 * chamber_length) ** 2)
+formula = lambda f: 10 * np.log10(
+    1 + 0.25 * (m - 1 / m) ** 2 * np.sin(2 * np.pi * f / c0 * chamber_length) ** 2
+)
 print(f"fine mesh: h = {1e3 * fine:.1f} mm, {reference[centres[0]]['dofs']} unknowns")
-print(" band [Hz]   h [mm]   unknowns   max |TL - TL fine| [dB]   max |TL - formula| [dB]   fine mesh: max |TL - formula| [dB]")
+print(
+    " band [Hz]   h [mm]   unknowns   max |TL - TL fine| [dB]   max |TL - formula| [dB]   fine mesh: max |TL - formula| [dB]"
+)
 for fc in centres:
-    print(f"{fc:8.0f}   {1e3 * size[fc]:6.1f}   {remeshed[fc]['dofs']:8d}   {np.max(np.abs(remeshed[fc]['tl'] - reference[fc]['tl'])):23.3f}"
-          f"   {np.max(np.abs(remeshed[fc]['tl'] - formula(bands[fc]))):23.3f}   {np.max(np.abs(reference[fc]['tl'] - formula(bands[fc]))):34.3f}")
-work = sum(remeshed[fc]["dofs"] * len(bands[fc]) for fc in centres), sum(reference[fc]["dofs"] * len(bands[fc]) for fc in centres)
-print(f"work (unknowns x frequencies): remeshed {work[0]}, one fine mesh {work[1]}, ratio {work[1] / work[0]:.1f}")
-print(f"largest difference between remeshed and fine sweep: "
-      f"{max(np.max(np.abs(remeshed[fc]['tl'] - reference[fc]['tl'])) for fc in centres):.3f} dB")
+    print(
+        f"{fc:8.0f}   {1e3 * size[fc]:6.1f}   {remeshed[fc]['dofs']:8d}   {np.max(np.abs(remeshed[fc]['tl'] - reference[fc]['tl'])):23.3f}"
+        f"   {np.max(np.abs(remeshed[fc]['tl'] - formula(bands[fc]))):23.3f}   {np.max(np.abs(reference[fc]['tl'] - formula(bands[fc]))):34.3f}"
+    )
+work = sum(remeshed[fc]["dofs"] * len(bands[fc]) for fc in centres), sum(
+    reference[fc]["dofs"] * len(bands[fc]) for fc in centres
+)
+print(
+    f"work (unknowns x frequencies): remeshed {work[0]}, one fine mesh {work[1]}, ratio {work[1] / work[0]:.1f}"
+)
+print(
+    f"largest difference between remeshed and fine sweep: "
+    f"{max(np.max(np.abs(remeshed[fc]['tl'] - reference[fc]['tl'])) for fc in centres):.3f} dB"
+)
 
 # ## Figure
 #
@@ -139,14 +205,35 @@ print(f"largest difference between remeshed and fine sweep: "
 # formula. Right: the unknowns used in each band.
 
 fig = plots.figure(1, 2, size=(17, 6.5))
-plots.line(y={f"{fc:.0f} Hz band mesh": (bands[fc], remeshed[fc]["tl"]) for fc in centres},
-           points={"one fine mesh": (np.concatenate([bands[fc][::3] for fc in centres]),
-                                     np.concatenate([reference[fc]["tl"][::3] for fc in centres]))},
-           reference={"plane-wave formula": (np.geomspace(80, 2900, 600), formula(np.geomspace(80, 2900, 600)))},
-           scale="logx", xlabel="frequency [Hz]", ylabel="transmission loss [dB]", title="Transmission loss, remeshed per octave band",
-           legend="upper left", ax=fig[0])
-plots.bars([f"{fc:.0f} Hz" for fc in centres], [remeshed[fc]["dofs"] for fc in centres], scale="log",
-           ylabel="pressure unknowns", title=f"Unknowns per band (fine mesh: {reference[centres[0]]['dofs']})", ax=fig[1])
+plots.line(
+    y={f"{fc:.0f} Hz band mesh": (bands[fc], remeshed[fc]["tl"]) for fc in centres},
+    points={
+        "one fine mesh": (
+            np.concatenate([bands[fc][::3] for fc in centres]),
+            np.concatenate([reference[fc]["tl"][::3] for fc in centres]),
+        )
+    },
+    reference={
+        "plane-wave formula": (
+            np.geomspace(80, 2900, 600),
+            formula(np.geomspace(80, 2900, 600)),
+        )
+    },
+    scale="logx",
+    xlabel="frequency [Hz]",
+    ylabel="transmission loss [dB]",
+    title="Transmission loss, remeshed per octave band",
+    legend="upper left",
+    ax=fig[0],
+)
+plots.bars(
+    [f"{fc:.0f} Hz" for fc in centres],
+    [remeshed[fc]["dofs"] for fc in centres],
+    scale="log",
+    ylabel="pressure unknowns",
+    title=f"Unknowns per band (fine mesh: {reference[centres[0]]['dofs']})",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Going further
