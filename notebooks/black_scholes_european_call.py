@@ -28,16 +28,15 @@ Black-Scholes formula, with a mesh study.
 # $D$, velocity $u$, decay rate $r$, "time" $\tau$) with quadratic finite elements and
 # BDF2 steps.
 #
-# The transport model holds a nonnegative amount, and far out of the money the call is
-# worth almost nothing, so small undershoots near zero are not admissible. A share is
-# itself a solution of the Black-Scholes equation ($V=S$ satisfies it identically), so
-# the model computes the portfolio "call plus one share", $W=V+S\ge S>0$, and the call
-# value is $V=W-S$.
+# A transport model normally holds a nonnegative amount; an option value is a signed
+# quantity in the numerical sense (tiny undershoots far out of the money are harmless), so
+# the model is declared with `nonnegative=False`. The delta $\Delta=\partial V/\partial S
+# =S^{-1}\,\partial V/\partial x$ comes from the gradient of the finite-element solution.
 #
-# | Boundary | Condition on $W$ |
+# | Boundary | Condition on $V$ |
 # |---|---|
-# | $x_\mathrm{min}=\ln K-2.5$ (deep out of the money) | $W=S$ (call worthless) |
-# | $x_\mathrm{max}=\ln K+2.5$ (deep in the money) | $W=2S-K\,e^{-r\tau}$ |
+# | $x_\mathrm{min}=\ln K-2.5$ (deep out of the money) | $V=0$ (call worthless) |
+# | $x_\mathrm{max}=\ln K+2.5$ (deep in the money) | $V=S-K\,e^{-r\tau}$ |
 #
 # **Reference.** F. Black and M. Scholes, *The pricing of options and corporate
 # liabilities*, J. Political Economy 81, 637-654 (1973); J. C. Hull, *Options, Futures,
@@ -78,21 +77,20 @@ print(f"diffusivity D = {0.5 * volatility**2:.4f}, velocity u = {-(rate - 0.5 * 
 
 # ## Model
 #
-# The species `W` is the portfolio value; the payoff and the far-field values are
-# shifted by one share.
+# The species `V` is the call value, starting from the payoff at maturity.
 
-model = SpeciesTransport(domain=line.line, velocity=-(rate - 0.5 * volatility**2),
-                         species=(TransportSpecies("W", diffusivity=0.5 * volatility**2, decay_rate=rate),))
+model = SpeciesTransport(domain=line.line, velocity=-(rate - 0.5 * volatility**2), nonnegative=False,
+                         species=(TransportSpecies("V", diffusivity=0.5 * volatility**2, decay_rate=rate),))
 problem = Problem(
-    name="European call plus one share",
+    name="European call",
     geometry=line,
     physics=(model,),
     boundary_conditions=(
-        PrescribedValueBoundary(physics=model, boundary=line.boundaries.start, value=lambda time, coordinate: {"W": np.exp(low)}),
+        PrescribedValueBoundary(physics=model, boundary=line.boundaries.start, value=lambda time, coordinate: {"V": 0.0}),
         PrescribedValueBoundary(physics=model, boundary=line.boundaries.end,
-                                value=lambda time, coordinate: {"W": 2.0 * np.exp(high) - strike * np.exp(-rate * time)}),
+                                value=lambda time, coordinate: {"V": np.exp(high) - strike * np.exp(-rate * time)}),
     ),
-    initial_conditions=(InitialValue(model.concentration("W"), lambda x, y, z: np.maximum(np.exp(x) - strike, 0.0) + np.exp(x)),),
+    initial_conditions=(InitialValue(model.concentration("V"), lambda x, y, z: np.maximum(np.exp(x) - strike, 0.0)),),
 )
 
 # ## Mesh study
@@ -109,10 +107,8 @@ results = {cells: Simulation(problem=problem, mesh=mesh, numerics=Numerics(
 
 # ## Comparison with the Black-Scholes formula
 #
-# $V=W-S$ on a fine line of share prices, at maturity and at two earlier times to
-# maturity; the delta is the slope of the computed price curve.
-
-
+# The price on a fine line of share prices, at maturity and at two earlier times to
+# maturity; the delta from the gradient of the solution in $x$, divided by $S$.
 
 def black_scholes(s, tau):
     d1 = (np.log(s / strike) + (rate + 0.5 * volatility**2) * tau) / (volatility * np.sqrt(tau))
@@ -121,8 +117,8 @@ def black_scholes(s, tau):
 
 share = np.linspace(60.0, 160.0, 201)
 points = np.column_stack((np.log(share), np.zeros_like(share), np.zeros_like(share)))
-price = {cells: np.asarray(r.field(model.concentration("W")).evaluate(points, time=maturity)).reshape(-1) - share for cells, r in results.items()}
-delta = {cells: np.gradient(value, share) for cells, value in price.items()}
+price = {cells: np.asarray(r.field(model.concentration("V")).evaluate(points, time=maturity)).reshape(-1) for cells, r in results.items()}
+delta = {cells: r.field(model.concentration("V")).gradient(points, time=maturity)[:, 0] / share for cells, r in results.items()}
 exact, exact_delta = black_scholes(share, maturity)
 print("  cells   h = dx    price at S = K   largest price error   largest delta error")
 for cells in results:
@@ -130,15 +126,16 @@ for cells in results:
           f"{np.abs(delta[cells] - exact_delta).max():21.2e}")
 print(f"Black-Scholes at S = K: {exact[share == strike][0]:.6f}")
 errors = [np.abs(price[cells] - exact).max() for cells in results]
-print(f"observed order of the price error: {np.log2(errors[-3] / errors[-2]):.2f}, {np.log2(errors[-2] / errors[-1]):.2f}")
-fine = results[200].field(model.concentration("W"))
-earlier = {tau: np.asarray(fine.evaluate(points, time=tau)).reshape(-1) - share for tau in (0.1, 0.4)}
+delta_errors = [np.abs(delta[cells] - exact_delta).max() for cells in results]
+print(f"observed order of the price error: {np.log2(errors[-3] / errors[-2]):.2f}, {np.log2(errors[-2] / errors[-1]):.2f}; "
+      f"of the delta error: {np.log2(delta_errors[-3] / delta_errors[-2]):.2f}, {np.log2(delta_errors[-2] / delta_errors[-1]):.2f}")
+fine = results[200].field(model.concentration("V"))
+earlier = {tau: np.asarray(fine.evaluate(points, time=tau)).reshape(-1) for tau in (0.1, 0.4)}
 for tau, value in earlier.items():
     print(f"τ = {tau:.1f} year, 200 elements: largest price error {np.abs(value - black_scholes(share, tau)[0]).max():.2e}")
 
 # Quadratic elements converge with the third power of the element size at these
-# sample points. The delta from the slope of the sampled price curve carries an
-# additional difference error of order $(\Delta S)^2$.
+# sample points; the delta, a derivative of the solution, one order lower.
 
 # ## Figure
 #
@@ -152,8 +149,8 @@ plots.line(share, {f"τ = {tau:.1f} year": value for tau, value in earlier.items
            xlabel="share price S", ylabel="call value V", title="Call value (dashed: formula)", legend="upper left", ax=fig[0])
 plots.line(share, {"FEM, 200 elements": delta[200]}, reference={"N(d1)": exact_delta},
            vlines={"strike": strike}, xlabel="share price S", ylabel="delta ∂V/∂S", title="Delta at τ = 1 year", legend="upper left", ax=fig[1])
-plots.convergence(np.array([(high - low) / cells for cells in results]), {"largest price error": np.array(errors)}, order=3,
-                  xlabel="element size in ln S", ylabel="largest price error, 60 ≤ S ≤ 160", title="Mesh study", ax=fig[2])
+plots.convergence(np.array([(high - low) / cells for cells in results]), {"largest price error": np.array(errors), "largest delta error": np.array(delta_errors)}, order=(3, 2),
+                  xlabel="element size in ln S", ylabel="largest error, 60 ≤ S ≤ 160", title="Mesh study", ax=fig[2])
 plots.show()
 
 # ## Going further

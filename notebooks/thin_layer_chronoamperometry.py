@@ -22,9 +22,9 @@ all times, including the exhaustive electrolysis of the layer.
 #
 # The current density is $i=nFD\,\partial c/\partial x|_{x=0}$, and the charge passed is
 # $q(t)=nF\left(c_0L-\int_0^Lc\,dx\right)$. OneSimulation solves the diffusion equation
-# with conservative finite volumes on a mesh graded towards the electrode and BDF2 steps
-# under adaptive step control. The charge follows from the amount of O left in the
-# layer, the current from its rate of change.
+# with quadratic finite elements on a mesh graded towards the electrode and BDF2 steps
+# under adaptive step control. The current is the gradient of the computed concentration
+# at the electrode, the charge the amount of O that has left the layer.
 #
 # **Reference.** A. J. Bard and L. R. Faulkner, *Electrochemical Methods*, 2nd ed.,
 # Wiley 2001, sections 5.2 and 11.7; A. T. Hubbard, *Study of the kinetics of
@@ -44,11 +44,12 @@ all times, including the exhaustive electrolysis of the layer.
 # approaches $nFc_0L$: the cell works as a coulometer.
 
 import numpy as np
+from scipy.special import erf
 
 from onesim.cad.d1 import Line
 from onesim.meshing import NonuniformLineMesher
 from onesim.numerics import Numerics
-from onesim.numerics.fvm import FiniteVolume, Rusanov, TwoPointDiffusion
+from onesim.numerics.fem import FiniteElement, Lagrange, Nitsche
 from onesim.numerics.linear import SparseDirect
 from onesim.numerics.nonlinear import Newton
 from onesim.numerics.time import BDF, AdaptiveTimeStep, BackwardEuler
@@ -65,13 +66,14 @@ theme.set()
 # A 50 µm layer of a 1 mM solution of a one-electron redox species with the diffusion
 # coefficient $10^{-9}$ m²/s. The diffusion time $L^2/D$ is 2.5 s; the experiment runs
 # for twice that.
+# The electrode holds the concentration at zero; the inert wall is a zero outward flux.
 
 thickness, diffusivity, bulk, electrons, faraday = 50e-6, 1.0e-9, 1.0, 1, 96485.33212
-end_time = 2.0 * thickness**2 / diffusivity
+end_time, start = 2.0 * thickness**2 / diffusivity, 1e-5
 print(f"diffusion time L²/D = {thickness**2 / diffusivity:.2f} s, exhaustive charge n F c0 L = {electrons * faraday * bulk * thickness:.4f} C/m²")
 
 line = Line(start=(0.0, 0.0, 0.0), end=(thickness, 0.0, 0.0))
-model = SpeciesTransport(domain=line.line, velocity=0.0, species=(TransportSpecies("O", diffusivity=diffusivity),))
+model = SpeciesTransport(domain=line.line, velocity=0.0, nonnegative=False, species=(TransportSpecies("O", diffusivity=diffusivity),))
 problem = Problem(
     name="Thin-layer chronoamperometry",
     geometry=line,
@@ -80,35 +82,37 @@ problem = Problem(
         PrescribedValueBoundary(physics=model, boundary=line.boundaries.start, value=lambda time, coordinate: {"O": 0.0}),
         OutwardFluxBoundary(physics=model, boundary=line.boundaries.end, flux=lambda **kw: np.zeros(1), jacobian=lambda **kw: np.zeros((1, 1))),
     ),
-    initial_conditions=(InitialValue(model.concentration("O"), bulk),),
+    initial_conditions=(InitialValue(model.concentration("O"), lambda x, y, z: bulk * erf(x / (2 * np.sqrt(diffusivity * start)))),),
 )
 
 # ## Mesh and simulation
 #
-# Sixty cells, geometrically graded so that the first one is 50 times thinner than the
-# last: the cell next to the electrode is 0.05 µm thick and resolves the depletion layer
-# already after about $10^{-5}$ s. The step control starts at $10^{-6}$ s and lets the
-# steps grow as the transient slows down.
+# Sixty quadratic elements, geometrically graded so that the first one is 50 times thinner than the
+# last: the element next to the electrode is 0.05 µm thick and resolves the depletion layer
+# already after about $10^{-5}$ s. The simulation starts at $t_0=10^{-5}$ s from the exact early profile
+# $c=c_0\,\mathrm{erf}\big(x/2\sqrt{Dt_0}\big)$, which the wall 50 µm away cannot yet feel; this avoids the
+# jump between the initial and the electrode concentration. The step control starts at $10^{-7}$ s and
+# lets the steps grow as the transient slows down.
 
 faces = thickness * (np.geomspace(1.0, 51.0, 61) - 1.0) / 50.0
 mesh = NonuniformLineMesher(faces=tuple(faces)).generate(line)
 result = Simulation(problem=problem, mesh=mesh, numerics=Numerics(
-    spatial=FiniteVolume(convection=Rusanov(), diffusion=TwoPointDiffusion()),
+    spatial=FiniteElement(element=Lagrange(order=2), boundary_enforcement=Nitsche()),
     nonlinear_solver=Newton(linear_solver=SparseDirect(), jacobian="analytic"),
     time_integrator=BDF(order=2, startup=BackwardEuler()))).run(
-    start_time=0.0, end_time=end_time,
-    time_step=AdaptiveTimeStep(initial=1e-6, minimum=1e-9, maximum=0.05, relative_tolerance=1e-3, absolute_tolerance=1e-4))
-amount = result.field(model.concentration("O")).integrate()
+    start_time=start, end_time=end_time,
+    time_step=AdaptiveTimeStep(initial=1e-7, minimum=1e-9, maximum=0.05, relative_tolerance=1e-3, absolute_tolerance=1e-4))
+concentration = result.field(model.concentration("O"))
+amount = concentration.integrate()
 times = np.asarray(amount.times)
 charge = electrons * faraday * (bulk * thickness - np.asarray(amount.values))
-current = np.gradient(charge, times)
-print(f"{len(times) - 1} accepted steps from {times[1]:.1e} s to {np.diff(times).max():.3f} s")
+current = np.array([electrons * faraday * diffusivity * concentration.gradient(np.zeros((1, 3)), time=t)[0, 0] for t in times])
+print(f"{len(times) - 1} accepted steps from {np.diff(times)[0]:.1e} s to {np.diff(times).max():.3f} s")
 
 # ## Comparison
 #
 # The thin-layer series with 400 terms, and the Cottrell and Anson expressions, at the
-# accepted times from $10^{-4}$ s on (the current without the last time, where the
-# difference quotient is one-sided).
+# accepted times from $10^{-4}$ s on.
 
 
 def thin_layer(t):
@@ -119,7 +123,7 @@ def thin_layer(t):
 
 exact_current, exact_charge = thin_layer(times[1:])
 cottrell = electrons * faraday * bulk * np.sqrt(diffusivity / (np.pi * times[1:]))
-compared = (times[1:] >= 1e-4) & (times[1:] < times[-1])
+compared = times[1:] >= 1e-4
 print("    t [s]   current [A/m²]  thin-layer   Cottrell     charge [C/m²]  thin-layer    Anson")
 for target in (1e-4, 1e-3, 1e-2, 0.1, 0.5, 1.0, 2.5, 4.0):
     k = np.argmin(np.abs(times[1:] - target))
@@ -133,7 +137,7 @@ print(f"charge after {end_time:.0f} s: {charge[-1] / (electrons * faraday * bulk
 
 # ## Figure
 #
-# The depletion profiles (cell values), the current on logarithmic axes (Cottrell's $t^{-1/2}$ law and
+# The depletion profiles, the current on logarithmic axes (Cottrell's $t^{-1/2}$ law and
 # the exponential decay of the exhausted layer), and the charge approaching the
 # coulometric limit.
 
