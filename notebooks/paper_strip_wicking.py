@@ -9,8 +9,7 @@ square-root law of Lucas and Washburn, and the hydrostatic equilibrium.
 
 # # Wicking in a paper strip
 #
-# A strip of filter paper, 20 mm wide and 40 mm high, stands with its lower edge on a wet support
-# that supplies water at a small suction of 10 cm water column, as in a tension infiltrometer. The
+# A strip of filter paper, 20 mm wide and 40 mm high, hangs with its lower edge in water. The
 # pores of the dry paper suck the water up: fast at first, the wetted height growing with the
 # square root of time, then ever slower as the weight of the lifted water balances the capillary
 # suction. The water flow in the paper is unsaturated porous-media flow, the **Richards equation**
@@ -19,13 +18,13 @@ square-root law of Lucas and Washburn, and the hydrostatic equilibrium.
 # $$\frac{\partial\theta(h)}{\partial t}=\nabla\cdot\big(K(h)\,(\nabla h+\mathbf e_y)\big),$$
 #
 # with the van Genuchten water retention $\theta(h)$ and the Mualem conductivity $K(h)$ of the
-# paper: porosity 0.7, $\alpha=12$ 1/m, $n=2.5$, saturated conductivity $10^{-5}$ m/s.
+# paper: porosity 0.7, $\alpha=12$ 1/m, $n=2.5$, saturated conductivity $10^{-6}$ m/s.
 #
 # | edge | condition |
 # |---|---|
-# | `y_min`, on the wet support | $h_0=-0.1$ m |
+# | `y_min`, in the water | $h_0=0$ (saturated) |
 # | `x_min`, `x_max`, `y_max` | no flow |
-# | initial state | dry paper, $h_i=-0.5$ m |
+# | initial state | dry paper, $h_i=-1$ m |
 #
 # The strip comes from the CAD file `paper_strip_wicking.step`, written by
 # `paper_strip_wicking_geometry.py` with the CAD objects of OneSimulation.
@@ -34,13 +33,13 @@ square-root law of Lucas and Washburn, and the hydrostatic equilibrium.
 # $I=S\sqrt t$ (Lucas-Washburn behaviour, J. R. Philip, Soil Sci. 84 (1957) 257-264), with the
 # sorptivity from Parlange's integral (J.-Y. Parlange, Soil Sci. 119 (1975) 158-161),
 #
-# $$S^2=\int_{h_i}^{h_0}\big(\theta_0+\theta(h)-2\theta_i\big)\,K(h)\,\mathrm dh .$$
+# $$S^2=\int_{h_i}^{0}\big(\theta_s+\theta(h)-2\theta_i\big)\,K(h)\,\mathrm dh .$$
 #
 # Later, gravity slows the rise. Treating the wetted zone as a sharp front driven by a constant
-# suction $h_f=S^2/(2K_0\Delta\theta)$, with $K_0=K(h_0)$, gives Washburn's rise with gravity in the Green-Ampt form
+# suction $h_f=S^2/(2K_s\Delta\theta)$ gives Washburn's rise with gravity in the Green-Ampt form
 # (W. H. Green, G. A. Ampt, J. Agric. Sci. 4 (1911) 1-24),
 #
-# $$t(L)=\frac{\Delta\theta\,h_f}{K_0}\Big(-\ln\big(1-L/h_f\big)-L/h_f\Big),\qquad \Delta\theta=\theta_0-\theta_i ,$$
+# $$t(L)=\frac{\Delta\theta\,h_f}{K_s}\Big(-\ln\big(1-L/h_f\big)-L/h_f\Big),\qquad \Delta\theta=\theta_s-\theta_i ,$$
 #
 # an approximation for the wetted height $L$ that is accurate when the front is sharp; the uptake
 # is then $I=\Delta\theta\,L$.
@@ -64,7 +63,7 @@ theme.set()
 # ## Geometry and mesh
 #
 # `section` cuts the loaded strip at half thickness; $x$ runs across the strip, $y$ upwards from
-# the wet support. Linear triangles of 1 mm.
+# the water surface. Linear triangles of 1 mm.
 
 sheet = load("paper_strip_wicking.step")
 strip = sheet.section((0, 0, 1), origin=(0, 0, 1e-4))
@@ -74,7 +73,7 @@ mesh = TriangularMesher(target_size=1e-3).generate(strip)
 fig = plots.figure(1, 2, size=(12, 6))
 plots.geometry(
     sheet,
-    selection={"edge on the wet support": sheet.boundaries.y_min},
+    selection={"edge in the water": sheet.boundaries.y_min},
     labels=False,
     camera=plots.Camera(elevation=20, azimuth=-60),
     title="Paper strip from the STEP file",
@@ -98,7 +97,7 @@ plots.show()
 paper = Richards(
     domain=strip.domain(),
     retention=VanGenuchtenRetention(alpha=12.0, n=2.5),
-    conductivity=1e-5,
+    conductivity=1e-6,
     saturated_water_content=0.7,
     residual_water_content=0.0,
 )
@@ -106,15 +105,18 @@ problem = Problem(
     name="Paper strip wicking",
     geometry=strip,
     physics=(paper,),
-    initial_conditions=(InitialValue(paper.pressure_head, -0.5),),
+    initial_conditions=(InitialValue(paper.pressure_head, -1.0),),
     boundary_conditions=(
-        PressureHead(physics=paper, boundary=strip.boundaries.y_min, value=-0.1),
+        PressureHead(physics=paper, boundary=strip.boundaries.y_min, value=0.0),
     ),
 )
 numerics = Numerics(
     spatial=FiniteElement(element=Lagrange(order=1), quadrature_order=2),
     nonlinear_solver=DampedNewton(
-        linear_solver=SparseDirect(), relative_tolerance=1e-8, absolute_tolerance=1e-10
+        linear_solver=SparseDirect(),
+        relative_tolerance=1e-8,
+        absolute_tolerance=1e-10,
+        maximum_iterations=60,
     ),
     time_integrator=BackwardEuler(),
 )
@@ -127,20 +129,20 @@ water = result.field(paper.water_content)
 #
 # The uptake per unit width is the integral of the water content gained, divided by the strip
 # width; it is compared with $S\sqrt t$. The wetted height is where the water content crosses half
-# of the supplied water content $\theta_0$ above $\theta_i$ on the centre line. The uptake is compared
+# of the porosity $\theta_s$ above $\theta_i$ on the centre line. The uptake is compared
 # with $S\sqrt t$ and with the Green-Ampt rise.
 
 theta_i, theta_0, k_0 = (
-    float(paper.volumetric_water_content(-0.5)),
-    float(paper.volumetric_water_content(-0.1)),
-    float(paper.hydraulic_conductivity(-0.1)),
+    float(paper.volumetric_water_content(-1.0)),
+    paper.saturated_water_content,
+    paper.conductivity,
 )
 sorptivity = np.sqrt(
     quad(
         lambda h: (theta_0 + paper.volumetric_water_content(h) - 2 * theta_i)
         * paper.hydraulic_conductivity(h),
-        -0.5,
-        -0.1,
+        -1.0,
+        0.0,
     )[0]
 )
 uptake = water.integrate()
@@ -188,7 +190,7 @@ for panel, t in zip((fig[0], fig[1], fig[2]), (120.0, 900.0, 6000.0)):
     plots.surface(
         water,
         time=nearest(t),
-        limits=(0.0, 0.4),
+        limits=(0.0, 0.7),
         xlabel="x [m]",
         ylabel="y [m]",
         label="water content",
