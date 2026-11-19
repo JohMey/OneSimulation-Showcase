@@ -1,42 +1,51 @@
-"""OneSimulation example: Tesla microvalve - diodicity over the Reynolds number.
+"""OneSimulation example: Tesla valve - diodicity over the Reynolds number and the loop length.
 Requires the installed, activated OneSimulation runtime.
 
-A Tesla valve has no moving parts, yet it resists flow in one direction more than in the other. The
-valve is read from a STEP file and cut to its cross-section; the laminar flow is solved in both
-directions with Taylor-Hood elements over a sweep of the Reynolds number. The diodicity is checked
-against the exact Stokes limit and the published range, with a mesh study.
+A four-stage Tesla-type valve has no moving parts, yet it resists flow in one direction far more
+than in the other. The valve is read from STEP files for three loop lengths and cut to its
+cross-section; the laminar flow is solved in both directions with Taylor-Hood elements over a sweep
+of the Reynolds number. The diodicity is checked against the exact Stokes limit and the published
+range, with a parameter study of the loop length and a mesh study.
 """
 
-# # Tesla microvalve: diodicity over the Reynolds number
+# # Tesla valve: diodicity over the Reynolds number and the loop length
 #
-# Nikola Tesla's "valvular conduit" (US patent 1,329,559, 1920) is a channel with side loops. In
-# the forward direction the fluid passes straight through. In the reverse direction part of the
-# stream is caught by the loops, turned around and fed back against the main stream, which costs
-# pressure. Micropumps use such valves because they cannot wear or stick. Their figure of merit is
-# the **diodicity**, the ratio of the pressure drops at the same flow rate:
+# Nikola Tesla's "valvular conduit" (US patent 1,329,559, 1920) started a family of valves without
+# moving parts that resist flow in one direction more than in the other; micropumps use them
+# because they cannot wear or stick. Their figure of merit is the **diodicity**, the ratio of the
+# pressure drops at the same flow rate in the blocking and the easy direction:
 #
-# $$Di=\frac{\Delta p_\text{reverse}}{\Delta p_\text{forward}} .$$
+# $$Di=\frac{\Delta p_\text{blocking}}{\Delta p_\text{easy}} .$$
 #
-# The valve comes from the CAD file `tesla_valve_diodicity.step`, written by
-# `tesla_valve_diodicity_geometry.py`: a straight channel of width $w=1$ mm with one loop whose
-# legs leave the channel at 30°, leaning against the forward flow. The model is its cross-section
-# and solves the steady Navier-Stokes equations for water; the Reynolds number is $Re=\bar U w/\nu$
-# with the mean inflow speed $\bar U=0.1$ m/s, and it is varied through the viscosity.
+# The valve here has a main channel that meanders in right angles and, at every corner, a loop that
+# continues straight on, turns through a half circle and rejoins the main channel before the corner.
+# In one direction the stream must follow the sharp corners of the main channel: it separates at
+# every corner, and a narrow jet between recirculation zones costs pressure. In the other direction
+# the stream runs straight into each loop, which then acts as a second, rounded path beside the
+# corner, so the flow divides and turns smoothly. Inertia makes the difference; in creeping flow both
+# directions cost the same.
 #
-# | side | forward flow | reverse flow |
+# The valve comes from the CAD files `tesla_valve_diodicity.step` and
+# `tesla_valve_diodicity_10.step`, `..._15.step`, `..._20.step`, written by
+# `tesla_valve_diodicity_geometry.py`: channels of width $w=1$ mm meander in right angles through four
+# stages, each with a loop of centreline radius 1 mm whose straight part is 1.0, 1.5 or 2.0 mm long
+# (the design parameter studied here). The model is the cross-section; it solves the steady
+# Navier-Stokes equations for water. The Reynolds number is $Re=\bar U w/\nu$ with the mean inflow
+# speed $\bar U=0.1$ m/s; it is varied through the viscosity.
+#
+# | side | blocking direction | easy direction |
 # |---|---|---|
-# | `channel.x_min` | parabolic inflow, mean speed $\bar U$ | traction free |
-# | `channel.x_max` | traction free | parabolic inflow, mean speed $\bar U$ |
+# | `inlet_bar.x_min` | parabolic inflow, mean speed $\bar U$ | traction free |
+# | `outlet_bar.x_max` | traction free | parabolic inflow, mean speed $\bar U$ |
 # | all walls | no slip | no slip |
 #
-# **Reference.** Creeping (Stokes) flow is reversible: reversing the inflow reverses the velocity
-# and the pressure drop, so $Di\to1$ for $Re\to0$ (up to the small difference between the inflow
-# and the outflow condition at the two ends). Inertia makes the valve work: published measurements
-# and simulations of Tesla-type valves show the diodicity rising from 1 with the Reynolds number,
-# by a few per cent to some tens of per cent per stage in the laminar range, and multiplying over
-# several stages (F. K. Forster, R. L. Bardell, M. A. Afromowitz, N. R. Sharma, A. Blanchard,
-# ASME FED 234, 39-44, 1995; A. R. Gamboa, C. J. Morris, F. K. Forster, *J. Fluids Eng.* 127,
-# 339-346, 2005).
+# **Reference.** Creeping (Stokes) flow is reversible, so $Di\to1$ for $Re\to0$ (up to the small
+# difference between the inflow and the outflow condition). With inertia, published simulations and
+# measurements of multi-stage Tesla valves report diodicities that rise from 1 with the Reynolds
+# number to values between about 1.2 and 2 and more at a few hundred, growing with the number of
+# stages; two-dimensional models give the upper end (S. M. Thompson, B. J. Paudel, T. Jamal,
+# D. K. Walters, *J. Fluids Eng.* 136, 081102, 2014; Q. M. Nguyen, J. Abouezzi, L. Ristroph,
+# *Nat. Commun.* 12, 2884, 2021).
 
 import numpy as np
 from onesim.cad.exchange import load
@@ -59,66 +68,77 @@ theme.set()
 
 # ## Geometry and mesh
 #
-# `section` cuts the slab at half thickness; the faces keep their names. The triangles are an
-# eighth of the channel width; the mesh study uses a sixth and an eleventh.
+# `section` cuts each slab at half thickness; the faces keep their names. Triangles of a sixth of
+# the channel width; the mesh study uses an eighth for the loop length 1.5 mm.
 
-part = load("tesla_valve_diodicity.step")
-valve = part.section((0, 0, 1), origin=(0, 0, part.size[2] / 2))
-faces = valve.boundaries
-left, right = faces["channel.x_min"], faces["channel.x_max"]
-walls = faces.all - left - right
-width, speed = 1e-3, 0.1
-meshes = {
-    cells: TriangularMesher(target_size=width / cells).generate(valve)
-    for cells in (6, 8, 11)
+mm, width, speed = 1e-3, 1e-3, 0.1
+parts = {
+    loop: load(f"tesla_valve_diodicity_{round(10 * loop)}.step")
+    for loop in (1.0, 1.5, 2.0)
 }
-mesh = meshes[8]
+valves = {
+    loop: part.section((0, 0, 1), origin=(0, 0, part.size[2] / 2))
+    for loop, part in parts.items()
+}
+runs = [
+    (1.5, 6, (0.01, 50, 100, 150, 200, 250, 300)),
+    (1.0, 6, (0.01, 50, 100, 150, 200)),
+    (2.0, 6, (0.01, 50, 100, 150, 200)),
+    (1.5, 8, (0.01, 50, 100, 150, 200)),
+]
+meshes = {
+    (loop, cells): TriangularMesher(target_size=width / cells).generate(valves[loop])
+    for loop, cells, _ in runs
+}
 
-fig = plots.figure(layout=[["geometry"], ["mesh"]], size=(14, 9))
+part = parts[1.5]
+fig = plots.figure(layout=[["geometry"], ["mesh"]], size=(14, 10))
 plots.geometry(
     part,
     selection={
-        "forward inlet": part.boundaries["channel.x_min"],
-        "forward outlet": part.boundaries["channel.x_max"],
+        "inlet of the blocking direction": part.boundaries["inlet_bar.x_min"],
+        "inlet of the easy direction": part.boundaries["outlet_bar.x_max"],
     },
     labels=False,
-    camera=plots.Camera(elevation=45, azimuth=-70),
-    title="Tesla valve with one loop",
+    camera=plots.Camera(elevation=55, azimuth=-80),
+    title="Four-stage Tesla valve, loop length 1.5 mm",
     ax=fig["geometry"],
 )
 plots.mesh(
-    mesh,
+    meshes[1.5, 6],
     groups=("all",),
     legend=False,
-    title=f"{mesh.cell_count} triangles",
+    title=f"{meshes[1.5, 6].cell_count} triangles",
     ax=fig["mesh"],
 )
 plots.show()
 
 # ## Model
 #
-# For each direction the Reynolds number is raised step by step; every Newton solve starts from the
-# previous solution. The first step, $Re=0.01$, is practically creeping flow. The coarser and the
-# finer mesh repeat the steps up to $Re=300$ for the mesh study.
+# For each geometry, mesh and direction the Reynolds number is raised in steps of 50; every Newton
+# solve starts from the previous solution. The loop length 1.5 mm is followed to $Re=300$, the
+# parameter and mesh studies to $Re=200$.
 
-reynolds_numbers = (0.01, 100, 200, 300, 400, 500)
-profile = lambda y: 6 * speed * y * (width - y) / width**2
-directions = {"forward": (left, right, 1.0), "reverse": (right, left, -1.0)}
-runs = [(8, reynolds_numbers), (6, (0.01, 100, 200, 300)), (11, (0.01, 100, 200, 300))]
+profile = lambda y: 6 * speed * (y + width / 2) * (width / 2 - y) / width**2
 results = {}
-for cells, levels in runs:
-    for direction, (inlet, outlet, sign) in directions.items():
+for loop, cells, levels in runs:
+    faces = valves[loop].boundaries
+    left, right = faces["inlet_bar.x_min"], faces["outlet_bar.x_max"]
+    for direction, (inlet, outlet, sign) in {
+        "blocking": (left, right, 1.0),
+        "easy": (right, left, -1.0),
+    }.items():
         guess = (0.0, 0.0)
         for reynolds in levels:
             model = PlanarIncompressibleNavierStokes(
-                domain=valve.domain(),
+                domain=valves[loop].domain(),
                 material=NewtonianFluid(
                     density=1000.0, dynamic_viscosity=1000.0 * speed * width / reynolds
                 ),
             )
             problem = Problem(
                 name=f"Tesla valve, {direction}",
-                geometry=valve,
+                geometry=valves[loop],
                 physics=(model,),
                 boundary_conditions=(
                     FixedVelocity(
@@ -126,7 +146,7 @@ for cells, levels in runs:
                         physics=model,
                         value=lambda y: np.column_stack((sign * profile(y), 0 * y)),
                     ),
-                    NoSlipWall(boundary=walls, physics=model),
+                    NoSlipWall(boundary=faces.all - left - right, physics=model),
                     FlowTraction(boundary=outlet, physics=model, value=(0.0, 0.0)),
                 ),
             )
@@ -135,118 +155,107 @@ for cells, levels in runs:
                 initial_guess={model.velocity: guess},
                 nonlinear_solver=Newton(
                     linear_solver=SparseDirect(),
-                    absolute_tolerance=1e-12,
-                    relative_tolerance=1e-9,
-                    maximum_iterations=25,
+                    absolute_tolerance=1e-5,
+                    relative_tolerance=1e-6,
+                    maximum_iterations=30,
                 ),
             )
             solved = Simulation(
-                problem=problem, mesh=meshes[cells], numerics=numerics
+                problem=problem, mesh=meshes[loop, cells], numerics=numerics
             ).solve_stationary()
-            results[direction, reynolds, cells] = solved.field(
+            results[loop, cells, direction, reynolds] = solved.field(
                 model.velocity
             ), solved.field(model.pressure)
-            previous = results[direction, reynolds, cells][0]
+            previous = results[loop, cells, direction, reynolds][0]
             guess = lambda x, y: previous.evaluate(np.column_stack((x, y)))
 
 # ## Results
 #
-# The pressure drop is the difference of the mean pressures across the inlet and the outlet. The share
-# of the flow that takes the loop is the flow rate through the top of the loop, at $x=6.8$ mm.
+# The pressure drop is the difference of the mean pressures across the two straight ends. The
+# thin jets and separation zones make the diodicity above $Re\approx100$ sensitive to the mesh; the
+# mesh study shows by how much.
 
-ends = {
-    "forward": (-4e-3 + 1e-9, 22e-3 - 1e-9),
-    "reverse": (22e-3 - 1e-9, -4e-3 + 1e-9),
-}
-across_channel = np.linspace(0.0, width, 101)
+across = np.linspace(-width / 2, width / 2, 101)
 mean_pressure = lambda pressure, x: np.mean(
-    pressure.evaluate(
-        np.column_stack((np.full_like(across_channel, x), across_channel))
-    )
+    pressure.evaluate(np.column_stack((np.full_like(across, x), across)))
 )
-pressure_drops = {
-    key: mean_pressure(pressure, ends[key[0]][0])
-    - mean_pressure(pressure, ends[key[0]][1])
+ends = {
+    "blocking": (-5 * mm + 1e-9, 16 * mm - 1e-9),
+    "easy": (16 * mm - 1e-9, -5 * mm + 1e-9),
+}
+drops = {
+    key: mean_pressure(pressure, ends[key[2]][0])
+    - mean_pressure(pressure, ends[key[2]][1])
     for key, (velocity, pressure) in results.items()
 }
 diodicity = {
-    key[1:]: pressure_drops["reverse", *key[1:]] / pressure_drops[key]
-    for key in pressure_drops
-    if key[0] == "forward"
-}
-across = np.linspace(3e-3, 4e-3, 201)
-loop_share = {
-    key: abs(
-        np.trapezoid(
-            velocity.evaluate(np.column_stack((np.full_like(across, 6.8e-3), across)))[
-                :, 0
-            ],
-            across,
-        )
-    )
-    / (speed * width)
-    for key, (velocity, pressure) in results.items()
+    (loop, cells, reynolds): drops[loop, cells, "blocking", reynolds]
+    / drops[loop, cells, "easy", reynolds]
+    for loop, cells, levels in runs
+    for reynolds in levels
 }
 
-print(
-    "    Re   Δp forward [Pa]   Δp reverse [Pa]   diodicity   loop share forward   loop share reverse"
-)
-for reynolds in reynolds_numbers:
+print("loop length 1.5 mm:")
+print("    Re   Δp blocking [Pa]   Δp easy [Pa]   diodicity")
+for reynolds in runs[0][2]:
     print(
-        f"{reynolds:6.2f} {pressure_drops['forward', reynolds, 8]:16.4f} {pressure_drops['reverse', reynolds, 8]:17.4f} {diodicity[reynolds, 8]:11.4f}"
-        f" {100 * loop_share['forward', reynolds, 8]:18.1f} % {100 * loop_share['reverse', reynolds, 8]:18.1f} %"
+        f"{reynolds:6.2f} {drops[1.5, 6, 'blocking', reynolds]:16.4f} {drops[1.5, 6, 'easy', reynolds]:14.4f} {diodicity[1.5, 6, reynolds]:11.4f}"
     )
 print(
-    f"\nStokes limit: diodicity at Re = 0.01 differs from 1 by {abs(diodicity[0.01, 8] - 1):.1e}"
+    f"\nStokes limit: diodicity at Re = 0.01 differs from 1 by {abs(diodicity[1.5, 6, 0.01] - 1):.1e}"
 )
-for reynolds in (100, 300):
+print("parameter study, diodicity at Re = 100, 150, 200:")
+for loop in (1.0, 1.5, 2.0):
     print(
-        f"mesh study at Re = {reynolds}: diodicity "
+        f"  loop length {loop:.1f} mm: "
         + ", ".join(
-            f"{diodicity[reynolds, cells]:.4f} ({meshes[cells].cell_count} triangles)"
-            for cells in (6, 8, 11)
+            f"{diodicity[loop, 6, reynolds]:.3f}" for reynolds in (100, 150, 200)
         )
     )
+print(
+    f"mesh study, loop length 1.5 mm, Re = 100, 150, 200: {meshes[1.5, 6].cell_count} triangles "
+    + ", ".join(f"{diodicity[1.5, 6, reynolds]:.4f}" for reynolds in (100, 150, 200))
+    + f"; {meshes[1.5, 8].cell_count} triangles "
+    + ", ".join(f"{diodicity[1.5, 8, reynolds]:.4f}" for reynolds in (100, 150, 200))
+)
 
 # ## Figure
 #
-# The speed at $Re=500$ in both directions - forward the stream stays in the main channel, reverse
-# the loop jet crosses it - and the diodicity over the Reynolds number.
+# The speed at $Re=300$ in both directions - in the blocking direction a narrow jet follows the
+# sharp corners while the loops stand almost still, in the easy direction the loops carry part of
+# the flow round the corners - and the diodicity over the Reynolds number for the three loop lengths.
 
-fig = plots.figure(layout=[["forward"], ["reverse"], ["diodicity"]], size=(15, 13))
-for direction in directions:
+fig = plots.figure(layout=[["blocking"], ["easy"], ["diodicity"]], size=(14, 15))
+for direction in ("blocking", "easy"):
     plots.surface(
-        results[direction, 500, 8][0],
+        results[1.5, 6, direction, 300][0],
         component=lambda u, position: np.linalg.norm(u, axis=1),
-        limits=(0.0, 0.2),
+        limits=(0.0, 0.25),
         contours=6,
         subdivisions=2,
         label="speed [m/s]",
+        title=f"{direction.capitalize()} direction, Re = 300",
         ax=fig[direction],
-        title=f"{direction.capitalize()} flow, Re = 500: {100 * loop_share[direction, 500, 8]:.0f} % of the flow takes the loop",
     )
 plots.line(
     y={
-        "simulation": (
-            list(reynolds_numbers),
-            [diodicity[reynolds, 8] for reynolds in reynolds_numbers],
+        f"loop {loop:.1f} mm": (
+            [reynolds for reynolds in levels],
+            [diodicity[loop, 6, reynolds] for reynolds in levels],
         )
+        for loop, cells, levels in runs[:3]
     },
     points={
-        "coarser mesh": (
-            [0.01, 100, 200, 300],
-            [diodicity[reynolds, 6] for reynolds in (0.01, 100, 200, 300)],
-        ),
-        "finer mesh": (
-            [0.01, 100, 200, 300],
-            [diodicity[reynolds, 11] for reynolds in (0.01, 100, 200, 300)],
-        ),
+        "loop 1.5 mm, finer mesh": (
+            [0.01, 50, 100, 150, 200],
+            [diodicity[1.5, 8, reynolds] for reynolds in (0.01, 50, 100, 150, 200)],
+        )
     },
     hlines={"Stokes limit Di = 1": 1.0},
     markers=True,
     xlabel="Reynolds number Re = U w / ν",
-    ylabel="diodicity Δp_reverse / Δp_forward",
-    title="Diodicity of a single-stage Tesla valve",
+    ylabel="diodicity Δp_blocking / Δp_easy",
+    title="Diodicity of the four-stage valve",
     legend="upper left",
     ax=fig["diodicity"],
 )
@@ -254,7 +263,8 @@ plots.show()
 
 # ## Going further
 #
-# Change the lean of the legs or the rounding of the loop in `tesla_valve_diodicity_geometry.py`,
-# write the STEP file again and compare the diodicity: this is the design study behind optimized
-# valves. Put several loops in a row, alternating above and below the channel, to multiply the
-# effect; a pump with two such valves rectifies an oscillating flow.
+# Change the radius of the loops, the length of the runs or the number of stages in
+# `tesla_valve_diodicity_geometry.py` and write the STEP files again: this is the design study behind
+# optimized valves. Above $Re\approx300$ the steady flow in the blocking direction becomes unstable;
+# a transient run with `Simulation.run` shows the shedding jets that real valves exploit under
+# pulsating flow.
