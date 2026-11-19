@@ -3,9 +3,9 @@ Requires the installed, activated OneSimulation runtime.
 
 A lithium-ion cell is described by an open-circuit voltage source, a series resistance
 and one resistor-capacitor branch. The three circuit parameters are estimated from the
-terminal voltage of a pulse test by an optimizer that runs the circuit simulation at
-every trial point. The test data are synthetic, generated from known parameters with
-voltage noise, so the recovered values can be checked.
+terminal voltage of a pulse test by a Levenberg-Marquardt least-squares fit that runs the
+circuit simulation at every trial point. The test data are synthetic, generated from known
+parameters with voltage noise, so the recovered values can be checked.
 """
 
 
@@ -27,12 +27,11 @@ voltage noise, so the recovered values can be checked.
 # them $R_1$ and $\tau_1$.
 #
 # OneSimulation solves the circuit (voltage source, $R_0$, the $R_1C_1$ branch, current
-# load) with its circuit solver. The `SimulationStudyService` runs it for trial values of
-# $(R_0,R_1,\ln\tau_1)$, measures the mean squared deviation (MSD) of the terminal voltage
-# from the data in mV², and its projected-gradient optimizer (finite-difference gradients
-# from real runs, backtracking line search, bounds) minimises it. The optimizer steps
-# along the plain gradient, so the parameters are chosen such that a unit change moves
-# the voltage by a few millivolts: resistances in mΩ and the logarithm of $\tau_1$.
+# load) with its circuit solver. The `SimulationStudyService` turns it into a least-squares
+# problem: `fit` runs the circuit for trial values of $(R_0,R_1,\tau_1)$, forms the voltage
+# residuals divided by the noise level and minimises their sum of squares with the
+# Levenberg-Marquardt method. It returns the estimates with their linearised covariance in
+# physical units.
 #
 # **Reference.** G. L. Plett, *Battery Management Systems, Vol. I: Battery Modeling*,
 # Artech House 2015, ch. 2; the pulse test follows the hybrid pulse power
@@ -75,46 +74,44 @@ pulse_test = lambda values: Circuit(components=(
     CircuitVoltageSource(name="ocv", positive="p", negative="0", voltage=lambda t: open_circuit(np.interp(t, times, state))),
     CircuitResistor(name="r0", positive="p", negative="a", resistance=1e-3 * values["r0"]),
     CircuitResistor(name="r1", positive="a", negative="t", resistance=1e-3 * values["r1"]),
-    CircuitCapacitor(name="c1", positive="a", negative="t", capacitance=np.exp(values["ln_tau1"]) / (1e-3 * values["r1"]), initial_voltage=0.0),
+    CircuitCapacitor(name="c1", positive="a", negative="t", capacitance=values["tau1"] / (1e-3 * values["r1"]), initial_voltage=0.0),
     CircuitCurrentSource(name="load", positive="t", negative="0", current=load)))
-true = {"r0": 15.0, "r1": 10.0, "ln_tau1": np.log(30.0)}
+study = SimulationStudyService(
+    (StudyParameter("r0", 1.0, 50.0), StudyParameter("r1", 1.0, 50.0), StudyParameter("tau1", 2.0, 200.0)),
+    pulse_test, lambda circuit: {f"u_{i}": u for i, u in enumerate(circuit.voltages["t"])},
+    solve=lambda circuit: circuit.solve(times=times, max_step=0.25))
+
+# ## Synthetic measurements
+#
+# The true circuit is run once and normally distributed noise of 1 mV is added (fixed seed).
+
+true = {"r0": 15.0, "r1": 10.0, "tau1": 30.0}
 rng = np.random.default_rng(2026)
-data = pulse_test(true).solve(times=times, max_step=0.25).voltages["t"] + rng.normal(0.0, noise, times.size)
+clean = study.sweep(combinations=[true]).runs[0].measurements
+data = np.array([clean[f"u_{i}"] for i in range(times.size)]) + rng.normal(0.0, noise, times.size)
 
 # ## Identification
 #
-# Bounds: resistances between 1 and 50 mΩ, relaxation time between 2 and 200 s. The
-# optimizer starts at $R_0=30$ mΩ, $R_1=4$ mΩ, $\tau_1=80$ s, uses finite-difference steps
-# of $10^{-6}$ of each interval and stops when the projected gradient of the MSD falls
-# below $10^{-3}$ mV² per unit parameter or the line search finds no further decrease.
+# Bounds: resistances between 1 and 50 mΩ, relaxation time between 2 and 200 s.
+# Levenberg-Marquardt starts at $R_0=30$ mΩ, $R_1=4$ mΩ, $\tau_1=80$ s.
 
-study = SimulationStudyService(
-    (StudyParameter("r0", 1.0, 50.0), StudyParameter("r1", 1.0, 50.0), StudyParameter("ln_tau1", np.log(2.0), np.log(200.0))),
-    pulse_test,
-    lambda circuit: {"msd": float(np.mean((1e3 * (circuit.voltages["t"] - data)) ** 2))},
-    solve=lambda circuit: circuit.solve(times=times, max_step=0.25))
-start_values = {"r0": 30.0, "r1": 4.0, "ln_tau1": np.log(80.0)}
-best = study.optimize(("msd",), start=start_values, step=1e-6, tolerance=1e-3, maximum_iterations=150, maximum_runs=2500)
-fitted = pulse_test(best.parameters).solve(times=times, max_step=0.25)
+start_values = {"r0": 30.0, "r1": 4.0, "tau1": 80.0}
+fit = study.fit(residuals=lambda m: np.array([(m[f"u_{i}"] - data[i]) / noise for i in range(times.size)]),
+                start=start_values, method="levenberg_marquardt", maximum_runs=100)
 
 # ## Comparison with the true values
 #
-# The uncertainty follows from the Gauss-Newton covariance $(J^TJ)^{-1}$ of the weighted
-# residuals, with the sensitivities $J$ from one more run per parameter.
+# Standard errors from the linearised covariance, scaled with the residual variance.
 
-names = ("r0", "r1", "ln_tau1")
-sensitivity = np.column_stack([(pulse_test(dict(best.parameters) | {name: best.parameters[name] + 1e-3}).solve(times=times, max_step=0.25).voltages["t"]
-                                - fitted.voltages["t"]) / (1e-3 * noise) for name in names])
-sigma = np.sqrt(np.diag(np.linalg.inv(sensitivity.T @ sensitivity)))
-print(f"optimizer: {best.iterations} iterations, {best.run_count} circuit simulations, "
-      f"χ² = N·MSD/s² = {times.size * best.objectives['msd'] / (1e3 * noise) ** 2:.1f} for {times.size - 3} degrees of freedom")
-for name, label, unit, s in zip(names[:2], ("R0", "R1"), ("mΩ", "mΩ"), sigma):
-    print(f"{label:4s} estimated {best.parameters[name]:8.4f} ± {s:.4f} {unit}, true {true[name]:6.2f} {unit}  "
-          f"({(best.parameters[name] - true[name]) / s:+.2f} standard deviations)")
-print(f"tau1 estimated {np.exp(best.parameters['ln_tau1']):8.4f} ± {np.exp(best.parameters['ln_tau1']) * sigma[2]:.4f} s, true 30.00 s  "
-      f"({(best.parameters['ln_tau1'] - true['ln_tau1']) / sigma[2]:+.2f} standard deviations)")
-print(f"rms voltage residual {1e3 * np.sqrt(np.mean((fitted.voltages['t'] - data) ** 2)):.3f} mV (noise {1e3 * noise:.1f} mV); "
-      f"KCL residual of the circuit {np.abs(fitted.kcl_residual).max():.1e} A")
+print(f"{fit.run_count} circuit simulations (including the data run), converged: {fit.converged}, rank {fit.rank}, "
+      f"χ² = {fit.residuals @ fit.residuals:.1f} for {fit.degrees_of_freedom} degrees of freedom")
+print("parameter   estimate ± standard error    true    deviation")
+for name, unit in (("r0", "mΩ"), ("r1", "mΩ"), ("tau1", "s")):
+    print(f"{name:8s} {fit.parameters[name]:10.4f} ± {fit.standard_errors[name]:.4f} {unit:2s} {true[name]:8.2f}   "
+          f"{(fit.parameters[name] - true[name]) / fit.standard_errors[name]:+6.2f} σ")
+correlation = fit.covariance / np.sqrt(np.outer(np.diag(fit.covariance), np.diag(fit.covariance)))
+print(f"correlations: R0-R1 {correlation[0, 1]:+.2f}, R0-τ1 {correlation[0, 2]:+.2f}, R1-τ1 {correlation[1, 2]:+.2f}; "
+      f"rms voltage residual {1e3 * noise * np.sqrt(np.mean(fit.residuals ** 2)):.3f} mV (noise {1e3 * noise:.1f} mV)")
 
 # ## Figure
 #
@@ -122,15 +119,17 @@ print(f"rms voltage residual {1e3 * np.sqrt(np.mean((fitted.voltages['t'] - data
 # pulse, where the instantaneous jump ($R_0$) and the relaxation ($R_1$, $\tau_1$)
 # separate; and the residuals (dotted: ± the noise level).
 
+fitted, first = (np.array([run.measurements[f"u_{i}"] for i in range(times.size)])
+                 for run in study.sweep(combinations=[dict(fit.parameters), start_values]).runs)
 fig = plots.figure(1, 3, size=(17, 5))
-plots.line(times / 60, {"fitted model": fitted.voltages["t"]}, points={"pulse-test data": (times[::4] / 60, data[::4])},
+plots.line(times / 60, {"fitted model": fitted}, points={"pulse-test data": (times[::4] / 60, data[::4])},
            right={"current [A]": np.array([load(t) for t in times])}, xlabel="time [min]", ylabel="terminal voltage [V]",
            right_label="current [A] (discharge > 0)", title="Pulse test", legend="lower left", ax=fig[0])
 window = (times >= 490) & (times <= 600)
-plots.line(times[window], {"fitted model": fitted.voltages["t"][window]}, points={"pulse-test data": (times[window], data[window])},
-           reference={"start values": pulse_test(start_values).solve(times=times, max_step=0.25).voltages["t"][window]},
-           xlabel="time [s]", ylabel="terminal voltage [V]", title="Second pulse pair, close-up", legend="lower right", ax=fig[1])
-plots.line(points={"data - model": (times / 60, 1e3 * (data - fitted.voltages["t"]))}, hlines=[1e3 * noise, -1e3 * noise],
+plots.line(times[window], {"fitted model": fitted[window]}, points={"pulse-test data": (times[window], data[window])},
+           reference={"start values": first[window]}, xlabel="time [s]", ylabel="terminal voltage [V]",
+           title="Second pulse pair, close-up", legend="lower right", ax=fig[1])
+plots.line(points={"data - model": (times / 60, 1e3 * (data - fitted))}, hlines=[1e3 * noise, -1e3 * noise],
            xlabel="time [min]", ylabel="voltage residual [mV]", title="Residuals", legend="upper right", ax=fig[2])
 plots.show()
 

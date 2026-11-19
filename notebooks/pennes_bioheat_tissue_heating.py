@@ -23,10 +23,10 @@ compared with the same layer without blood perfusion.
 # tissue at $x=L$ stays at $T_b=37$ °C, and the metabolic heat $Q_m$ is neglected, so
 # the tissue starts in equilibrium at $T_b$.
 #
-# Mathematically the Pennes equation is a diffusion equation with a linear sink. OneSimulation
-# solves it with its transport model for a single conserved scalar (diffusivity
-# $\alpha=k/\rho c$, decay rate $w=\omega_b\rho_bc_b/\rho c$, source $wT_b$), with
-# quadratic finite elements on a line and BDF2 steps.
+# OneSimulation solves the equation with its `PennesBioheat` model (temperature in K,
+# perfusion as the volumetric capacity rate $\omega_b\rho_bc_b$, blood temperature) on a
+# line through the tissue, with quadratic finite elements and BDF2 steps. Below,
+# $\alpha=k/\rho c$ is the thermal diffusivity and $w=\omega_b\rho_bc_b/\rho c$ the perfusion rate.
 #
 # | Boundary | Condition |
 # |---|---|
@@ -54,7 +54,7 @@ from onesim.numerics.fem import FiniteElement, Lagrange, Nitsche
 from onesim.numerics.linear import SparseDirect
 from onesim.numerics.nonlinear import Newton
 from onesim.numerics.time import BDF, BackwardEuler
-from onesim.physics.chemistry import SpeciesTransport, TransportSpecies
+from onesim.physics.biophysics import PennesBioheat
 from onesim.simulation import PrescribedValueBoundary, Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
 from onesim.visualization import theme, plots
@@ -79,22 +79,20 @@ line = Line(start=(0.0, 0.0, 0.0), end=(depth, 0.0, 0.0))
 
 # ## Simulation and mesh study
 #
-# Each case on 10, 20 and 40 quadratic elements with 1800 BDF2 steps of 2 s. The tissue
-# temperature is the transported scalar `T`; perfusion enters as decay towards $T_b$.
+# Each case on 10, 20 and 40 quadratic elements with 1800 BDF2 steps of 2 s.
 
-models = {name: SpeciesTransport(domain=line.line, velocity=0.0,
-                                 species=(TransportSpecies("T", diffusivity=diffusivity, decay_rate=w / (density * capacity)),),
-                                 sources={"T": w * blood / (density * capacity)}) for name, w in cases.items()}
+models = {name: PennesBioheat(domain=line.line, density=density, heat_capacity=capacity, conductivity=conductivity,
+                              perfusion_capacity_rate=w, blood_temperature=blood) for name, w in cases.items()}
 runs = {(name, cells): Simulation(
             problem=Problem(
                 name=f"Pennes bioheat, {name}",
                 geometry=line,
                 physics=(model,),
                 boundary_conditions=(
-                    PrescribedValueBoundary(physics=model, boundary=line.boundaries.start, value=lambda time, coordinate: {"T": surface}),
-                    PrescribedValueBoundary(physics=model, boundary=line.boundaries.end, value=lambda time, coordinate: {"T": blood}),
+                    PrescribedValueBoundary(physics=model, boundary=line.boundaries.start, value=lambda time, **_: {"temperature": surface}),
+                    PrescribedValueBoundary(physics=model, boundary=line.boundaries.end, value=lambda time, **_: {"temperature": blood}),
                 ),
-                initial_conditions=(InitialValue(model.concentration("T"), blood),)),
+                initial_conditions=(InitialValue(model.temperature, blood),)),
             mesh=StructuredLineMesher(cells=cells).generate(line),
             numerics=Numerics(spatial=FiniteElement(element=Lagrange(order=2), boundary_enforcement=Nitsche()),
                               nonlinear_solver=Newton(linear_solver=SparseDirect(), jacobian="analytic"),
@@ -121,7 +119,7 @@ def pennes(x, t, w):
 x = np.linspace(0.0, depth, 301)
 points = np.column_stack((x, np.zeros_like(x), np.zeros_like(x)))
 moments = (300.0, 900.0, 1800.0, 3600.0)
-profiles = {key: {t: np.asarray(r.field(models[key[0]].concentration("T")).evaluate(points, time=t)).reshape(-1) for t in moments}
+profiles = {key: {t: np.asarray(r.field(models[key[0]].temperature).evaluate(points, time=t)).reshape(-1) for t in moments}
             for key, r in runs.items()}
 print("case            elements   largest deviation [K]   at t = 60 min: T(5 mm) [°C]   series [°C]")
 for (name, cells), profile in profiles.items():
