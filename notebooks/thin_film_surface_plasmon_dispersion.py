@@ -47,11 +47,8 @@ relation of the film, and a driven guide checks the decay of the long-range plas
 #
 # solved here for complex $\beta$ at each photon energy with the same permittivity.
 #
-# Lengths are in micrometres throughout: the STEP parts are drawn in micrometres and the model is
-# solved in that unit. Without free charges Maxwell's equations keep their form when all lengths
-# shrink by a factor and all frequencies grow by the same factor, the permittivity being the one at
-# the physical frequency; every frequency of the problem - the light and the rates of the silver
-# model - is therefore multiplied by `unit` $=10^{-6}$.
+# The STEP parts are drawn in micrometres, the unit that suits a film of 40 nm; `scaled` brings the
+# mesh to metres, so the model is solved in SI units and the plots show micrometres again.
 
 import numpy as np
 from onesim.cad.exchange import load
@@ -63,7 +60,7 @@ from onesim.materials.electromagnetic import (
     RegionwiseElectromagneticMaterial,
     electronvolts_to_angular_frequency,
 )
-from onesim.meshing import TriangularMesher
+from onesim.meshing import TriangularMesher, scaled
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import ComplexSparseDirect
@@ -80,7 +77,7 @@ from scipy.optimize import newton
 
 theme.set()
 
-unit, glass, thickness = 1e-6, 2.25, 0.04
+glass, thickness = 2.25, 40e-9
 light = 1 / np.sqrt(VACUUM_PERMEABILITY * VACUUM_PERMITTIVITY)
 plasma, oscillators = 9.01, [
     (0.065, 3.886, 0.816),
@@ -90,13 +87,13 @@ plasma, oscillators = 9.01, [
     (5.646, 2.419, 20.29),
 ]
 silver = DrudeLorentzElectromagneticMaterial(
-    plasma_frequency=unit * electronvolts_to_angular_frequency(np.sqrt(0.845) * plasma),
-    collision_rate=unit * electronvolts_to_angular_frequency(0.048),
+    plasma_frequency=electronvolts_to_angular_frequency(np.sqrt(0.845) * plasma),
+    collision_rate=electronvolts_to_angular_frequency(0.048),
     oscillators=tuple(
         LorentzOscillator(
             strength=f * plasma**2 / w**2,
-            resonance_frequency=unit * electronvolts_to_angular_frequency(w),
-            damping=unit * electronvolts_to_angular_frequency(g),
+            resonance_frequency=electronvolts_to_angular_frequency(w),
+            damping=electronvolts_to_angular_frequency(g),
         )
         for f, g, w in oscillators
     ),
@@ -106,7 +103,8 @@ silver = DrudeLorentzElectromagneticMaterial(
 #
 # `load` reads the glass strip, the film and a thin band around the film; `section` cuts them at
 # half thickness. Quadratic triangles of 8 nm in the film, 12 nm in the band and 60 nm in the rest
-# of the glass follow the field of both plasmons, which decays within 20 to 700 nm from the film.
+# of the glass follow the field of both plasmons, which decays within 20 to 700 nm from the film;
+# `scaled(..., "um")` turns the micrometres of the drawing into metres.
 
 parts = {
     name: load(f"thin_film_surface_plasmon_dispersion{name}.step")
@@ -116,25 +114,31 @@ strip = parts[""].section((0, 0, 1), origin=(0, 0, 0.05))
 band = parts["_band"].section((0, 0, 1), origin=(0, 0, 0.05)).named("band")
 film = parts["_film"].section((0, 0, 1), origin=(0, 0, 0.05)).named("film")
 sides = strip.boundaries
-mesh = TriangularMesher(
-    target_size=0.06,
-    embedded_regions=(band, film),
-    region_sizes={"band": 0.012, "film": 0.008},
-).generate(strip)
+mesh = scaled(
+    TriangularMesher(
+        target_size=0.06,
+        embedded_regions=(band, film),
+        region_sizes={"band": 0.012, "film": 0.008},
+    ).generate(strip),
+    "um",
+)
 
 fig = plots.figure(1, 2, size=(10, 8))
 plots.geometry(
     strip,
     selection={"ports": sides.x_min | sides.x_max, "walls": sides.y_min | sides.y_max},
     labels=False,
-    title="Glass strip with the silver film (STEP, 1 = 1 um)",
+    title="Glass strip with the silver film (STEP)",
+    length_unit="um",
+    drawing_unit="um",
     ax=fig[0],
 )
 plots.mesh(
     mesh,
     groups=("all",),
     legend=False,
-    title=f"{mesh.cell_count} quadratic triangles (1 = 1 um)",
+    title=f"{mesh.cell_count} quadratic triangles",
+    length_unit="um",
     ax=fig[1],
 )
 plots.show()
@@ -155,7 +159,7 @@ numerics = Numerics(
 )
 model = lambda energy: FrequencyDomainMaxwell(
     domain=strip.domain(),
-    frequency=unit * electronvolts_to_angular_frequency(energy) / (2 * np.pi),
+    frequency=electronvolts_to_angular_frequency(energy) / (2 * np.pi),
     material=material,
     polarization="Hz",
     phasor_convention="exp(-i*omega*t)",
@@ -197,7 +201,7 @@ computed = np.array(
 # ## Results
 #
 # The exact constants come from the two dispersion relations, solved by Newton's method from the
-# single-interface plasmon. $k_0$ and $\beta$ are in rad/um.
+# single-interface plasmon. $k_0$ and $\beta$ are in rad/m, propagation lengths printed in um.
 
 relation = lambda beta, k0, metal, even: (
     np.sqrt(beta**2 - metal * k0**2 + 0j)
@@ -226,8 +230,8 @@ exact = np.array(
 order = np.argsort(-exact.real, axis=1)
 exact = np.take_along_axis(exact, order, axis=1)
 length = {
-    "long-range": 1 / (2 * computed[:, 1].imag),
-    "short-range": 1 / (2 * computed[:, 0].imag),
+    "long-range": 1e6 / (2 * computed[:, 1].imag),
+    "short-range": 1e6 / (2 * computed[:, 0].imag),
 }
 print(
     "energy   eps_silver        n_eff long-range         n_eff short-range        L_p long-range [um]   L_p short-range [um]"
@@ -239,7 +243,7 @@ for i in range(0, len(energies), 2):
     n, m = computed[i] / wavenumbers[i], exact[i] / wavenumbers[i]
     print(
         f"{energies[i]:5.2f}   {metals[i].real:7.2f}{metals[i].imag:+6.2f}i   {n[1].real:.5f}  {m[1].real:.5f}     {n[0].real:.5f}  {m[0].real:.5f}     "
-        f"{length['long-range'][i]:8.2f}  {1 / (2 * exact[i, 1].imag):8.2f}    {length['short-range'][i]:7.3f}  {1 / (2 * exact[i, 0].imag):7.3f}"
+        f"{length['long-range'][i]:8.2f}  {1e6 / (2 * exact[i, 1].imag):8.2f}    {length['short-range'][i]:7.3f}  {1e6 / (2 * exact[i, 0].imag):7.3f}"
     )
 print(
     f"\nlargest deviation of n_eff: long-range {np.max(np.abs((computed[:, 1] - exact[:, 1]) / wavenumbers)):.1e}, "
@@ -260,7 +264,7 @@ through = np.array(
         for result, physics in zip(results, models)
     ]
 )
-expected = np.exp(-2 * exact[:, 0].imag * strip.size[0])
+expected = np.exp(-2 * exact[:, 0].imag * np.ptp(mesh.coordinates[:, 0]))
 print("\nenergy [eV]   |S21|^2 computed   exp(-2 Im(beta) L)")
 for i in range(0, len(energies), 4):
     print(f"{energies[i]:8.2f}      {through[i]:.6f}           {expected[i]:.6f}")
@@ -271,26 +275,26 @@ for i in range(0, len(energies), 4):
 # on a logarithmic scale, and the magnetic field across the film of both modes at 2 eV, fed one
 # after the other.
 
-profile = np.linspace(-0.6, 0.6, 601)
+profile = np.linspace(-0.6e-6, 0.6e-6, 601)
 at = int(np.argmin(np.abs(energies - 2.0)))
 fields = {
     name: np.abs(
         solve(models[at], mode)
         .field(models[at].magnetic_flux_density)
-        .evaluate(np.column_stack((0.5 + 0 * profile, profile)))[:, 2]
+        .evaluate(np.column_stack((0.5e-6 + 0 * profile, profile)))[:, 2]
     )
     for mode, name in enumerate(("short-range", "long-range"))
 }
 fig = plots.figure(1, 3, size=(24, 6.5))
 plots.line(
     y={
-        "long-range": (computed[:, 1].real, energies),
-        "short-range": (computed[:, 0].real, energies),
-        "light line of the glass": (np.sqrt(glass) * wavenumbers, energies),
+        "long-range": (1e-6 * computed[:, 1].real, energies),
+        "short-range": (1e-6 * computed[:, 0].real, energies),
+        "light line of the glass": (1e-6 * np.sqrt(glass) * wavenumbers, energies),
     },
     reference={
-        "long-range": (exact[:, 1].real, energies),
-        "short-range": (exact[:, 0].real, energies),
+        "long-range": (1e-6 * exact[:, 1].real, energies),
+        "short-range": (1e-6 * exact[:, 0].real, energies),
     },
     xlabel="Re(beta) [rad/um]",
     ylabel="photon energy [eV]",
@@ -302,8 +306,8 @@ plots.line(
     energies,
     length,
     reference={
-        "long-range": 1 / (2 * exact[:, 1].imag),
-        "short-range": 1 / (2 * exact[:, 0].imag),
+        "long-range": 1e6 / (2 * exact[:, 1].imag),
+        "short-range": 1e6 / (2 * exact[:, 0].imag),
     },
     scale="logy",
     xlabel="photon energy [eV]",
@@ -313,7 +317,7 @@ plots.line(
     ax=fig[1],
 )
 plots.line(
-    1e3 * profile,
+    1e9 * profile,
     {name: values / values.max() for name, values in fields.items()},
     xlabel="y [nm]",
     ylabel="|H_z| / max",

@@ -40,11 +40,9 @@ incident power.
 # metal. The Galerkin solution keeps this balance to rounding on any mesh, so it confirms that ports
 # and dissipation are consistent rather than measuring the discretization error.
 #
-# Lengths are in micrometres throughout: the STEP parts are drawn in micrometres and the model is
-# solved in that unit. Without free charges Maxwell's equations keep their form when all lengths
-# shrink by a factor and all frequencies grow by the same factor, the permittivity being the one at
-# the physical frequency; every frequency of the problem - the light and the rates of the Drude
-# model - is therefore multiplied by `unit` $=10^{-6}$.
+# The STEP parts are drawn in micrometres, the unit that suits wires of a few tens of nanometres;
+# `scaled` brings the meshes to metres, so the model is solved in SI units and the plots show
+# micrometres again.
 
 import numpy as np
 from onesim.cad.exchange import load
@@ -54,7 +52,7 @@ from onesim.materials.electromagnetic import (
     IsotropicElectromagneticMaterial,
     RegionwiseElectromagneticMaterial,
 )
-from onesim.meshing import PeriodicPair, TriangularMesher
+from onesim.meshing import PeriodicPair, TriangularMesher, scaled
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import ComplexSparseDirect
@@ -69,21 +67,20 @@ from onesim.visualization import plots, theme
 
 theme.set()
 
-unit, wavelength, period = 1e-6, 0.55, 0.4
+wavelength, period = 550e-9, 0.4e-6
 light = 1 / np.sqrt(VACUUM_PERMEABILITY * VACUUM_PERMITTIVITY)
 impedance = np.sqrt(VACUUM_PERMEABILITY / VACUUM_PERMITTIVITY)
 frequency, k0 = light / wavelength, 2 * np.pi / wavelength
 silver = DrudeElectromagneticMaterial(
-    plasma_frequency=unit * 1.37e16,
-    collision_rate=unit * 3.2e13,
-    high_frequency_permittivity=3.7,
+    plasma_frequency=1.37e16, collision_rate=3.2e13, high_frequency_permittivity=3.7
 )
 
 # ## Geometry and mesh
 #
 # `load` reads the cell, the glass and the wire; `section` cuts them at half thickness. The
 # periodic sides are meshed alike; quadratic triangles of 20 nm, and 4 nm in the wire, where the
-# field decays within 25 nm of the surface.
+# field decays within 25 nm of the surface; `scaled(..., "um")` turns the micrometres of the drawing
+# into metres.
 
 parts = {
     name: load(f"plasmonic_wire_grating{name}.step").section(
@@ -93,12 +90,15 @@ parts = {
 }
 cell = parts[""]
 sides = cell.boundaries
-mesh = TriangularMesher(
-    target_size=0.02,
-    embedded_regions=(parts["_glass"].named("glass"), parts["_wire"].named("wire")),
-    region_sizes={"wire": 0.004},
-    periodic_pairs=(PeriodicPair(sides.x_min, sides.x_max),),
-).generate(cell)
+mesh = scaled(
+    TriangularMesher(
+        target_size=0.02,
+        embedded_regions=(parts["_glass"].named("glass"), parts["_wire"].named("wire")),
+        region_sizes={"wire": 0.004},
+        periodic_pairs=(PeriodicPair(sides.x_min, sides.x_max),),
+    ).generate(cell),
+    "um",
+)
 
 fig = plots.figure(1, 2, size=(10, 8))
 plots.geometry(
@@ -109,14 +109,17 @@ plots.geometry(
         "port in glass": sides.y_min,
     },
     labels=False,
-    title="One period (STEP, 1 = 1 um)",
+    title="One period (STEP)",
+    length_unit="um",
+    drawing_unit="um",
     ax=fig[0],
 )
 plots.mesh(
     mesh,
     groups=("all",),
     legend=False,
-    title=f"{mesh.cell_count} triangles (1 = 1 um)",
+    title=f"{mesh.cell_count} triangles",
+    length_unit="um",
     ax=fig[1],
 )
 plots.show()
@@ -195,7 +198,7 @@ absorbed = {
 
 names = {"Ez": "s (E_z)", "Hz": "p (H_z)"}
 print(
-    f"silver at {1e3 * wavelength:.0f} nm: eps = {silver.relative_permittivity_at(frequency):.2f}"
+    f"silver at {1e9 * wavelength:.0f} nm: eps = {silver.relative_permittivity_at(frequency):.2f}"
 )
 for polarization in ("Ez", "Hz"):
     print(
@@ -237,12 +240,15 @@ print(
 
 # The mesh study: triangles of 10 nm and 2 nm in the wire, at three angles.
 
-fine = TriangularMesher(
-    target_size=0.01,
-    embedded_regions=(parts["_glass"].named("glass"), parts["_wire"].named("wire")),
-    region_sizes={"wire": 0.002},
-    periodic_pairs=(PeriodicPair(sides.x_min, sides.x_max),),
-).generate(cell)
+fine = scaled(
+    TriangularMesher(
+        target_size=0.01,
+        embedded_regions=(parts["_glass"].named("glass"), parts["_wire"].named("wire")),
+        region_sizes={"wire": 0.002},
+        periodic_pairs=(PeriodicPair(sides.x_min, sides.x_max),),
+    ).generate(cell),
+    "um",
+)
 refined = {
     (polarization, angle): diffraction_efficiencies(
         solve(polarization, angle, fine), models[polarization]
@@ -296,10 +302,9 @@ plots.heatmap(
     triangles=np.asarray(mesh.cells),
     limits=(0, np.percentile(field, 99.5)),
     label="|H_z| / |H_inc|",
-    xlabel="x [um]",
-    ylabel="y [um]",
-    ylimits=(-0.3, 0.4),
+    ylimits=(-0.3e-6, 0.4e-6),
     title="p polarization at 40 deg",
+    length_unit="um",
     ax=fig[2],
 )
 plots.show()

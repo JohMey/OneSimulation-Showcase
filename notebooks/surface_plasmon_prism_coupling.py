@@ -46,11 +46,8 @@ incidence, with its plasmon dip, is compared with the exact multilayer reflectio
 #   r_{ij}^{(p)}=\frac{\varepsilon_jk_{z,i}-\varepsilon_ik_{z,j}}{\varepsilon_jk_{z,i}+\varepsilon_ik_{z,j}},\quad
 #   r_{ij}^{(s)}=\frac{k_{z,i}-k_{z,j}}{k_{z,i}+k_{z,j}}.$$
 #
-# Lengths are in micrometres throughout: the STEP parts are drawn in micrometres and the model is
-# solved in that unit. Without free charges Maxwell's equations keep their form when all lengths
-# shrink by a factor and all frequencies grow by the same factor, the permittivity being the one at
-# the physical frequency; every frequency of the problem - the light and the rates of the gold
-# model - is therefore multiplied by `unit` $=10^{-6}$.
+# The STEP parts are drawn in micrometres, the unit that suits a film of 50 nm; `scaled` brings the
+# meshes to metres, so the model is solved in SI units and the plots show micrometres again.
 
 import numpy as np
 from onesim.cad.exchange import load
@@ -62,7 +59,7 @@ from onesim.materials.electromagnetic import (
     RegionwiseElectromagneticMaterial,
     electronvolts_to_angular_frequency,
 )
-from onesim.meshing import PeriodicPair, TriangularMesher
+from onesim.meshing import PeriodicPair, TriangularMesher, scaled
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import ComplexSparseDirect
@@ -78,7 +75,7 @@ from onesim.visualization import plots, theme
 
 theme.set()
 
-unit, wavelength, prism = 1e-6, 0.633, 1.515
+wavelength, prism = 633e-9, 1.515
 light = 1 / np.sqrt(VACUUM_PERMEABILITY * VACUUM_PERMITTIVITY)
 frequency, k0 = light / wavelength, 2 * np.pi / wavelength
 plasma, oscillators = 9.03, [
@@ -89,13 +86,13 @@ plasma, oscillators = 9.03, [
     (4.384, 2.214, 13.32),
 ]
 gold = DrudeLorentzElectromagneticMaterial(
-    plasma_frequency=unit * electronvolts_to_angular_frequency(np.sqrt(0.760) * plasma),
-    collision_rate=unit * electronvolts_to_angular_frequency(0.053),
+    plasma_frequency=electronvolts_to_angular_frequency(np.sqrt(0.760) * plasma),
+    collision_rate=electronvolts_to_angular_frequency(0.053),
     oscillators=tuple(
         LorentzOscillator(
             strength=f * plasma**2 / w**2,
-            resonance_frequency=unit * electronvolts_to_angular_frequency(w),
-            damping=unit * electronvolts_to_angular_frequency(g),
+            resonance_frequency=electronvolts_to_angular_frequency(w),
+            damping=electronvolts_to_angular_frequency(g),
         )
         for f, g, w in oscillators
     ),
@@ -105,7 +102,8 @@ gold = DrudeLorentzElectromagneticMaterial(
 #
 # `load` reads both cells with their glass and gold; `section` cuts them at half thickness. The
 # periodic sides are meshed alike (`periodic_pairs`); quadratic triangles of 20 nm, and 8 nm in the
-# gold, where the field decays within 25 nm.
+# gold, where the field decays within 25 nm; `scaled(..., "um")` turns the micrometres of the drawing
+# into metres.
 
 configurations = ("kretschmann", "otto")
 cells, meshes = {}, {}
@@ -117,14 +115,20 @@ for name in configurations:
         for part in ("", "_glass", "_gold")
     }
     cells[name] = parts[""]
-    meshes[name] = TriangularMesher(
-        target_size=0.02,
-        embedded_regions=(parts["_glass"].named("glass"), parts["_gold"].named("gold")),
-        region_sizes={"gold": 0.008},
-        periodic_pairs=(
-            PeriodicPair(parts[""].boundaries.x_min, parts[""].boundaries.x_max),
-        ),
-    ).generate(parts[""])
+    meshes[name] = scaled(
+        TriangularMesher(
+            target_size=0.02,
+            embedded_regions=(
+                parts["_glass"].named("glass"),
+                parts["_gold"].named("gold"),
+            ),
+            region_sizes={"gold": 0.008},
+            periodic_pairs=(
+                PeriodicPair(parts[""].boundaries.x_min, parts[""].boundaries.x_max),
+            ),
+        ).generate(parts[""]),
+        "um",
+    )
 
 fig = plots.figure(1, 4, size=(16, 9))
 for index, name in enumerate(configurations):
@@ -137,7 +141,9 @@ for index, name in enumerate(configurations):
             "port in air" if name == "kretschmann" else "conductor": sides.y_min,
         },
         labels=False,
-        title=f"{name.capitalize()} cell (STEP, 1 = 1 um)",
+        title=f"{name.capitalize()} cell (STEP)",
+        length_unit="um",
+        drawing_unit="um",
         ax=fig[2 * index],
     )
     plots.mesh(
@@ -145,6 +151,7 @@ for index, name in enumerate(configurations):
         groups=("all",),
         legend=False,
         title=f"{meshes[name].cell_count} triangles",
+        length_unit="um",
         ax=fig[2 * index + 1],
     )
 plots.show()
@@ -261,8 +268,8 @@ def multilayer(angle, layers, thickness, polarization):
 
 metal = gold.relative_permittivity_at(frequency)
 stacks = {
-    "kretschmann": ([prism**2, metal, 1.0], 0.05),
-    "otto": ([prism**2, 1.0, metal], 0.45),
+    "kretschmann": ([prism**2, metal, 1.0], 50e-9),
+    "otto": ([prism**2, 1.0, metal], 450e-9),
 }
 exact = {
     (name, polarization): np.array(

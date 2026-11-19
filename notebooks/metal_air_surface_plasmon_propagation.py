@@ -37,11 +37,8 @@ exact relation; a plasmon fed through a port shows its field and its decay along
 # Springer 1988, §2.1; S. A. Maier, *Plasmonics: Fundamentals and Applications*, Springer 2007,
 # §2.2). The dispersion relation above, with the same Drude permittivity.
 #
-# Lengths are in micrometres throughout: the STEP parts are drawn in micrometres and the model is
-# solved in that unit. Without free charges Maxwell's equations keep their form when all lengths
-# shrink by a factor and all frequencies grow by the same factor, the permittivity being the one at
-# the physical frequency; every frequency of the problem - the light and the rates of the Drude
-# model - is therefore multiplied by `unit` $=10^{-6}$.
+# The STEP parts are drawn in micrometres, the unit that suits a skin of 20 nm; `scaled` brings the
+# mesh to metres, so the model is solved in SI units and the plots show micrometres again.
 
 import numpy as np
 from onesim.cad.exchange import load
@@ -52,7 +49,7 @@ from onesim.materials.electromagnetic import (
     RegionwiseElectromagneticMaterial,
     electronvolts_to_angular_frequency,
 )
-from onesim.meshing import TriangularMesher
+from onesim.meshing import TriangularMesher, scaled
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import ComplexSparseDirect
@@ -68,12 +65,9 @@ from onesim.visualization import plots, theme
 
 theme.set()
 
-unit = 1e-6
 light = 1 / np.sqrt(VACUUM_PERMEABILITY * VACUUM_PERMITTIVITY)
 silver = DrudeElectromagneticMaterial(
-    plasma_frequency=unit * 1.37e16,
-    collision_rate=unit * 3.2e13,
-    high_frequency_permittivity=3.7,
+    plasma_frequency=1.37e16, collision_rate=3.2e13, high_frequency_permittivity=3.7
 )
 
 # ## Geometry and mesh
@@ -81,7 +75,7 @@ silver = DrudeElectromagneticMaterial(
 # `load` reads the section, the deep silver, its top 80 nm (the skin) and 80 nm of air above it;
 # `section` cuts them at half thickness. Quadratic triangles of 10 nm in skin and band and 80 nm
 # elsewhere resolve the plasmon, which decays within 20 nm in the silver and within 50 nm to 0.7 um
-# in the air.
+# in the air. `scaled(..., "um")` turns the micrometres of the drawing into metres.
 
 parts = {
     name: load(f"metal_air_surface_plasmon_propagation{name}.step").section(
@@ -91,27 +85,33 @@ parts = {
 }
 section = parts[""]
 sides = section.boundaries
-mesh = TriangularMesher(
-    target_size=0.08,
-    embedded_regions=tuple(
-        parts[f"_{name}"].named(name) for name in ("silver", "skin", "band")
-    ),
-    region_sizes={"skin": 0.01, "band": 0.01},
-).generate(section)
+mesh = scaled(
+    TriangularMesher(
+        target_size=0.08,
+        embedded_regions=tuple(
+            parts[f"_{name}"].named(name) for name in ("silver", "skin", "band")
+        ),
+        region_sizes={"skin": 0.01, "band": 0.01},
+    ).generate(section),
+    "um",
+)
 
 fig = plots.figure(1, 2, size=(12, 7))
 plots.geometry(
     section,
     selection={"ports": sides.x_min | sides.x_max, "walls": sides.y_min | sides.y_max},
     labels=False,
-    title="Silver under air (STEP, 1 = 1 um)",
+    title="Silver under air (STEP)",
+    length_unit="um",
+    drawing_unit="um",
     ax=fig[0],
 )
 plots.mesh(
     mesh,
     groups=("all",),
     legend=False,
-    title=f"{mesh.cell_count} quadratic triangles (1 = 1 um)",
+    title=f"{mesh.cell_count} quadratic triangles",
+    length_unit="um",
     ax=fig[1],
 )
 plots.show()
@@ -130,7 +130,7 @@ numerics = Numerics(
 )
 model = lambda energy: FrequencyDomainMaxwell(
     domain=section.domain(),
-    frequency=unit * electronvolts_to_angular_frequency(energy) / (2 * np.pi),
+    frequency=electronvolts_to_angular_frequency(energy) / (2 * np.pi),
     material=material,
     polarization="Hz",
     phasor_convention="exp(-i*omega*t)",
@@ -167,7 +167,7 @@ computed = np.array(
 
 # ## Results
 #
-# $k_0$ and $\beta$ are in rad/um; the received power over the 2 um between the ports checks the
+# $k_0$ and $\beta$ are in rad/m; the received power over the 2 um between the ports checks the
 # damping independently of the mode solver.
 
 wavenumbers = 2 * np.pi * np.array([physics.frequency for physics in models]) / light
@@ -190,7 +190,7 @@ print(
 for i, energy in enumerate(energies):
     print(
         f"{energy:5.2f}   {metals[i].real:7.2f}{metals[i].imag:+6.3f}i   {computed[i].real / wavenumbers[i]:.6f}   {exact[i].real / wavenumbers[i]:.6f}     "
-        f"{1 / (2 * computed[i].imag):8.2f}  {1 / (2 * exact[i].imag):8.2f}    {through[i]:.5f}    {np.exp(-2 * exact[i].imag * section.size[0]):.5f}"
+        f"{1e6 / (2 * computed[i].imag):8.2f}  {1e6 / (2 * exact[i].imag):8.2f}    {through[i]:.5f}    {np.exp(-2 * exact[i].imag * np.ptp(mesh.coordinates[:, 0])):.5f}"
     )
 print(
     f"\nlargest deviation of n_eff: {np.max(np.abs(computed - exact) / wavenumbers):.1e}; "
@@ -214,8 +214,11 @@ field = (
 )
 fig = plots.figure(1, 3, size=(24, 6.5))
 plots.line(
-    y={"plasmon": (computed.real, energies), "light line": (wavenumbers, energies)},
-    reference={"plasmon": (exact.real, energies)},
+    y={
+        "plasmon": (1e-6 * computed.real, energies),
+        "light line": (1e-6 * wavenumbers, energies),
+    },
+    reference={"plasmon": (1e-6 * exact.real, energies)},
     hlines={
         "surface plasmon frequency": 1.37e16
         / np.sqrt(4.7)
@@ -229,8 +232,8 @@ plots.line(
 )
 plots.line(
     energies,
-    {"propagation length": 1 / (2 * computed.imag)},
-    reference={"propagation length": 1 / (2 * exact.imag)},
+    {"propagation length": 1e6 / (2 * computed.imag)},
+    reference={"propagation length": 1e6 / (2 * exact.imag)},
     scale="logy",
     xlabel="photon energy [eV]",
     ylabel="L_p [um]",
@@ -247,10 +250,9 @@ plots.heatmap(
     centre=0.0,
     limits=(-1, 1),
     label="Re(H_z) / max |H_z|",
-    xlabel="x [um]",
-    ylabel="y [um]",
     aspect="auto",
-    ylimits=(-0.15, 0.35),
+    ylimits=(-0.15e-6, 0.35e-6),
+    length_unit="um",
     title=f"Plasmon at {energies[at]:.1f} eV",
     ax=fig[2],
 )

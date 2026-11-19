@@ -38,11 +38,8 @@ stop band with the quarter-wave condition of the stub.
 # around the corners and into the closing metal makes the stub look a little longer, so the
 # quarter-wave estimate is approximate.
 #
-# Lengths are in micrometres throughout: the STEP parts are drawn in micrometres and the model is
-# solved in that unit. Without free charges Maxwell's equations keep their form when all lengths
-# shrink by a factor and all frequencies grow by the same factor, the permittivity being the one at
-# the physical frequency; every frequency of the problem - the light and the rates of the Drude
-# model - is therefore multiplied by `unit` $=10^{-6}$.
+# The STEP parts are drawn in micrometres, the unit that suits a channel of 50 nm; `scaled` brings
+# the mesh to metres, so the model is solved in SI units and the plots show micrometres again.
 
 import numpy as np
 from onesim.cad.exchange import load
@@ -52,7 +49,7 @@ from onesim.materials.electromagnetic import (
     IsotropicElectromagneticMaterial,
     RegionwiseElectromagneticMaterial,
 )
-from onesim.meshing import TriangularMesher
+from onesim.meshing import TriangularMesher, scaled
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import ComplexSparseDirect
@@ -69,19 +66,18 @@ from scipy.optimize import newton
 
 theme.set()
 
-unit, gap, depth = 1e-6, 0.05, 0.25
+gap, depth = 50e-9, 250e-9
 light = 1 / np.sqrt(VACUUM_PERMEABILITY * VACUUM_PERMITTIVITY)
 silver = DrudeElectromagneticMaterial(
-    plasma_frequency=unit * 1.3825e16,
-    collision_rate=unit * 2.736e13,
-    high_frequency_permittivity=3.7,
+    plasma_frequency=1.3825e16, collision_rate=2.736e13, high_frequency_permittivity=3.7
 )
 
 # ## Geometry and mesh
 #
 # `load` reads the silver block with the channel and the stub; `section` cuts them at half
 # thickness. Quadratic triangles of 6 nm in channel and stub and 40 nm in the silver, graded towards
-# the air, where the field decays within 25 nm.
+# the air, where the field decays within 25 nm; `scaled(..., "um")` turns the micrometres of the
+# drawing into metres.
 
 parts = {
     name: load(f"plasmonic_waveguide_stub_filter{name}.step").section(
@@ -91,11 +87,17 @@ parts = {
 }
 block = parts[""]
 sides = block.boundaries
-mesh = TriangularMesher(
-    target_size=0.04,
-    embedded_regions=(parts["_channel"].named("channel"), parts["_stub"].named("stub")),
-    region_sizes={"channel": 0.006, "stub": 0.006},
-).generate(block)
+mesh = scaled(
+    TriangularMesher(
+        target_size=0.04,
+        embedded_regions=(
+            parts["_channel"].named("channel"),
+            parts["_stub"].named("stub"),
+        ),
+        region_sizes={"channel": 0.006, "stub": 0.006},
+    ).generate(block),
+    "um",
+)
 
 fig = plots.figure(1, 2, size=(16, 6))
 plots.geometry(
@@ -105,14 +107,17 @@ plots.geometry(
         "outer silver faces": sides.y_min | sides.y_max,
     },
     labels=False,
-    title="Silver block with channel and stub (STEP, 1 = 1 um)",
+    title="Silver block with channel and stub (STEP)",
+    length_unit="um",
+    drawing_unit="um",
     ax=fig[0],
 )
 plots.mesh(
     mesh,
     groups=("all",),
     legend=False,
-    title=f"{mesh.cell_count} quadratic triangles (1 = 1 um)",
+    title=f"{mesh.cell_count} quadratic triangles",
+    length_unit="um",
     ax=fig[1],
 )
 plots.show()
@@ -159,7 +164,7 @@ solve = lambda physics: Simulation(
     numerics=numerics,
 ).solve_stationary()
 
-wavelengths = np.concatenate(
+wavelengths = 1e-6 * np.concatenate(
     (np.linspace(1.0, 1.3, 7), np.linspace(1.33, 1.75, 22), np.linspace(1.8, 2.2, 5))
 )
 models = [model(wavelength) for wavelength in wavelengths]
@@ -201,7 +206,7 @@ print(
 )
 for i in range(0, len(wavelengths), 3):
     print(
-        f"{wavelengths[i]:9.3f}   {metals[i].real:8.2f}{metals[i].imag:+6.2f}i   {computed[i].real / wavenumbers[i]:.5f}{computed[i].imag / wavenumbers[i]:+.5f}i   "
+        f"{1e6 * wavelengths[i]:9.3f}   {metals[i].real:8.2f}{metals[i].imag:+6.2f}i   {computed[i].real / wavenumbers[i]:.5f}{computed[i].imag / wavenumbers[i]:+.5f}i   "
         f"{exact[i].real / wavenumbers[i]:.5f}{exact[i].imag / wavenumbers[i]:+.5f}i   {transmitted[i]:.4f}    {reflected[i]:.4f}"
     )
 print(
@@ -210,10 +215,10 @@ print(
 notch = wavelengths[np.argmin(transmitted)]
 quarter = np.interp(np.pi / 2, (exact.real * depth)[::-1], wavelengths[::-1])
 print(
-    f"stop band: least transmission {transmitted.min():.4f} at {notch:.3f} um; quarter-wave estimate Re(beta) L = pi/2 at {quarter:.3f} um"
+    f"stop band: least transmission {transmitted.min():.4f} at {1e6 * notch:.3f} um; quarter-wave estimate Re(beta) L = pi/2 at {1e6 * quarter:.3f} um"
 )
 print(
-    f"wavelengths with |S21|^2 < 0.1: {wavelengths[transmitted < 0.1].min():.3f} to {wavelengths[transmitted < 0.1].max():.3f} um"
+    f"wavelengths with |S21|^2 < 0.1: {1e6 * wavelengths[transmitted < 0.1].min():.3f} to {1e6 * wavelengths[transmitted < 0.1].max():.3f} um"
 )
 
 # ## Figure
@@ -223,7 +228,7 @@ print(
 
 x, y = np.asarray(mesh.coordinates).T
 fields = {
-    f"{wavelengths[i]:.2f} um": np.abs(
+    f"{1e6 * wavelengths[i]:.2f} um": np.abs(
         results[i]
         .field(models[i].magnetic_flux_density)
         .evaluate(np.column_stack((x, y)))[:, 2]
@@ -232,9 +237,9 @@ fields = {
 }
 fig = plots.figure(2, 2, size=(18, 11))
 plots.line(
-    wavelengths,
+    1e6 * wavelengths,
     {"|S21|^2 (transmitted)": transmitted, "|S11|^2 (reflected)": reflected},
-    vlines={"quarter-wave stub": quarter},
+    vlines={"quarter-wave stub": 1e6 * quarter},
     ylimits=(0, 1),
     xlabel="vacuum wavelength [um]",
     ylabel="fraction of the incident power",
@@ -243,7 +248,7 @@ plots.line(
     ax=fig[0],
 )
 plots.line(
-    wavelengths,
+    1e6 * wavelengths,
     {"Re(n_eff) computed": computed.real / wavenumbers},
     reference={"Re(n_eff) computed": exact.real / wavenumbers},
     xlabel="vacuum wavelength [um]",
@@ -260,10 +265,9 @@ for panel, (name, values) in zip((fig[2], fig[3]), fields.items()):
         triangles=np.asarray(mesh.cells),
         limits=(0, 1),
         label="|H_z| / max",
-        xlabel="x [um]",
-        ylabel="y [um]",
-        ylimits=(-0.15, 0.35),
+        ylimits=(-0.15e-6, 0.35e-6),
         title=f"|H_z| at {name}",
+        length_unit="um",
         ax=panel,
     )
 plots.show()
