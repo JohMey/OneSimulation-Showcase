@@ -4,7 +4,7 @@
 
 **[Documentation](https://johmey.github.io/OneSimulation-Showcase/)** · **[Quickstart](https://johmey.github.io/OneSimulation-Showcase/quickstart.html)** · **[Examples](https://johmey.github.io/OneSimulation-Showcase/examples/index.html)** · **[API reference](https://johmey.github.io/OneSimulation-Showcase/reference/a-physics-api-reference/index.html)** · **[Free books](https://johmey.github.io/OneSimulation-Showcase/books.html)** · **[Plans](https://johmey.gumroad.com/l/onesimulation-runtime-abo)**
 
-**Currently not available.** New subscriptions, Education access and notebook orders are paused.
+**Currently not available.** New subscriptions, Education access and notebook orders are paused. [Get notified when it is available again](https://johmey.gumroad.com/subscribe).
 
 <p>
 <a href="https://johmey.github.io/OneSimulation-Showcase/examples/magnetostatics.html"><img src="https://johmey.github.io/OneSimulation-Showcase/thumbs/hero-magnetostatics.jpg" width="24%" alt="Computed magnetic field of a coil"></a>
@@ -55,7 +55,7 @@ The [Quickstart](https://johmey.github.io/OneSimulation-Showcase/quickstart.html
 
 ## Getting it
 
-**Currently not available.** New subscriptions, Education access and notebook orders are paused. The [plans](https://johmey.gumroad.com/l/onesimulation-runtime-abo) are shown for reference.
+**Currently not available.** New subscriptions, Education access and notebook orders are paused. The [plans](https://johmey.gumroad.com/l/onesimulation-runtime-abo) are shown for reference. [Get notified when it is available again](https://johmey.gumroad.com/subscribe).
 
 OneSimulation is an alpha and a closed binary package. The results shown are numerically verified against references ([verification](https://johmey.github.io/OneSimulation-Showcase/verification.html)); they are not experimentally validated.
 
