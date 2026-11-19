@@ -12,4 +12,8 @@ from onesim.cad.d3 import Box
 depth = 0.002
 for width_mm in (1, 2, 4, 8, 16):
     film = Box(length=depth / 16, width=width_mm / 1000, height=depth)
-    film.save("film_flow_side_walls_3d.step" if width_mm == 8 else f"film_flow_side_walls_3d_{width_mm}mm.step")
+    film.save(
+        "film_flow_side_walls_3d.step"
+        if width_mm == 8
+        else f"film_flow_side_walls_3d_{width_mm}mm.step"
+    )

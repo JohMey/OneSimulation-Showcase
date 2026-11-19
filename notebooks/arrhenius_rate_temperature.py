@@ -5,7 +5,6 @@ The OneSimulation solution is checked against the closed-form exponential decay 
 each temperature and against the Arrhenius ratio of the rate coefficients.
 """
 
-
 # # Arrhenius temperature dependence of a first-order reaction
 #
 # A species $A$ decays irreversibly into $B$ in a homogeneous, well-mixed (0D)
@@ -38,7 +37,6 @@ each temperature and against the Arrhenius ratio of the rate coefficients.
 # verify the ratio and the slope of the Arrhenius plot.
 
 import numpy as np
-
 from onesim.cad.geometry import LumpedDomain
 from onesim.meshing import LumpedMesh
 from onesim.numerics import Numerics
@@ -52,7 +50,7 @@ from onesim.physics.chemistry import (
 )
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -77,7 +75,9 @@ def k_arrhenius(T):
 
 
 for T in temperatures:
-    print(f"T = {T:5.1f} K:  k(T) = {k_arrhenius(T):.4e} 1/s,  1/k = {1.0 / k_arrhenius(T):8.2f} s")
+    print(
+        f"T = {T:5.1f} K:  k(T) = {k_arrhenius(T):.4e} 1/s,  1/k = {1.0 / k_arrhenius(T):8.2f} s"
+    )
 
 
 # ## Model
@@ -127,7 +127,9 @@ def run_isothermal(T):
     simulation = Simulation(
         problem=problem,
         mesh=LumpedMesh(domain),
-        numerics=Numerics(spatial=LumpedParameters(), time_integrator=ClassicalRungeKutta4()),
+        numerics=Numerics(
+            spatial=LumpedParameters(), time_integrator=ClassicalRungeKutta4()
+        ),
     )
     simulation.validate().require_valid()
     result = simulation.run(start_time=0.0, end_time=5.0 * tau, time_step=0.05 * tau)
@@ -152,10 +154,14 @@ for T, (times, num_A, num_B) in runs.items():
     k = k_arrhenius(T)
     exact_A = C_A0 * np.exp(-k * times)
     exact_B = C_A0 - exact_A
-    err = max(float(np.max(np.abs(num_A - exact_A))), float(np.max(np.abs(num_B - exact_B))))
+    err = max(
+        float(np.max(np.abs(num_A - exact_A))), float(np.max(np.abs(num_B - exact_B)))
+    )
     k_measured[T] = -np.polyfit(times, np.log(num_A), 1)[0]
-    print(f"T = {T:5.1f} K:  max |C - C_exact| = {err:.3e} mol/m^3 ({100 * err / C_A0:.1e} % of C_A0),"
-          f"  fitted k = {k_measured[T]:.4e} 1/s (exact {k:.4e})")
+    print(
+        f"T = {T:5.1f} K:  max |C - C_exact| = {err:.3e} mol/m^3 ({100 * err / C_A0:.1e} % of C_A0),"
+        f"  fitted k = {k_measured[T]:.4e} 1/s (exact {k:.4e})"
+    )
 
 
 # ## Arrhenius ratio and Arrhenius plot
@@ -167,28 +173,56 @@ for T, (times, num_A, num_B) in runs.items():
 T1, T2 = temperatures[0], temperatures[-1]
 ratio_reference = np.exp(-E_a / R_gas * (1.0 / T2 - 1.0 / T1))
 ratio_measured = k_measured[T2] / k_measured[T1]
-print(f"k({T2:.0f} K)/k({T1:.0f} K): OneSimulation {ratio_measured:.4f}, Arrhenius {ratio_reference:.4f}")
+print(
+    f"k({T2:.0f} K)/k({T1:.0f} K): OneSimulation {ratio_measured:.4f}, Arrhenius {ratio_reference:.4f}"
+)
 
 inv_T = np.array([1.0 / T for T in temperatures])
 ln_k = np.array([np.log(k_measured[T]) for T in temperatures])
 slope, intercept = np.polyfit(inv_T, ln_k, 1)
 E_a_fit = -slope * R_gas
 A_fit = np.exp(intercept)
-print(f"Arrhenius plot: fitted E_a = {E_a_fit / 1e3:.3f} kJ/mol (set {E_a / 1e3:.1f} kJ/mol),"
-      f"  fitted A = {A_fit:.4e} 1/s (set {A_pre:.1e} 1/s)")
+print(
+    f"Arrhenius plot: fitted E_a = {E_a_fit / 1e3:.3f} kJ/mol (set {E_a / 1e3:.1f} kJ/mol),"
+    f"  fitted A = {A_fit:.4e} 1/s (set {A_pre:.1e} 1/s)"
+)
 
 
 # ## Figure
 
 inv_fine = np.linspace(inv_T.min() * 0.98, inv_T.max() * 1.02, 100)
 fig = plots.figure(1, 2, size=(11, 4.6))
-plots.line(points={f"T = {T:.0f} K": (runs[T][0][1::4] / 60.0, runs[T][1][1::4]) for T in temperatures},
-           reference={f"T = {T:.0f} K": (runs[T][0][1:] / 60.0, C_A0 * np.exp(-k_arrhenius(T) * runs[T][0][1:])) for T in temperatures},
-           scale="logx", xlabel="time [min]", ylabel="concentration C_A [mol/m^3]",
-           title="Decay of A: OneSimulation (markers) and exponential (dashed)", ax=fig[0])
-plots.line(points={"OneSimulation (fitted k)": (1000 * inv_T, ln_k)},
-           reference={"Arrhenius law ln k = ln A - E_a / (R T)": (1000 * inv_fine, np.log(k_arrhenius(1.0 / inv_fine)))},
-           xlabel="1000 / T [1/K]", ylabel="ln k", title=f"Arrhenius plot: slope gives E_a = {E_a_fit / 1e3:.1f} kJ/mol", ax=fig[1])
+plots.line(
+    points={
+        f"T = {T:.0f} K": (runs[T][0][1::4] / 60.0, runs[T][1][1::4])
+        for T in temperatures
+    },
+    reference={
+        f"T = {T:.0f} K": (
+            runs[T][0][1:] / 60.0,
+            C_A0 * np.exp(-k_arrhenius(T) * runs[T][0][1:]),
+        )
+        for T in temperatures
+    },
+    scale="logx",
+    xlabel="time [min]",
+    ylabel="concentration C_A [mol/m^3]",
+    title="Decay of A: OneSimulation (markers) and exponential (dashed)",
+    ax=fig[0],
+)
+plots.line(
+    points={"OneSimulation (fitted k)": (1000 * inv_T, ln_k)},
+    reference={
+        "Arrhenius law ln k = ln A - E_a / (R T)": (
+            1000 * inv_fine,
+            np.log(k_arrhenius(1.0 / inv_fine)),
+        )
+    },
+    xlabel="1000 / T [1/K]",
+    ylabel="ln k",
+    title=f"Arrhenius plot: slope gives E_a = {E_a_fit / 1e3:.1f} kJ/mol",
+    ax=fig[1],
+)
 plots.show()
 
 

@@ -7,7 +7,6 @@ the velocity profile across the field, the Hartmann-layer thickness and the powe
 against Hartmann's analytical solution for four Hartmann numbers.
 """
 
-
 # # Hartmann layers in a liquid-metal duct
 #
 # An electrically conducting liquid driven by a pressure gradient $G=-\partial p/\partial x$ through a
@@ -49,13 +48,12 @@ against Hartmann's analytical solution for four Hartmann numbers.
 # pressure gradient, $GQ$, equals the viscous plus the Joule dissipation.
 
 import numpy as np
-
 from onesim.cad.exchange import load
 from onesim.meshing import TriangularMesher
 from onesim.numerics.fem import FiniteElement, Lagrange, PlanarDirichletFiniteElement
 from onesim.numerics.linear import SparseDirect
 from onesim.physics.magnetohydrodynamics import InductionlessDuct
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -72,15 +70,31 @@ walls = section.boundaries
 width, height = section.size[:2]
 a, b = width / 2, height / 2
 hartmann_numbers = (5, 10, 20, 50)
-mesh_for = lambda size: TriangularMesher(target_size=4 * size, grading=0.2, local_sizes={"z_min": size, "z_max": size}).generate(section)
+mesh_for = lambda size: TriangularMesher(
+    target_size=4 * size, grading=0.2, local_sizes={"z_min": size, "z_max": size}
+).generate(section)
 mesh = mesh_for(b / max(hartmann_numbers) / 4)
 coarse = mesh_for(b / 20 / 2)
 
 fig = plots.figure(1, 2, size=(14, 4.5))
-plots.geometry(duct, selection={"Hartmann walls": duct.boundaries.z_min | duct.boundaries.z_max,
-                               "side walls": duct.boundaries.y_min | duct.boundaries.y_max},
-               labels=False, camera=plots.Camera(elevation=25, azimuth=-60), title="Piece of the insulating duct", ax=fig[0])
-plots.mesh(coarse, groups=("all",), legend=False, title=f"Cross-section, coarsest mesh: {len(coarse.cells)} triangles", ax=fig[1])
+plots.geometry(
+    duct,
+    selection={
+        "Hartmann walls": duct.boundaries.z_min | duct.boundaries.z_max,
+        "side walls": duct.boundaries.y_min | duct.boundaries.y_max,
+    },
+    labels=False,
+    camera=plots.Camera(elevation=25, azimuth=-60),
+    title="Piece of the insulating duct",
+    ax=fig[0],
+)
+plots.mesh(
+    coarse,
+    groups=("all",),
+    legend=False,
+    title=f"Cross-section, coarsest mesh: {len(coarse.cells)} triangles",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Model
@@ -91,12 +105,26 @@ plots.show()
 
 viscosity, conductivity, pressure_gradient = 2.16e-3, 3.3e6, 10.0
 finite_element = FiniteElement(element=Lagrange(order=1))
-spatial = PlanarDirichletFiniteElement(finite_element=finite_element, boundary=walls.all)
+spatial = PlanarDirichletFiniteElement(
+    finite_element=finite_element, boundary=walls.all
+)
 field_for = lambda hartmann: hartmann / b * np.sqrt(viscosity / conductivity)
-models = {Ha: InductionlessDuct(viscosity=viscosity, conductivity=conductivity, magnetic_field=field_for(Ha),
-                                pressure_gradient=pressure_gradient) for Ha in hartmann_numbers}
-print(f"solution mesh: {len(mesh.cells)} triangles, smallest size {1e3 * b / max(hartmann_numbers) / 4:.3f} mm at the Hartmann walls")
-solutions = {Ha: model.solve(mesh=mesh, spatial=spatial, linear_solver=SparseDirect().bind()) for Ha, model in models.items()}
+models = {
+    Ha: InductionlessDuct(
+        viscosity=viscosity,
+        conductivity=conductivity,
+        magnetic_field=field_for(Ha),
+        pressure_gradient=pressure_gradient,
+    )
+    for Ha in hartmann_numbers
+}
+print(
+    f"solution mesh: {len(mesh.cells)} triangles, smallest size {1e3 * b / max(hartmann_numbers) / 4:.3f} mm at the Hartmann walls"
+)
+solutions = {
+    Ha: model.solve(mesh=mesh, spatial=spatial, linear_solver=SparseDirect().bind())
+    for Ha, model in models.items()
+}
 
 # ## Comparison with Hartmann's solution
 #
@@ -106,29 +134,67 @@ solutions = {Ha: model.solve(mesh=mesh, spatial=spatial, linear_solver=SparseDir
 
 nodes = solutions[20].velocity_coordinates
 centre = (nodes.min(axis=0) + nodes.max(axis=0)) / 2
-z = b * np.concatenate((-np.cos(np.linspace(0, np.pi / 2, 300)), np.sin(np.linspace(0, np.pi / 2, 300))[1:]))
+z = b * np.concatenate(
+    (
+        -np.cos(np.linspace(0, np.pi / 2, 300)),
+        np.sin(np.linspace(0, np.pi / 2, 300))[1:],
+    )
+)
 line = np.column_stack((np.full_like(z, centre[0]), centre[1] + z))
-hartmann = lambda Ha, z: pressure_gradient * b**2 / (viscosity * Ha) * (np.cosh(Ha) - np.cosh(Ha * z / b)) / np.sinh(Ha)
-profiles = {Ha: finite_element.bind_space(mesh).evaluate(solution.velocity, line) for Ha, solution in solutions.items()}
-thickness = lambda u: np.interp((1 - 1 / np.e) * u[len(z) // 2], u[: len(z) // 2 + 1], z[: len(z) // 2 + 1] + b)
-print("Ha    B [mT]   centre velocity [mm/s]       profile error   layer thickness [mm]            power balance")
-print("               computed    Hartmann         (of centre)     computed  Hartmann   b/Ha         (P_visc+P_Joule)/GQ - 1")
+hartmann = (
+    lambda Ha, z: pressure_gradient
+    * b**2
+    / (viscosity * Ha)
+    * (np.cosh(Ha) - np.cosh(Ha * z / b))
+    / np.sinh(Ha)
+)
+profiles = {
+    Ha: finite_element.bind_space(mesh).evaluate(solution.velocity, line)
+    for Ha, solution in solutions.items()
+}
+thickness = lambda u: np.interp(
+    (1 - 1 / np.e) * u[len(z) // 2], u[: len(z) // 2 + 1], z[: len(z) // 2 + 1] + b
+)
+print(
+    "Ha    B [mT]   centre velocity [mm/s]       profile error   layer thickness [mm]            power balance"
+)
+print(
+    "               computed    Hartmann         (of centre)     computed  Hartmann   b/Ha         (P_visc+P_Joule)/GQ - 1"
+)
 for Ha, u in profiles.items():
     exact = hartmann(Ha, z)
     solution = solutions[Ha]
-    balance = (solution.viscous_power + solution.joule_power) / (pressure_gradient * solution.flow_rate) - 1
-    print(f"{Ha:3d} {1e3 * field_for(Ha):8.1f} {1e3 * u[len(z) // 2]:10.3f} {1e3 * exact[len(z) // 2]:10.3f} {100 * np.abs(u - exact).max() / exact.max():14.2f} %"
-          f" {1e3 * thickness(u):11.3f} {1e3 * thickness(exact):9.3f} {1e3 * b / Ha:7.3f} {balance:16.1e}")
+    balance = (solution.viscous_power + solution.joule_power) / (
+        pressure_gradient * solution.flow_rate
+    ) - 1
+    print(
+        f"{Ha:3d} {1e3 * field_for(Ha):8.1f} {1e3 * u[len(z) // 2]:10.3f} {1e3 * exact[len(z) // 2]:10.3f} {100 * np.abs(u - exact).max() / exact.max():14.2f} %"
+        f" {1e3 * thickness(u):11.3f} {1e3 * thickness(exact):9.3f} {1e3 * b / Ha:7.3f} {balance:16.1e}"
+    )
 
 # A mesh study at $\mathrm{Ha}=20$: the target size along the Hartmann walls is halved twice.
 
 sizes = [b / 20 / 2, b / 20 / 4, b / 20 / 8]
-study_profiles = [finite_element.bind_space(m).evaluate(models[20].solve(mesh=m, spatial=spatial, linear_solver=SparseDirect().bind()).velocity, line)
-                  for m in map(mesh_for, sizes)]
-study_errors = [np.abs(u - hartmann(20, z)).max() / hartmann(20, 0) for u in study_profiles]
+study_profiles = [
+    finite_element.bind_space(m).evaluate(
+        models[20]
+        .solve(mesh=m, spatial=spatial, linear_solver=SparseDirect().bind())
+        .velocity,
+        line,
+    )
+    for m in map(mesh_for, sizes)
+]
+study_errors = [
+    np.abs(u - hartmann(20, z)).max() / hartmann(20, 0) for u in study_profiles
+]
 order = np.log(study_errors[0] / study_errors[-1]) / np.log(sizes[0] / sizes[-1])
-print("Ha = 20 mesh study: " + ", ".join(f"h = {1e3 * h:.3f} mm: {100 * e:.3f} %" for h, e in zip(sizes, study_errors))
-      + f"; observed order {order:.2f}")
+print(
+    "Ha = 20 mesh study: "
+    + ", ".join(
+        f"h = {1e3 * h:.3f} mm: {100 * e:.3f} %" for h, e in zip(sizes, study_errors)
+    )
+    + f"; observed order {order:.2f}"
+)
 
 # ## Figure
 #
@@ -139,17 +205,51 @@ print("Ha = 20 mesh study: " + ", ".join(f"h = {1e3 * h:.3f} mm: {100 * e:.3f} %
 
 y, z_nodes = (nodes - centre).T
 fig = plots.figure(2, 2, size=(15, 8.5))
-plots.heatmap(1e3 * y, 1e3 * z_nodes, 1e3 * solutions[20].velocity, triangles=mesh.cells, label="u [mm/s]",
-              xlabel="y [mm]", ylabel="z [mm]", title="Axial velocity, Ha = 20", ax=fig[0])
-plots.heatmap(1e3 * y, 1e3 * z_nodes, solutions[20].current_streamfunction, triangles=mesh.cells, contours=14,
-              colormap="diverging", label="ψ [A/m]", xlabel="y [mm]", ylabel="z [mm]", title="Induced current loops, Ha = 20", ax=fig[1])
-plots.line(z / b, {f"Ha = {Ha}": u / u[len(z) // 2] for Ha, u in profiles.items()},
-           reference={f"Ha = {Ha}": hartmann(Ha, z) / hartmann(Ha, 0) for Ha in profiles},
-           xlabel="z / b", ylabel="u / u(0)", title="Velocity across the field (dashed: Hartmann)", legend="lower center", ax=fig[2])
-plots.line((z + b) / b, {f"Ha = {Ha}": u / u[len(z) // 2] for Ha, u in profiles.items()},
-           reference={f"Ha = {Ha}": hartmann(Ha, z) / hartmann(Ha, 0) for Ha in profiles},
-           xlimits=(0, 0.6), xlabel="wall distance d / b", ylabel="u / u(0)", title="Hartmann layer at the lower wall",
-           legend="lower right", ax=fig[3])
+plots.heatmap(
+    1e3 * y,
+    1e3 * z_nodes,
+    1e3 * solutions[20].velocity,
+    triangles=mesh.cells,
+    label="u [mm/s]",
+    xlabel="y [mm]",
+    ylabel="z [mm]",
+    title="Axial velocity, Ha = 20",
+    ax=fig[0],
+)
+plots.heatmap(
+    1e3 * y,
+    1e3 * z_nodes,
+    solutions[20].current_streamfunction,
+    triangles=mesh.cells,
+    contours=14,
+    colormap="diverging",
+    label="ψ [A/m]",
+    xlabel="y [mm]",
+    ylabel="z [mm]",
+    title="Induced current loops, Ha = 20",
+    ax=fig[1],
+)
+plots.line(
+    z / b,
+    {f"Ha = {Ha}": u / u[len(z) // 2] for Ha, u in profiles.items()},
+    reference={f"Ha = {Ha}": hartmann(Ha, z) / hartmann(Ha, 0) for Ha in profiles},
+    xlabel="z / b",
+    ylabel="u / u(0)",
+    title="Velocity across the field (dashed: Hartmann)",
+    legend="lower center",
+    ax=fig[2],
+)
+plots.line(
+    (z + b) / b,
+    {f"Ha = {Ha}": u / u[len(z) // 2] for Ha, u in profiles.items()},
+    reference={f"Ha = {Ha}": hartmann(Ha, z) / hartmann(Ha, 0) for Ha in profiles},
+    xlimits=(0, 0.6),
+    xlabel="wall distance d / b",
+    ylabel="u / u(0)",
+    title="Hartmann layer at the lower wall",
+    legend="lower right",
+    ax=fig[3],
+)
 plots.show()
 
 # ## Going further

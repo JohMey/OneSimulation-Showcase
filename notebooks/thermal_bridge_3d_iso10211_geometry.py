@@ -16,7 +16,12 @@ faces = wall.boundaries
 wall = wall.grouped(
     external=faces.y_min,
     internal=faces.y_max | faces["bar.x_max"] | faces["bar.z_max"] | faces["bar.y_max"],
-    adiabatic=faces.x_min | faces.z_min | faces["bar.x_min"] | faces["bar.z_min"] | faces.x_max | faces.z_max,
+    adiabatic=faces.x_min
+    | faces.z_min
+    | faces["bar.x_min"]
+    | faces["bar.z_min"]
+    | faces.x_max
+    | faces.z_max,
 )
 wall.save("thermal_bridge_3d_iso10211.step")
 bar.save("thermal_bridge_3d_iso10211_bar.step")

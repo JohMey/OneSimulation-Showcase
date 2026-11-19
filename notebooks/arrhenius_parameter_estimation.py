@@ -8,7 +8,6 @@ synthetic, generated from known parameters with measurement noise, so the recove
 can be checked.
 """
 
-
 # # Estimating Arrhenius parameters from isothermal experiments
 #
 # The thermal decomposition of benzenediazonium chloride in water,
@@ -43,17 +42,21 @@ can be checked.
 # E. A. Moelwyn-Hughes, *The Kinetics of Reactions in Solution*, Oxford 1947).
 
 import numpy as np
-
 from onesim.cad.geometry import LumpedDomain
 from onesim.meshing import LumpedMesh
 from onesim.numerics import Numerics
 from onesim.numerics.discretization import LumpedParameters
 from onesim.numerics.time import ClassicalRungeKutta4
-from onesim.physics.chemistry import ReactionIR, ReactionKinetics, ReactionNetworkIR, SpeciesIR
+from onesim.physics.chemistry import (
+    ReactionIR,
+    ReactionKinetics,
+    ReactionNetworkIR,
+    SpeciesIR,
+)
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
 from onesim.simulation.studies import SimulationStudyService, StudyParameter
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -68,20 +71,75 @@ gas, reference_temperature, initial, noise = 8.314462618, 323.15, 10.0, 0.05
 temperatures = (313.15, 318.15, 323.15, 328.15, 333.15)
 samples = np.linspace(300.0, 3600.0, 12)
 cell = LumpedDomain()
-experiments = lambda values: {T: ReactionKinetics(domain=cell.system, temperature=T, network=ReactionNetworkIR(
-    "diazonium_decomposition", "1",
-    species=(SpeciesIR("diazonium", 0, 1e-27, composition={"H": 1}), SpeciesIR("products", 0, 1e-27, composition={"H": 1})),
-    reactions=(ReactionIR("decomposition", {"diazonium": 1}, {"products": 1},
-                          {"kind": "arrhenius", "activation_energy": 1e3 * values["activation_energy"], "boltzmann_constant": gas,
-                           "pre_exponential": values["k_ref"] * np.exp(1e3 * values["activation_energy"] / (gas * reference_temperature))}),),
-    strict_balance=True)) for T in temperatures}
-run = lambda models: {T: np.interp(samples, *Simulation(
-    problem=Problem(name=f"Batch decomposition at {T - 273.15:.0f} °C", geometry=cell, physics=(model,),
-                    initial_conditions=(InitialValue(model.concentration("diazonium"), initial), InitialValue(model.concentration("products"), 0.0))),
-    mesh=LumpedMesh(cell), numerics=Numerics(spatial=LumpedParameters(), time_integrator=ClassicalRungeKutta4())).run(
-    start_time=0.0, end_time=3600.0, time_step=20.0).field(model.concentration("diazonium")).time_series()) for T, model in models.items()}
-study = SimulationStudyService((StudyParameter("k_ref", 1e-4, 1e-2), StudyParameter("activation_energy", 60.0, 180.0)), experiments,
-                               lambda computed: {f"{T}_{j}": c for T in temperatures for j, c in enumerate(computed[T])}, solve=run)
+experiments = lambda values: {
+    T: ReactionKinetics(
+        domain=cell.system,
+        temperature=T,
+        network=ReactionNetworkIR(
+            "diazonium_decomposition",
+            "1",
+            species=(
+                SpeciesIR("diazonium", 0, 1e-27, composition={"H": 1}),
+                SpeciesIR("products", 0, 1e-27, composition={"H": 1}),
+            ),
+            reactions=(
+                ReactionIR(
+                    "decomposition",
+                    {"diazonium": 1},
+                    {"products": 1},
+                    {
+                        "kind": "arrhenius",
+                        "activation_energy": 1e3 * values["activation_energy"],
+                        "boltzmann_constant": gas,
+                        "pre_exponential": values["k_ref"]
+                        * np.exp(
+                            1e3
+                            * values["activation_energy"]
+                            / (gas * reference_temperature)
+                        ),
+                    },
+                ),
+            ),
+            strict_balance=True,
+        ),
+    )
+    for T in temperatures
+}
+run = lambda models: {
+    T: np.interp(
+        samples,
+        *Simulation(
+            problem=Problem(
+                name=f"Batch decomposition at {T - 273.15:.0f} °C",
+                geometry=cell,
+                physics=(model,),
+                initial_conditions=(
+                    InitialValue(model.concentration("diazonium"), initial),
+                    InitialValue(model.concentration("products"), 0.0),
+                ),
+            ),
+            mesh=LumpedMesh(cell),
+            numerics=Numerics(
+                spatial=LumpedParameters(), time_integrator=ClassicalRungeKutta4()
+            ),
+        )
+        .run(start_time=0.0, end_time=3600.0, time_step=20.0)
+        .field(model.concentration("diazonium"))
+        .time_series(),
+    )
+    for T, model in models.items()
+}
+study = SimulationStudyService(
+    (
+        StudyParameter("k_ref", 1e-4, 1e-2),
+        StudyParameter("activation_energy", 60.0, 180.0),
+    ),
+    experiments,
+    lambda computed: {
+        f"{T}_{j}": c for T in temperatures for j, c in enumerate(computed[T])
+    },
+    solve=run,
+)
 
 # ## Synthetic measurements
 #
@@ -92,7 +150,9 @@ true = {"k_ref": 1.0e-3, "activation_energy": 115.0}
 clean = study.sweep(combinations=[true]).runs[0].measurements
 rng = np.random.default_rng(2026)
 data = {key: value + rng.normal(0.0, noise) for key, value in clean.items()}
-print(f"{len(temperatures)} experiments x {samples.size} samples = {len(data)} data points, noise s = {noise} mol/m³")
+print(
+    f"{len(temperatures)} experiments x {samples.size} samples = {len(data)} data points, noise s = {noise} mol/m³"
+)
 
 # ## Least-squares fit
 #
@@ -100,23 +160,35 @@ print(f"{len(temperatures)} experiments x {samples.size} samples = {len(data)} d
 # Levenberg-Marquardt starts far from the truth, at $k_\mathrm{ref}=3\times10^{-4}$ 1/s and
 # $E_a=80$ kJ/mol.
 
-fit = study.fit(residuals=lambda m: np.array([(m[key] - data[key]) / noise for key in data]),
-                start={"k_ref": 3e-4, "activation_energy": 80.0}, method="levenberg_marquardt", maximum_runs=100)
+fit = study.fit(
+    residuals=lambda m: np.array([(m[key] - data[key]) / noise for key in data]),
+    start={"k_ref": 3e-4, "activation_energy": 80.0},
+    method="levenberg_marquardt",
+    maximum_runs=100,
+)
 
 # ## Comparison with the true values
 #
 # Standard errors from the linearised covariance, scaled with the residual variance.
 
-print(f"{fit.run_count} study runs ({len(temperatures) * fit.run_count} kinetic simulations), converged: {fit.converged}, rank {fit.rank}, "
-      f"χ² = {fit.residuals @ fit.residuals:.1f} for {fit.degrees_of_freedom} degrees of freedom")
+print(
+    f"{fit.run_count} study runs ({len(temperatures) * fit.run_count} kinetic simulations), converged: {fit.converged}, rank {fit.rank}, "
+    f"χ² = {fit.residuals @ fit.residuals:.1f} for {fit.degrees_of_freedom} degrees of freedom"
+)
 print("parameter            estimate ± standard error        true        deviation")
 for name, unit, scale in (("k_ref", "1/ks", 1e3), ("activation_energy", "kJ/mol", 1.0)):
-    print(f"{name:18s} {scale * fit.parameters[name]:10.4f} ± {scale * fit.standard_errors[name]:.4f} {unit:6s} {scale * true[name]:9.3f}   "
-          f"{(fit.parameters[name] - true[name]) / fit.standard_errors[name]:+6.2f} σ")
-print(f"correlation of the two estimates {fit.covariance[0, 1] / np.sqrt(fit.covariance[0, 0] * fit.covariance[1, 1]):+.2f}; "
-      f"rms residual {noise * np.sqrt(np.mean(fit.residuals ** 2)):.4f} mol/m³ (noise {noise})")
-print(f"χ² at the true values exceeds the minimum by Δχ² = {sum(((clean[k] - data[k]) / noise) ** 2 for k in data) - fit.residuals @ fit.residuals:.1f} "
-      f"(joint regions of two parameters: 68 % Δχ² < 2.30, 95 % < 5.99, 99 % < 9.21)")
+    print(
+        f"{name:18s} {scale * fit.parameters[name]:10.4f} ± {scale * fit.standard_errors[name]:.4f} {unit:6s} {scale * true[name]:9.3f}   "
+        f"{(fit.parameters[name] - true[name]) / fit.standard_errors[name]:+6.2f} σ"
+    )
+print(
+    f"correlation of the two estimates {fit.covariance[0, 1] / np.sqrt(fit.covariance[0, 0] * fit.covariance[1, 1]):+.2f}; "
+    f"rms residual {noise * np.sqrt(np.mean(fit.residuals ** 2)):.4f} mol/m³ (noise {noise})"
+)
+print(
+    f"χ² at the true values exceeds the minimum by Δχ² = {sum(((clean[k] - data[k]) / noise) ** 2 for k in data) - fit.residuals @ fit.residuals:.1f} "
+    f"(joint regions of two parameters: 68 % Δχ² < 2.30, 95 % < 5.99, 99 % < 9.21)"
+)
 
 # The estimates scatter around the truth by their standard errors. For this noise
 # realisation the true pair lies just outside the joint 95 % confidence region and inside
@@ -129,20 +201,74 @@ print(f"χ² at the true values exceeds the minimum by Δχ² = {sum(((clean[k] 
 # the finite-difference probes); and the Arrhenius plot.
 
 fitted = study.sweep(combinations=[dict(fit.parameters)]).runs[0].measurements
-path = np.array([[r.parameters["activation_energy"], r.parameters["k_ref"]] for r in fit.runs if dict(r.parameters) != true])
+path = np.array(
+    [
+        [r.parameters["activation_energy"], r.parameters["k_ref"]]
+        for r in fit.runs
+        if dict(r.parameters) != true
+    ]
+)
 inverse = np.linspace(1 / 335.0, 1 / 311.0, 50)
 fig = plots.figure(1, 3, size=(17, 5))
-plots.line(points={f"{T - 273.15:.0f} °C": (samples / 60, np.array([data[f"{T}_{j}"] for j in range(samples.size)])) for T in temperatures},
-           reference={f"{T - 273.15:.0f} °C": (samples / 60, np.array([fitted[f"{T}_{j}"] for j in range(samples.size)])) for T in temperatures},
-           xlabel="time [min]", ylabel="diazonium concentration [mol/m³]", title="Data and fitted model (dashed)",
-           legend="upper right", ax=fig[0])
-plots.line(y={"trial points": (path[:, 0], 1e3 * path[:, 1])}, points={"true values": (np.array([115.0]), np.array([1.0]))},
-           markers=True, scale="logy", xlabel="activation energy E_a [kJ/mol]", ylabel="k_ref at 50 °C [1/ks]",
-           title="Path of the fit", legend="lower right", ax=fig[1])
-plots.line(points={"fitted model": (1e3 / np.array(temperatures), np.log(fit.parameters["k_ref"]) - 1e3 * fit.parameters["activation_energy"] / gas
-                                     * (1 / np.array(temperatures) - 1 / reference_temperature))},
-           reference={"true Arrhenius law": (1e3 * inverse, np.log(true["k_ref"]) - 1e3 * true["activation_energy"] / gas * (inverse - 1 / reference_temperature))},
-           xlabel="1000 / T [1/K]", ylabel="ln k [k in 1/s]", title="Arrhenius plot", legend="upper right", ax=fig[2])
+plots.line(
+    points={
+        f"{T - 273.15:.0f} °C": (
+            samples / 60,
+            np.array([data[f"{T}_{j}"] for j in range(samples.size)]),
+        )
+        for T in temperatures
+    },
+    reference={
+        f"{T - 273.15:.0f} °C": (
+            samples / 60,
+            np.array([fitted[f"{T}_{j}"] for j in range(samples.size)]),
+        )
+        for T in temperatures
+    },
+    xlabel="time [min]",
+    ylabel="diazonium concentration [mol/m³]",
+    title="Data and fitted model (dashed)",
+    legend="upper right",
+    ax=fig[0],
+)
+plots.line(
+    y={"trial points": (path[:, 0], 1e3 * path[:, 1])},
+    points={"true values": (np.array([115.0]), np.array([1.0]))},
+    markers=True,
+    scale="logy",
+    xlabel="activation energy E_a [kJ/mol]",
+    ylabel="k_ref at 50 °C [1/ks]",
+    title="Path of the fit",
+    legend="lower right",
+    ax=fig[1],
+)
+plots.line(
+    points={
+        "fitted model": (
+            1e3 / np.array(temperatures),
+            np.log(fit.parameters["k_ref"])
+            - 1e3
+            * fit.parameters["activation_energy"]
+            / gas
+            * (1 / np.array(temperatures) - 1 / reference_temperature),
+        )
+    },
+    reference={
+        "true Arrhenius law": (
+            1e3 * inverse,
+            np.log(true["k_ref"])
+            - 1e3
+            * true["activation_energy"]
+            / gas
+            * (inverse - 1 / reference_temperature),
+        )
+    },
+    xlabel="1000 / T [1/K]",
+    ylabel="ln k [k in 1/s]",
+    title="Arrhenius plot",
+    legend="upper right",
+    ax=fig[2],
+)
 plots.show()
 
 # ## Going further

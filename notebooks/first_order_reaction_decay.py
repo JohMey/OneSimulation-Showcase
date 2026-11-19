@@ -4,7 +4,6 @@ Requires the installed, activated OneSimulation runtime.
 The OneSimulation solution is checked against the known closed-form exponential decay.
 """
 
-
 # # First-order reaction A -> B
 #
 # A single species $A$ decays irreversibly into a product $B$ in a homogeneous,
@@ -30,7 +29,6 @@ The OneSimulation solution is checked against the known closed-form exponential 
 # transient with this exponential.
 
 import numpy as np
-
 from onesim.cad.geometry import LumpedDomain
 from onesim.meshing import LumpedMesh
 from onesim.numerics import Numerics
@@ -44,7 +42,7 @@ from onesim.physics.chemistry import (
 )
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -61,7 +59,9 @@ C_B0 = 0.0
 tau = 1.0 / k
 end_time = 5.0 * tau
 time_step = 0.05 * tau
-print(f"k = {k:.3f} 1/s,  characteristic time 1/k = {tau:.2f} s,  end time = {end_time:.2f} s")
+print(
+    f"k = {k:.3f} 1/s,  characteristic time 1/k = {tau:.2f} s,  end time = {end_time:.2f} s"
+)
 
 
 # ## Model
@@ -122,8 +122,10 @@ exact_B = C_A0 * (1.0 - np.exp(-k * times))
 err_A = float(np.max(np.abs(num_A - exact_A)))
 err_B = float(np.max(np.abs(num_B - exact_B)))
 rel_error = max(err_A, err_B) / C_A0
-print(f"Maximum absolute error against the exponential: {max(err_A, err_B):.3e} mol/m^3"
-      f"  ({100 * rel_error:.4f} % of C_A0)")
+print(
+    f"Maximum absolute error against the exponential: {max(err_A, err_B):.3e} mol/m^3"
+    f"  ({100 * rel_error:.4f} % of C_A0)"
+)
 
 mass_error = float(np.max(np.abs(num_A + num_B - C_A0)))
 print(f"Maximum mass-balance error C_A+C_B-C_A0: {mass_error:.3e} mol/m^3")
@@ -133,10 +135,16 @@ print(f"Maximum mass-balance error C_A+C_B-C_A0: {mass_error:.3e} mol/m^3")
 
 t_fine = np.linspace(0.0, end_time, 400)
 shown = slice(None, None, max(1, len(times) // 40))
-plots.line(points={"C_A": (times[shown], num_A[shown]), "C_B": (times[shown], num_B[shown])},
-           reference={"C_A": (t_fine, C_A0 * np.exp(-k * t_fine)), "C_B": (t_fine, C_A0 * (1.0 - np.exp(-k * t_fine)))},
-           xlabel="time [s]", ylabel="concentration [mol/m^3]",
-           title="First-order decay: OneSimulation (markers) and exact solution (dashed)")
+plots.line(
+    points={"C_A": (times[shown], num_A[shown]), "C_B": (times[shown], num_B[shown])},
+    reference={
+        "C_A": (t_fine, C_A0 * np.exp(-k * t_fine)),
+        "C_B": (t_fine, C_A0 * (1.0 - np.exp(-k * t_fine))),
+    },
+    xlabel="time [s]",
+    ylabel="concentration [mol/m^3]",
+    title="First-order decay: OneSimulation (markers) and exact solution (dashed)",
+)
 plots.show()
 
 

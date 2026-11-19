@@ -9,7 +9,6 @@ exact homogeneous expansion-and-clamping solution, the heat balance, the publish
 temperature, stress and displacement levels and a three-level mesh study.
 """
 
-
 # # Thermal stress in a fuel-cell bipolar plate
 #
 # A PEM fuel cell runs just below 100 °C, so a cold stack has to be heated before it can start.
@@ -101,28 +100,37 @@ temperature, stress and displacement levels and a three-level mesh study.
 # * a three-level mesh study of the peak temperature, the peak von Mises stress and the peak
 #   out-of-plane displacement, with observed order and Richardson estimate.
 
+import time
 from dataclasses import dataclass
 from hashlib import sha256
-import time
-import numpy as np
-from scipy.spatial import Delaunay, cKDTree
 
+import numpy as np
 from onesim.cad.geometry.primitives import Geometry
 from onesim.materials import IsotropicSolid
-from onesim.meshing.generation.backends.structured.volume.hexahedral import StructuredHexahedralMesh
-from onesim.meshing.generation.contracts.hexahedral_geometry import FACES, trilinear_hexahedral_geometry
+from onesim.meshing.generation.backends.structured.volume.hexahedral import (
+    StructuredHexahedralMesh,
+)
+from onesim.meshing.generation.contracts.hexahedral_geometry import (
+    FACES,
+    trilinear_hexahedral_geometry,
+)
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.field_transfer import FiniteElementEvaluation
 from onesim.numerics.linear import AlgebraicMultigrid, ConjugateGradient, SparseDirect
 from onesim.physics.heat_transfer import ConvectiveHeatFlux, HeatConduction, HeatFlux
 from onesim.physics.solid_mechanics import (
-    FixedDisplacementComponents, IsotropicThermalExpansion, LinearElasticity, Traction, TractionFree,
+    FixedDisplacementComponents,
+    IsotropicThermalExpansion,
+    LinearElasticity,
+    Traction,
+    TractionFree,
 )
 from onesim.results.sampling.points.simplex_locator import SimplexLocator
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.field_connections import FieldCoupling
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
+from scipy.spatial import Delaunay, cKDTree
 
 theme.set()
 
@@ -162,7 +170,9 @@ published = {"T_max": 436.0, "T_min": 367.0, "vm_max": 33.0, "w_max": 6.3}
 
 
 def d_rect(p, x0, x1, y0, y1):
-    return -np.minimum(np.minimum(p[:, 1] - y0, y1 - p[:, 1]), np.minimum(p[:, 0] - x0, x1 - p[:, 0]))
+    return -np.minimum(
+        np.minimum(p[:, 1] - y0, y1 - p[:, 1]), np.minimum(p[:, 0] - x0, x1 - p[:, 0])
+    )
 
 
 def d_circle(p, c, r):
@@ -170,8 +180,15 @@ def d_circle(p, c, r):
 
 
 def d_slit(p, x0, x1, y0, y1, r=FILLET):
-    q = np.abs(p - ((x0 + x1) / 2, (y0 + y1) / 2)) - ((x1 - x0) / 2 - r, (y1 - y0) / 2 - r)
-    return np.hypot(np.maximum(q[:, 0], 0), np.maximum(q[:, 1], 0)) + np.minimum(np.maximum(q[:, 0], q[:, 1]), 0) - r
+    q = np.abs(p - ((x0 + x1) / 2, (y0 + y1) / 2)) - (
+        (x1 - x0) / 2 - r,
+        (y1 - y0) / 2 - r,
+    )
+    return (
+        np.hypot(np.maximum(q[:, 0], 0), np.maximum(q[:, 1], 0))
+        + np.minimum(np.maximum(q[:, 0], q[:, 1]), 0)
+        - r
+    )
 
 
 def d_plate(p):
@@ -217,20 +234,46 @@ def boundary_points(h_far, h_near):
         h = size_field(Q, h_far, h_near)
         n = np.concatenate(([0], np.cumsum(np.diff(fine) / (0.5 * (h[1:] + h[:-1])))))
         t = np.interp(np.linspace(0, n[-1], max(1, int(np.ceil(n[-1]))) + 1), n, fine)
-        return np.column_stack((np.interp(t, fine, Q[:, 0]), np.interp(t, fine, Q[:, 1])))
+        return np.column_stack(
+            (np.interp(t, fine, Q[:, 0]), np.interp(t, fine, Q[:, 1]))
+        )
 
-    lines = [[(0, 0), (LX, 0)], [(LX, 0), (LX, 10)], [(LX, 20), (LX, 35)], [(LX, 35), (LX, LY)],
-             [(LX, LY), (75, LY)], [(75, LY), (65, LY)], [(65, LY), (30, LY)], [(30, LY), (20, LY)],
-             [(10, LY), (0, LY)], [(0, LY), (0, 0)], [(30, LY), (30, 35)], [(30, 35), (LX, 35)]]
+    lines = [
+        [(0, 0), (LX, 0)],
+        [(LX, 0), (LX, 10)],
+        [(LX, 20), (LX, 35)],
+        [(LX, 35), (LX, LY)],
+        [(LX, LY), (75, LY)],
+        [(75, LY), (65, LY)],
+        [(65, LY), (30, LY)],
+        [(30, LY), (20, LY)],
+        [(10, LY), (0, LY)],
+        [(0, LY), (0, 0)],
+        [(30, LY), (30, 35)],
+        [(30, 35), (LX, 35)],
+    ]
     pieces = [resample(np.array(P, float)) for P in lines]
-    pieces += [resample(arc(HOLES[0], R0, 0, 2 * np.pi)), resample(arc(HOLES[1], R0, np.pi, 2 * np.pi)),
-               resample(arc(HOLES[2], R0, np.pi / 2, 1.5 * np.pi)), resample(arc(HEATER, R0, np.pi, 2 * np.pi))]
+    pieces += [
+        resample(arc(HOLES[0], R0, 0, 2 * np.pi)),
+        resample(arc(HOLES[1], R0, np.pi, 2 * np.pi)),
+        resample(arc(HOLES[2], R0, np.pi / 2, 1.5 * np.pi)),
+        resample(arc(HEATER, R0, np.pi, 2 * np.pi)),
+    ]
     for x0, x1, y0, y1 in SLITS:
         r = FILLET
-        pieces.append(resample(np.vstack([
-            arc((x1 - r, y0 + r), r, -np.pi / 2, 0), arc((x1 - r, y1 - r), r, 0, np.pi / 2),
-            arc((x0 + r, y1 - r), r, np.pi / 2, np.pi), arc((x0 + r, y0 + r), r, np.pi, 1.5 * np.pi),
-            [[x1 - r, y0]]])))
+        pieces.append(
+            resample(
+                np.vstack(
+                    [
+                        arc((x1 - r, y0 + r), r, -np.pi / 2, 0),
+                        arc((x1 - r, y1 - r), r, 0, np.pi / 2),
+                        arc((x0 + r, y1 - r), r, np.pi / 2, np.pi),
+                        arc((x0 + r, y0 + r), r, np.pi, 1.5 * np.pi),
+                        [[x1 - r, y0]],
+                    ]
+                )
+            )
+        )
     P = np.vstack(pieces)
     _, first = np.unique(np.round(P * 1e6).astype(np.int64), axis=0, return_index=True)
     return P[np.sort(first)]
@@ -239,11 +282,17 @@ def boundary_points(h_far, h_near):
 def distmesh(fd, fixed, box, h_far, h_near, iterations=250):
     """DistMesh (Persson and Strang 2004) with fixed boundary points."""
     (x0, y0), (x1, y1) = box
-    X, Y = np.meshgrid(np.arange(x0, x1 + h_near, h_near), np.arange(y0, y1 + h_near, h_near * np.sqrt(3) / 2))
+    X, Y = np.meshgrid(
+        np.arange(x0, x1 + h_near, h_near),
+        np.arange(y0, y1 + h_near, h_near * np.sqrt(3) / 2),
+    )
     X[1::2] += h_near / 2
     p = np.column_stack((X.ravel(), Y.ravel()))
     p = p[fd(p) < -0.3 * h_near]
-    keep = np.random.default_rng(0).random(len(p)) < (h_near / size_field(p, h_far, h_near)) ** 2
+    keep = (
+        np.random.default_rng(0).random(len(p))
+        < (h_near / size_field(p, h_far, h_near)) ** 2
+    )
     p = p[keep]
     p = p[cKDTree(fixed).query(p)[0] > 0.5 * size_field(p, h_far, h_near)]
     nf = len(fixed)
@@ -251,7 +300,12 @@ def distmesh(fd, fixed, box, h_far, h_near, iterations=250):
     for it in range(iterations):
         tri = Delaunay(p).simplices
         tri = tri[fd(p[tri].mean(axis=1)) < -1e-3 * h_near]
-        bars = np.unique(np.sort(np.vstack((tri[:, [0, 1]], tri[:, [1, 2]], tri[:, [2, 0]])), axis=1), axis=0)
+        bars = np.unique(
+            np.sort(
+                np.vstack((tri[:, [0, 1]], tri[:, [1, 2]], tri[:, [2, 0]])), axis=1
+            ),
+            axis=0,
+        )
         vec = p[bars[:, 0]] - p[bars[:, 1]]
         length = np.hypot(*vec.T)
         h = size_field(0.5 * (p[bars[:, 0]] + p[bars[:, 1]]), h_far, h_near)
@@ -270,13 +324,19 @@ def distmesh(fd, fixed, box, h_far, h_near, iterations=250):
             gy = (fd(p[out] + [0, e]) - d[out]) / e
             p[out] -= (d[out] / (gx**2 + gy**2))[:, None] * np.column_stack((gx, gy))
         p[:nf] = fixed
-        if it > 30 and np.max(np.hypot(*(0.2 * total[d < -1e-3 * h_near]).T), initial=0) < 1e-4 * h_near:
+        if (
+            it > 30
+            and np.max(np.hypot(*(0.2 * total[d < -1e-3 * h_near]).T), initial=0)
+            < 1e-4 * h_near
+        ):
             break
     p = p[(np.arange(len(p)) < nf) | (fd(p) < -0.3 * size_field(p, h_far, h_near))]
     tri = Delaunay(p).simplices
     tri = tri[fd(p[tri].mean(axis=1)) < -1e-3 * h_near]
     a = p[tri]
-    ccw = (a[:, 1, 0] - a[:, 0, 0]) * (a[:, 2, 1] - a[:, 0, 1]) - (a[:, 1, 1] - a[:, 0, 1]) * (a[:, 2, 0] - a[:, 0, 0]) > 0
+    ccw = (a[:, 1, 0] - a[:, 0, 0]) * (a[:, 2, 1] - a[:, 0, 1]) - (
+        a[:, 1, 1] - a[:, 0, 1]
+    ) * (a[:, 2, 0] - a[:, 0, 0]) > 0
     tri[~ccw] = tri[~ccw][:, [0, 2, 1]]
     return p, tri
 
@@ -304,8 +364,15 @@ def split_into_quads(p, t, region):
     """Three quadrilaterals per triangle; boundary midpoints on arcs are moved onto the arcs."""
     circles = [(np.array(c), R0) for c in HOLES + (HEATER,)]
     for x0, x1, y0, y1 in SLITS:
-        circles += [(np.array(c), FILLET) for c in ((x1 - FILLET, y0 + FILLET), (x1 - FILLET, y1 - FILLET),
-                                                    (x0 + FILLET, y1 - FILLET), (x0 + FILLET, y0 + FILLET))]
+        circles += [
+            (np.array(c), FILLET)
+            for c in (
+                (x1 - FILLET, y0 + FILLET),
+                (x1 - FILLET, y1 - FILLET),
+                (x0 + FILLET, y1 - FILLET),
+                (x0 + FILLET, y0 + FILLET),
+            )
+        ]
     edges = np.sort(np.vstack((t[:, [0, 1]], t[:, [1, 2]], t[:, [2, 0]])), axis=1)
     unique, counts = np.unique(edges, axis=0, return_counts=True)
     boundary = set(map(tuple, unique[counts == 1]))
@@ -316,15 +383,30 @@ def split_into_quads(p, t, region):
         if key not in middle:
             m = 0.5 * (p[a] + p[b])
             for c, r in circles:
-                on_arc = abs(np.hypot(*(p[a] - c)) - r) < 1e-6 and abs(np.hypot(*(p[b] - c)) - r) < 1e-6
-                if on_arc and np.hypot(*(p[a] - p[b])) < r and (key in boundary or r == R0 and tuple(c) == HEATER):
+                on_arc = (
+                    abs(np.hypot(*(p[a] - c)) - r) < 1e-6
+                    and abs(np.hypot(*(p[b] - c)) - r) < 1e-6
+                )
+                if (
+                    on_arc
+                    and np.hypot(*(p[a] - p[b])) < r
+                    and (key in boundary or r == R0 and tuple(c) == HEATER)
+                ):
                     m = c + r * (m - c) / np.hypot(*(m - c))
                     break
             else:
                 if key in boundary:
                     for _ in range(3):
                         d, e = d_plate(m[None])[0], 1e-7
-                        g = np.array([d_plate((m + (e, 0))[None])[0] - d, d_plate((m + (0, e))[None])[0] - d]) / e
+                        g = (
+                            np.array(
+                                [
+                                    d_plate((m + (e, 0))[None])[0] - d,
+                                    d_plate((m + (0, e))[None])[0] - d,
+                                ]
+                            )
+                            / e
+                        )
                         m = m - d * g / (g @ g)
             middle[key] = len(points)
             points.append(m)
@@ -344,17 +426,30 @@ class HexahedralMesh(StructuredHexahedralMesh):
     """Unstructured trilinear hexahedra with named boundary quadrilaterals."""
 
     def __init__(self, geometry, coordinates, cells, facets):
-        data = trilinear_hexahedral_geometry(np.asarray(coordinates, float), np.asarray(cells))
+        data = trilinear_hexahedral_geometry(
+            np.asarray(coordinates, float), np.asarray(cells)
+        )
         self.geometry = geometry
-        self.coordinates, self.cells, self.cell_volumes = data.coordinates, data.cells, data.volumes
+        self.coordinates, self.cells, self.cell_volumes = (
+            data.coordinates,
+            data.cells,
+            data.volumes,
+        )
         self.cell_count = len(self.cells)
         self.shape = (self.cell_count, 1, 1)
-        self.mesh_id = "plate-hex:" + sha256(self.coordinates.tobytes() + self.cells.tobytes()).hexdigest()
+        self.mesh_id = (
+            "plate-hex:"
+            + sha256(self.coordinates.tobytes() + self.cells.tobytes()).hexdigest()
+        )
         self._facets = {name: list(faces) for name, faces in facets.items()}
         self._carrier = self._build_carrier()
 
     def to_mapping(self):
-        return {**super().to_mapping(), "generator": "plate-hex", "geometry_mapping": "trilinear_hex8"}
+        return {
+            **super().to_mapping(),
+            "generator": "plate-hex",
+            "geometry_mapping": "trilinear_hex8",
+        }
 
 
 @dataclass(frozen=True, eq=False, kw_only=True)
@@ -371,7 +466,14 @@ class PlateForStress(Geometry):
     dimension = 3
 
     def boundary_groups(self):
-        names = ("symmetry_x", "symmetry_y", "mid_plane", "top_active", "top_manifold", "free")
+        names = (
+            "symmetry_x",
+            "symmetry_y",
+            "mid_plane",
+            "top_active",
+            "top_manifold",
+            "free",
+        )
         return {**{name: (name,) for name in names}, "all": names}
 
 
@@ -397,8 +499,17 @@ def face_kind(P):
     raise ValueError("unclassified boundary face")
 
 
-HEAT_NAMES = {"mid_plane": "symmetry", "symmetry_x": "symmetry", "symmetry_y": "symmetry"}
-STRESS_NAMES = {"outer_edges": "free", "gas_slits": "free", "tie_rod_holes": "free", "heater_seat": "free"}
+HEAT_NAMES = {
+    "mid_plane": "symmetry",
+    "symmetry_x": "symmetry",
+    "symmetry_y": "symmetry",
+}
+STRESS_NAMES = {
+    "outer_edges": "free",
+    "gas_slits": "free",
+    "tie_rod_holes": "free",
+    "heater_seat": "free",
+}
 
 
 def build_plate(h_far, h_near, layers=1):
@@ -406,12 +517,29 @@ def build_plate(h_far, h_near, layers=1):
     xy, quads, quad_region = split_into_quads(p, t, region)
     n2 = len(xy)
     zs = np.linspace(0.0, TH2, layers + 1)
-    coords = np.column_stack((np.tile(xy[:, 0], layers + 1), np.tile(xy[:, 1], layers + 1), np.repeat(zs, n2)))
-    cells = np.vstack([np.column_stack((quads + k * n2, quads + (k + 1) * n2)) for k in range(layers)])
+    coords = np.column_stack(
+        (
+            np.tile(xy[:, 0], layers + 1),
+            np.tile(xy[:, 1], layers + 1),
+            np.repeat(zs, n2),
+        )
+    )
+    cells = np.vstack(
+        [np.column_stack((quads + k * n2, quads + (k + 1) * n2)) for k in range(layers)]
+    )
     cell_region = np.tile(quad_region, layers)
-    out = dict(xy=xy, quads=quads, quad_region=quad_region, triangles=len(t), layers=layers, h=h_near)
-    for kind, keep, geometry in (("heat", np.ones(len(cells), bool), PlateForHeat()),
-                                 ("stress", cell_region != 2, PlateForStress())):
+    out = dict(
+        xy=xy,
+        quads=quads,
+        quad_region=quad_region,
+        triangles=len(t),
+        layers=layers,
+        h=h_near,
+    )
+    for kind, keep, geometry in (
+        ("heat", np.ones(len(cells), bool), PlateForHeat()),
+        ("stress", cell_region != 2, PlateForStress()),
+    ):
         kept = cells[keep]
         used = np.unique(kept)
         renumber = np.full(len(coords), -1)
@@ -434,11 +562,20 @@ def build_plate(h_far, h_near, layers=1):
                     if name == "top":
                         name = "top_active" if kept_region[c] == 1 else "top_manifold"
                 groups[name].append(corners)
-        out[kind] = dict(geometry=geometry, coords=X * mm, cells=kept, region=kept_region,
-                         groups={name: np.array(faces) for name, faces in groups.items()},
-                         mesh=HexahedralMesh(geometry, X * mm, kept, groups))
-    out["heater_volume"] = float(out["heat"]["mesh"].cell_volumes[out["heat"]["region"] == 2].sum())
-    locator = SimplexLocator.from_arrays(xy, np.vstack((quads[:, [0, 1, 2]], quads[:, [0, 2, 3]])), dimension=2)
+        out[kind] = dict(
+            geometry=geometry,
+            coords=X * mm,
+            cells=kept,
+            region=kept_region,
+            groups={name: np.array(faces) for name, faces in groups.items()},
+            mesh=HexahedralMesh(geometry, X * mm, kept, groups),
+        )
+    out["heater_volume"] = float(
+        out["heat"]["mesh"].cell_volumes[out["heat"]["region"] == 2].sum()
+    )
+    locator = SimplexLocator.from_arrays(
+        xy, np.vstack((quads[:, [0, 1, 2]], quads[:, [0, 2, 3]])), dimension=2
+    )
     out["finder"] = lambda x, y: locator.locate(np.column_stack((x, y)))[0]
     out["tri_region"] = np.concatenate((quad_region, quad_region))
     return out
@@ -446,8 +583,10 @@ def build_plate(h_far, h_near, layers=1):
 
 meshes = [build_plate(h_far, h_near) for h_far, h_near in LEVELS]
 for (h_far, h_near), data in zip(LEVELS, meshes):
-    print(f"h = {h_far:4.1f}/{h_near:4.2f} mm: {data['triangles']:5d} triangles -> {len(data['quads']):5d} quadrilaterals, "
-          f"{data['heat']['mesh'].cell_count:5d} Q2 hexahedra ({len(data['heat']['coords'])} vertices)")
+    print(
+        f"h = {h_far:4.1f}/{h_near:4.2f} mm: {data['triangles']:5d} triangles -> {len(data['quads']):5d} quadrilaterals, "
+        f"{data['heat']['mesh'].cell_count:5d} Q2 hexahedra ({len(data['heat']['coords'])} vertices)"
+    )
 
 
 # ## Model
@@ -457,8 +596,14 @@ for (h_far, h_near), data in zip(LEVELS, meshes):
 # eighth divided by the meshed volume of the half disc, so the meshed heater delivers exactly
 # the prescribed power.
 
-titanium = IsotropicSolid(density=4940.0, specific_heat_capacity=710.0, thermal_conductivity=k_ti,
-                          youngs_modulus=E_ti, poisson_ratio=nu_ti, thermal_expansion_coefficient=alpha_ti)
+titanium = IsotropicSolid(
+    density=4940.0,
+    specific_heat_capacity=710.0,
+    thermal_conductivity=k_ti,
+    youngs_modulus=E_ti,
+    poisson_ratio=nu_ti,
+    thermal_expansion_coefficient=alpha_ti,
+)
 
 
 def in_heater(data, x, y):
@@ -491,14 +636,42 @@ class HeaterSource:
 def solve_heat(data):
     mesh_data = data["heat"]
     b = mesh_data["geometry"].boundaries
-    heat = HeatConduction(domain=mesh_data["geometry"].domain(), material=PlateConductivity(data),
-                          heating=HeaterSource(data))
-    problem = Problem(name="Bipolar plate heating", geometry=mesh_data["geometry"], physics=(heat,), boundary_conditions=(
-        ConvectiveHeatFlux(boundary=b.outer_edges, physics=heat, heat_transfer_coefficient=h_surr, ambient_temperature=T_surr),
-        ConvectiveHeatFlux(boundary=b.gas_slits, physics=heat, heat_transfer_coefficient=h_gas, ambient_temperature=T_gas),
-        HeatFlux(boundary=b.tie_rod_holes | b.top | b.symmetry, physics=heat, value=0.0)))
-    numerics = Numerics(spatial=FiniteElement(element=Lagrange(order=2), quadrature_order=4), linear_solver=SparseDirect())
-    return Simulation(problem=problem, mesh=mesh_data["mesh"], numerics=numerics).solve_stationary().field(heat.temperature)
+    heat = HeatConduction(
+        domain=mesh_data["geometry"].domain(),
+        material=PlateConductivity(data),
+        heating=HeaterSource(data),
+    )
+    problem = Problem(
+        name="Bipolar plate heating",
+        geometry=mesh_data["geometry"],
+        physics=(heat,),
+        boundary_conditions=(
+            ConvectiveHeatFlux(
+                boundary=b.outer_edges,
+                physics=heat,
+                heat_transfer_coefficient=h_surr,
+                ambient_temperature=T_surr,
+            ),
+            ConvectiveHeatFlux(
+                boundary=b.gas_slits,
+                physics=heat,
+                heat_transfer_coefficient=h_gas,
+                ambient_temperature=T_gas,
+            ),
+            HeatFlux(
+                boundary=b.tie_rod_holes | b.top | b.symmetry, physics=heat, value=0.0
+            ),
+        ),
+    )
+    numerics = Numerics(
+        spatial=FiniteElement(element=Lagrange(order=2), quadrature_order=4),
+        linear_solver=SparseDirect(),
+    )
+    return (
+        Simulation(problem=problem, mesh=mesh_data["mesh"], numerics=numerics)
+        .solve_stationary()
+        .field(heat.temperature)
+    )
 
 
 @dataclass(frozen=True)
@@ -508,31 +681,77 @@ class UniformExpansion(IsotropicThermalExpansion):
     uniform_temperature: float = 373.15
 
     def evaluate(self, *, temperature, coefficient):
-        return super().evaluate(temperature=self.uniform_temperature, coefficient=coefficient)
+        return super().evaluate(
+            temperature=self.uniform_temperature, coefficient=coefficient
+        )
 
     def evaluate_array(self, *, temperature, coefficient):
-        return super().evaluate_array(temperature=np.full(np.shape(temperature), self.uniform_temperature),
-                                      coefficient=coefficient)
+        return super().evaluate_array(
+            temperature=np.full(np.shape(temperature), self.uniform_temperature),
+            coefficient=coefficient,
+        )
 
 
 def solve_stress(data, temperature, pressures=(P_active, P_manifold), strain=None):
     """Elastic titanium plate under the coupled temperature field and the clamping pressures."""
     mesh_data = data["stress"]
     b = mesh_data["geometry"].boundaries
-    strain = IsotropicThermalExpansion(reference_temperature=T_ref) if strain is None else strain
-    solid = LinearElasticity(domain=mesh_data["geometry"].domain(), material=titanium, thermal_strain=strain)
-    couplings = (FieldCoupling(source=temperature, target=solid.temperature, transfer=FiniteElementEvaluation()),)
-    problem = Problem(name="Bipolar plate thermal stress", geometry=mesh_data["geometry"], physics=(solid,), boundary_conditions=(
-        FixedDisplacementComponents(boundary=b.symmetry_x, physics=solid, components=("x",)),
-        FixedDisplacementComponents(boundary=b.symmetry_y, physics=solid, components=("y",)),
-        FixedDisplacementComponents(boundary=b.mid_plane, physics=solid, components=("z",)),
-        Traction(boundary=b.top_active, physics=solid, value=(0.0, 0.0, -pressures[0])),
-        Traction(boundary=b.top_manifold, physics=solid, value=(0.0, 0.0, -pressures[1])),
-        TractionFree(boundary=b.free, physics=solid)), couplings=couplings)
-    solver = ConjugateGradient(preconditioner=AlgebraicMultigrid(), relative_tolerance=1e-10, maximum_iterations=3000)
-    numerics = Numerics(spatial=FiniteElement(element=Lagrange(order=2), quadrature_order=4), linear_solver=solver)
-    result = Simulation(problem=problem, mesh=mesh_data["mesh"], numerics=numerics).solve_stationary()
-    return result.field(solid.displacement), result.field(solid.von_mises_stress), result.field(solid.stress)
+    strain = (
+        IsotropicThermalExpansion(reference_temperature=T_ref)
+        if strain is None
+        else strain
+    )
+    solid = LinearElasticity(
+        domain=mesh_data["geometry"].domain(), material=titanium, thermal_strain=strain
+    )
+    couplings = (
+        FieldCoupling(
+            source=temperature,
+            target=solid.temperature,
+            transfer=FiniteElementEvaluation(),
+        ),
+    )
+    problem = Problem(
+        name="Bipolar plate thermal stress",
+        geometry=mesh_data["geometry"],
+        physics=(solid,),
+        boundary_conditions=(
+            FixedDisplacementComponents(
+                boundary=b.symmetry_x, physics=solid, components=("x",)
+            ),
+            FixedDisplacementComponents(
+                boundary=b.symmetry_y, physics=solid, components=("y",)
+            ),
+            FixedDisplacementComponents(
+                boundary=b.mid_plane, physics=solid, components=("z",)
+            ),
+            Traction(
+                boundary=b.top_active, physics=solid, value=(0.0, 0.0, -pressures[0])
+            ),
+            Traction(
+                boundary=b.top_manifold, physics=solid, value=(0.0, 0.0, -pressures[1])
+            ),
+            TractionFree(boundary=b.free, physics=solid),
+        ),
+        couplings=couplings,
+    )
+    solver = ConjugateGradient(
+        preconditioner=AlgebraicMultigrid(),
+        relative_tolerance=1e-10,
+        maximum_iterations=3000,
+    )
+    numerics = Numerics(
+        spatial=FiniteElement(element=Lagrange(order=2), quadrature_order=4),
+        linear_solver=solver,
+    )
+    result = Simulation(
+        problem=problem, mesh=mesh_data["mesh"], numerics=numerics
+    ).solve_stationary()
+    return (
+        result.field(solid.displacement),
+        result.field(solid.von_mises_stress),
+        result.field(solid.stress),
+    )
 
 
 GAUSS = np.array([0.5 - 0.5 * np.sqrt(0.6), 0.5, 0.5 + 0.5 * np.sqrt(0.6)])
@@ -548,7 +767,10 @@ def face_quadrature(coords, faces):
     dNs = np.stack((-(1 - t), 1 - t, t, -t), axis=1)
     dNt = np.stack((-(1 - s), -s, s, 1 - s), axis=1)
     points = np.einsum("qk,fkd->fqd", N, P)
-    jac = np.linalg.norm(np.cross(np.einsum("qk,fkd->fqd", dNs, P), np.einsum("qk,fkd->fqd", dNt, P)), axis=2)
+    jac = np.linalg.norm(
+        np.cross(np.einsum("qk,fkd->fqd", dNs, P), np.einsum("qk,fkd->fqd", dNt, P)),
+        axis=2,
+    )
     return points.reshape(-1, 3), (jac * w).ravel()
 
 
@@ -559,28 +781,59 @@ def evaluate(field, points):
 def heat_out(data, temperature):
     heat = data["heat"]
     rates = {}
-    for name, h, T_inf in (("outer_edges", h_surr, T_surr), ("gas_slits", h_gas, T_gas)):
+    for name, h, T_inf in (
+        ("outer_edges", h_surr, T_surr),
+        ("gas_slits", h_gas, T_gas),
+    ):
         points, weights = face_quadrature(heat["coords"], heat["groups"][name])
-        rates[name] = float(np.sum(weights * h * (evaluate(temperature, points).ravel() - T_inf)))
+        rates[name] = float(
+            np.sum(weights * h * (evaluate(temperature, points).ravel() - T_inf))
+        )
     return rates
 
 
 def edge_samples(n=400):
     """Points just inside the material along every hole, slit and the heater seat, at three depths."""
     eps = 1e-3
-    curves = [arc(HOLES[0], R0 + eps, 0, 2 * np.pi, n), arc(HOLES[1], R0 + eps, np.pi, 2 * np.pi, n // 2),
-              arc(HOLES[2], R0 + eps, np.pi / 2, 1.5 * np.pi, n // 2), arc(HEATER, R0 + eps, np.pi, 2 * np.pi, n // 2)]
+    curves = [
+        arc(HOLES[0], R0 + eps, 0, 2 * np.pi, n),
+        arc(HOLES[1], R0 + eps, np.pi, 2 * np.pi, n // 2),
+        arc(HOLES[2], R0 + eps, np.pi / 2, 1.5 * np.pi, n // 2),
+        arc(HEATER, R0 + eps, np.pi, 2 * np.pi, n // 2),
+    ]
     for x0, x1, y0, y1 in SLITS:
         r = FILLET + eps
-        corners = ((x1 - FILLET, y0 + FILLET), (x1 - FILLET, y1 - FILLET), (x0 + FILLET, y1 - FILLET), (x0 + FILLET, y0 + FILLET))
-        ring = np.vstack([arc(c, r, a, a + np.pi / 2, n // 8) for c, a in zip(corners, (-np.pi / 2, 0, np.pi / 2, np.pi))])
+        corners = (
+            (x1 - FILLET, y0 + FILLET),
+            (x1 - FILLET, y1 - FILLET),
+            (x0 + FILLET, y1 - FILLET),
+            (x0 + FILLET, y0 + FILLET),
+        )
+        ring = np.vstack(
+            [
+                arc(c, r, a, a + np.pi / 2, n // 8)
+                for c, a in zip(corners, (-np.pi / 2, 0, np.pi / 2, np.pi))
+            ]
+        )
         ring = np.vstack((ring, ring[:1]))
         s_len = np.concatenate(([0], np.cumsum(np.hypot(*np.diff(ring, axis=0).T))))
         t = np.linspace(0, s_len[-1], 3 * n)
-        curves.append(np.column_stack((np.interp(t, s_len, ring[:, 0]), np.interp(t, s_len, ring[:, 1]))))
+        curves.append(
+            np.column_stack(
+                (np.interp(t, s_len, ring[:, 0]), np.interp(t, s_len, ring[:, 1]))
+            )
+        )
     xy = np.vstack(curves)
     xy = xy[(xy[:, 0] < LX) & (xy[:, 1] < LY)]
-    return np.vstack([np.column_stack((xy, np.full(len(xy), z))) for z in (1e-6, TH2 / 2, TH2 - 1e-6)]) * mm
+    return (
+        np.vstack(
+            [
+                np.column_stack((xy, np.full(len(xy), z)))
+                for z in (1e-6, TH2 / 2, TH2 - 1e-6)
+            ]
+        )
+        * mm
+    )
 
 
 EDGES_XYZ = edge_samples()
@@ -598,9 +851,18 @@ def measure(data, temperature, displacement, von_mises):
     vm_all = np.concatenate((vm, vm_edges))
     top = np.abs(stress["coords"][:, 2] - TH2 * mm) < 1e-12
     rates = heat_out(data, temperature)
-    return dict(T=T, u=u, vm=vm, T_max=T.max(), T_min=T.min(), vm_max=vm_all.max(),
-                vm_where=samples[vm_all.argmax()] / mm, w_max=u[top, 2].max(),
-                q_out=rates, h=data["h"])
+    return dict(
+        T=T,
+        u=u,
+        vm=vm,
+        T_max=T.max(),
+        T_min=T.min(),
+        vm_max=vm_all.max(),
+        vm_where=samples[vm_all.argmax()] / mm,
+        w_max=u[top, 2].max(),
+        q_out=rates,
+        h=data["h"],
+    )
 
 
 # ## Solve
@@ -618,17 +880,32 @@ for data in meshes:
     t_heat = time.perf_counter() - start
     displacement, von_mises, stress = solve_stress(data, temperature)
     run = measure(data, temperature, displacement, von_mises)
-    print(f"h_near = {data['h']:4.2f} mm ({data['heat']['mesh'].cell_count:5d} hexahedra): T = {run['T_min']:.2f} ... "
-          f"{run['T_max']:.2f} K, peak von Mises {run['vm_max'] / 1e6:6.3f} MPa, w_max = {run['w_max'] * 1e6:.4f} um  "
-          f"[heat {t_heat:.0f} s, total {time.perf_counter() - start:.0f} s]")
+    print(
+        f"h_near = {data['h']:4.2f} mm ({data['heat']['mesh'].cell_count:5d} hexahedra): T = {run['T_min']:.2f} ... "
+        f"{run['T_max']:.2f} K, peak von Mises {run['vm_max'] / 1e6:6.3f} MPa, w_max = {run['w_max'] * 1e6:.4f} um  "
+        f"[heat {t_heat:.0f} s, total {time.perf_counter() - start:.0f} s]"
+    )
     if not runs:
         start = time.perf_counter()
-        u_hom, vm_hom, s_hom = solve_stress(data, temperature, pressures=(P_manifold, P_manifold),
-                                            strain=UniformExpansion(reference_temperature=T_ref, uniform_temperature=T_uniform))
+        u_hom, vm_hom, s_hom = solve_stress(
+            data,
+            temperature,
+            pressures=(P_manifold, P_manifold),
+            strain=UniformExpansion(
+                reference_temperature=T_ref, uniform_temperature=T_uniform
+            ),
+        )
         X = data["stress"]["coords"]
-        hom = dict(X=X, u=evaluate(u_hom, X), s=evaluate(s_hom, X), vm=evaluate(vm_hom, X).ravel())
+        hom = dict(
+            X=X,
+            u=evaluate(u_hom, X),
+            s=evaluate(s_hom, X),
+            vm=evaluate(vm_hom, X).ravel(),
+        )
         del u_hom, vm_hom, s_hom
-        print(f"homogeneous check problem on the coarsest mesh: {time.perf_counter() - start:.0f} s")
+        print(
+            f"homogeneous check problem on the coarsest mesh: {time.perf_counter() - start:.0f} s"
+        )
     if data is meshes[-1]:
         run.update(data=data, temperature=temperature, stress=stress)
     runs.append(run)
@@ -645,11 +922,18 @@ strain0, P = alpha_ti * (T_uniform - T_ref), P_manifold
 r = np.column_stack((X[:, 0] - LX * mm, X[:, 1] - LY * mm, X[:, 2]))
 u_exact = strain0 * r + P / E_ti * r * np.array([nu_ti, nu_ti, -1.0])
 u_num, s_num, vm = hom["u"], hom["s"], hom["vm"]
-err_u = np.max(np.linalg.norm(u_num - u_exact, axis=1)) / np.max(np.linalg.norm(u_exact, axis=1))
+err_u = np.max(np.linalg.norm(u_num - u_exact, axis=1)) / np.max(
+    np.linalg.norm(u_exact, axis=1)
+)
 err_s = np.max(np.abs(s_num - np.array([0, 0, -P, 0, 0, 0])), axis=0) / P
 print(f"homogeneous solution: max |u - u_exact| / max |u_exact| = {err_u:.1e}")
-print(f"  max |sigma - sigma_exact| / P per component (xx, yy, zz, xy, yz, xz): " + ", ".join(f"{e:.1e}" for e in err_s))
-print(f"  von Mises: {vm.min() / 1e6:.6f} ... {vm.max() / 1e6:.6f} MPa (exact {P / 1e6:.1f} MPa)")
+print(
+    f"  max |sigma - sigma_exact| / P per component (xx, yy, zz, xy, yz, xz): "
+    + ", ".join(f"{e:.1e}" for e in err_s)
+)
+print(
+    f"  von Mises: {vm.min() / 1e6:.6f} ... {vm.max() / 1e6:.6f} MPa (exact {P / 1e6:.1f} MPa)"
+)
 
 # **Heat balance.** The power leaving through the gas slits and the outer edges must equal the
 # 2 W of the heating element in the modelled eighth. The Galerkin solution satisfies the global
@@ -659,8 +943,14 @@ print(f"  von Mises: {vm.min() / 1e6:.6f} ... {vm.max() / 1e6:.6f} MPa (exact {P
 print("\nheat balance           " + "".join(f"  h = {r['h']:.2f} mm" for r in runs))
 for name in ("gas_slits", "outer_edges"):
     print(f"  {name:20s} " + "".join(f"  {r['q_out'][name]:9.5f} W" for r in runs))
-print(f"  {'total (ref 2 W)':20s} " + "".join(f"  {sum(r['q_out'].values()):9.5f} W" for r in runs))
-print(f"  {'relative deviation':20s} " + "".join(f"  {sum(r['q_out'].values()) / P_heater - 1:+10.1e}" for r in runs))
+print(
+    f"  {'total (ref 2 W)':20s} "
+    + "".join(f"  {sum(r['q_out'].values()):9.5f} W" for r in runs)
+)
+print(
+    f"  {'relative deviation':20s} "
+    + "".join(f"  {sum(r['q_out'].values()) / P_heater - 1:+10.1e}" for r in runs)
+)
 
 # **Published levels and the restrained bound** (finest mesh). The published model shows the
 # temperature, the von Mises stress and the out-of-plane displacement as colour plots; the
@@ -668,12 +958,22 @@ print(f"  {'relative deviation':20s} " + "".join(f"  {sum(r['q_out'].values()) /
 
 bound = E_ti * alpha_ti * (fine["T_max"] - fine["T_min"]) / (1 - nu_ti)
 print(f"\nquantity                     computed    published   deviation")
-print(f"  T_max [K]                  {fine['T_max']:9.2f}   {published['T_max']:9.1f}   {fine['T_max'] / published['T_max'] - 1:+.1%}")
-print(f"  T_min [K]                  {fine['T_min']:9.2f}   {published['T_min']:9.1f}   {fine['T_min'] / published['T_min'] - 1:+.1%}")
-print(f"  peak von Mises [MPa]       {fine['vm_max'] / 1e6:9.2f}   {published['vm_max']:9.1f}   {fine['vm_max'] / 1e6 / published['vm_max'] - 1:+.1%}"
-      f"   at (x, y, z) = ({fine['vm_where'][0]:.1f}, {fine['vm_where'][1]:.1f}, {fine['vm_where'][2]:.1f}) mm")
-print(f"  w_max [um]                 {fine['w_max'] * 1e6:9.3f}   {published['w_max']:9.1f}   {fine['w_max'] * 1e6 / published['w_max'] - 1:+.1%}")
-print(f"  restrained bound E alpha (T_max - T_min)/(1 - nu) = {bound / 1e6:.1f} MPa; peak / bound = {fine['vm_max'] / bound:.2f}")
+print(
+    f"  T_max [K]                  {fine['T_max']:9.2f}   {published['T_max']:9.1f}   {fine['T_max'] / published['T_max'] - 1:+.1%}"
+)
+print(
+    f"  T_min [K]                  {fine['T_min']:9.2f}   {published['T_min']:9.1f}   {fine['T_min'] / published['T_min'] - 1:+.1%}"
+)
+print(
+    f"  peak von Mises [MPa]       {fine['vm_max'] / 1e6:9.2f}   {published['vm_max']:9.1f}   {fine['vm_max'] / 1e6 / published['vm_max'] - 1:+.1%}"
+    f"   at (x, y, z) = ({fine['vm_where'][0]:.1f}, {fine['vm_where'][1]:.1f}, {fine['vm_where'][2]:.1f}) mm"
+)
+print(
+    f"  w_max [um]                 {fine['w_max'] * 1e6:9.3f}   {published['w_max']:9.1f}   {fine['w_max'] * 1e6 / published['w_max'] - 1:+.1%}"
+)
+print(
+    f"  restrained bound E alpha (T_max - T_min)/(1 - nu) = {bound / 1e6:.1f} MPa; peak / bound = {fine['vm_max'] / bound:.2f}"
+)
 
 # **Mesh study.** The cell size at the holes, slits and heater seat shrinks by a factor 1.4 per
 # level (and the far-field size with it). Observed order and Richardson estimate from the three
@@ -695,8 +995,16 @@ def richardson(values, hs):
 
 
 hs = np.array([r["h"] for r in runs])
-print("\nmesh study                 " + "".join(f"  h = {h:.2f} mm" for h in hs) + "   change last two   order   Richardson")
-for key, label, scale in (("T_max", "T_max [K]", 1.0), ("vm_max", "peak von Mises [MPa]", 1e-6), ("w_max", "w_max [um]", 1e6)):
+print(
+    "\nmesh study                 "
+    + "".join(f"  h = {h:.2f} mm" for h in hs)
+    + "   change last two   order   Richardson"
+)
+for key, label, scale in (
+    ("T_max", "T_max [K]", 1.0),
+    ("vm_max", "peak von Mises [MPa]", 1e-6),
+    ("w_max", "w_max [um]", 1e6),
+):
     values = np.array([r[key] for r in runs])
     monotone = (values[1] - values[0]) * (values[2] - values[1]) > 0
     p, rich = richardson(values, hs) if monotone else (np.nan, np.nan)
@@ -704,7 +1012,12 @@ for key, label, scale in (("T_max", "T_max [K]", 1.0), ("vm_max", "peak von Mise
         tail = f"   {p:5.2f}   {rich * scale:10.4f}"
     else:
         tail = "   (changes at round-off/mesh-noise level: no asymptotic order)"
-    print(f"  {label:24s} " + "".join(f"  {v * scale:10.4f}" for v in values) + f"   {abs(values[2] / values[1] - 1):12.1e}" + tail)
+    print(
+        f"  {label:24s} "
+        + "".join(f"  {v * scale:10.4f}" for v in values)
+        + f"   {abs(values[2] / values[1] - 1):12.1e}"
+        + tail
+    )
 
 
 # ## Figure
@@ -720,36 +1033,99 @@ heat_mesh, stress_mesh = fine["data"]["heat"], fine["data"]["stress"]
 
 def mirrored_surface(mesh_data, names):
     """Points and triangles of the named faces, completed about the two symmetry planes (lengths in mm)."""
-    faces = np.vstack([mesh_data["groups"][name] for name in names if len(mesh_data["groups"][name])])
+    faces = np.vstack(
+        [mesh_data["groups"][name] for name in names if len(mesh_data["groups"][name])]
+    )
     triangles = np.r_[faces[:, [0, 1, 2]], faces[:, [0, 2, 3]]]
     base = mesh_data["coords"] / mm
-    copies = [base * (sx, sy, 1) + (2 * LX * (sx < 0), 2 * LY * (sy < 0), 0) for sx, sy in ((1, 1), (-1, 1), (1, -1), (-1, -1))]
+    copies = [
+        base * (sx, sy, 1) + (2 * LX * (sx < 0), 2 * LY * (sy < 0), 0)
+        for sx, sy in ((1, 1), (-1, 1), (1, -1), (-1, -1))
+    ]
     return np.vstack(copies), np.vstack([triangles + k * len(base) for k in range(4)])
 
 
-top_faces = np.vstack([stress_mesh["groups"][name] for name in ("top_active", "top_manifold")])
+top_faces = np.vstack(
+    [stress_mesh["groups"][name] for name in ("top_active", "top_manifold")]
+)
 y_line = np.linspace(85.0 - 1e-6, 20.0 + 1e-6, 200)
 line = np.column_stack((np.full(200, 70.0), y_line, np.full(200, 2.5))) * mm
 s_line = evaluate(fine["stress"], line)
-tracked = {"T_max - 273.15 K": np.array([r["T_max"] for r in runs]) - 273.15,
-           "peak von Mises": np.array([r["vm_max"] for r in runs]), "w_max": np.array([r["w_max"] for r in runs])}
-fig = plots.figure(layout=[["temperature"] * 3 + ["stress"] * 3, ["lift", "lift", "line", "line", "study", "study"]], size=(17, 12.5))
-points, triangles = mirrored_surface(heat_mesh, ("top", "outer_edges", "gas_slits", "tie_rod_holes"))
-plots.trisurface(points, triangles, np.tile(fine["T"], 4), camera=plots.Camera(elevation=38, azimuth=-62),
-                 label="temperature T [K]", title="Temperature of the heated plate (lengths in mm)", ax=fig["temperature"])
-points, triangles = mirrored_surface(stress_mesh, ("top_active", "top_manifold", "free"))
-plots.trisurface(points, triangles, np.tile(fine["vm"] * 1e-6, 4), camera=plots.Camera(elevation=38, azimuth=-62),
-                 label="von Mises stress [MPa]", title="von Mises stress (lengths in mm)", ax=fig["stress"])
-plots.heatmap(stress_mesh["coords"][:, 0] / mm, stress_mesh["coords"][:, 1] / mm, fine["u"][:, 2] * 1e6,
-              triangles=np.r_[top_faces[:, [0, 1, 2]], top_faces[:, [0, 2, 3]]], contours=10, label="w [µm]",
-              xlabel="x [mm]", ylabel="y [mm]", title="Out-of-plane displacement of the top face", ax=fig["lift"])
-plots.line(90 - y_line, {"sigma_xx (hoop at the seat)": s_line[:, 0] / 1e6, "sigma_yy": s_line[:, 1] / 1e6,
-                         "sigma_zz (clamping 1 / 8 MPa)": s_line[:, 2] / 1e6},
-           right={"temperature": evaluate(fine["temperature"], line).ravel()}, styles={"sigma_zz (clamping 1 / 8 MPa)": "dashed"},
-           hlines=0.0, xlabel="distance from the heater centre, 90 - y [mm]", ylabel="stress [MPa]", right_label="T [K]",
-           title="Line x = 70 mm, mid-thickness", legend="lower right", ax=fig["line"])
-plots.line(hs, {label: values / values[-1] for label, values in tracked.items()}, hlines=1.0, markers=True,
-           xlabel="cell size at the features h [mm]", ylabel="value / value on the finest mesh", title="Mesh study", ax=fig["study"])
+tracked = {
+    "T_max - 273.15 K": np.array([r["T_max"] for r in runs]) - 273.15,
+    "peak von Mises": np.array([r["vm_max"] for r in runs]),
+    "w_max": np.array([r["w_max"] for r in runs]),
+}
+fig = plots.figure(
+    layout=[
+        ["temperature"] * 3 + ["stress"] * 3,
+        ["lift", "lift", "line", "line", "study", "study"],
+    ],
+    size=(17, 12.5),
+)
+points, triangles = mirrored_surface(
+    heat_mesh, ("top", "outer_edges", "gas_slits", "tie_rod_holes")
+)
+plots.trisurface(
+    points,
+    triangles,
+    np.tile(fine["T"], 4),
+    camera=plots.Camera(elevation=38, azimuth=-62),
+    label="temperature T [K]",
+    title="Temperature of the heated plate (lengths in mm)",
+    ax=fig["temperature"],
+)
+points, triangles = mirrored_surface(
+    stress_mesh, ("top_active", "top_manifold", "free")
+)
+plots.trisurface(
+    points,
+    triangles,
+    np.tile(fine["vm"] * 1e-6, 4),
+    camera=plots.Camera(elevation=38, azimuth=-62),
+    label="von Mises stress [MPa]",
+    title="von Mises stress (lengths in mm)",
+    ax=fig["stress"],
+)
+plots.heatmap(
+    stress_mesh["coords"][:, 0] / mm,
+    stress_mesh["coords"][:, 1] / mm,
+    fine["u"][:, 2] * 1e6,
+    triangles=np.r_[top_faces[:, [0, 1, 2]], top_faces[:, [0, 2, 3]]],
+    contours=10,
+    label="w [µm]",
+    xlabel="x [mm]",
+    ylabel="y [mm]",
+    title="Out-of-plane displacement of the top face",
+    ax=fig["lift"],
+)
+plots.line(
+    90 - y_line,
+    {
+        "sigma_xx (hoop at the seat)": s_line[:, 0] / 1e6,
+        "sigma_yy": s_line[:, 1] / 1e6,
+        "sigma_zz (clamping 1 / 8 MPa)": s_line[:, 2] / 1e6,
+    },
+    right={"temperature": evaluate(fine["temperature"], line).ravel()},
+    styles={"sigma_zz (clamping 1 / 8 MPa)": "dashed"},
+    hlines=0.0,
+    xlabel="distance from the heater centre, 90 - y [mm]",
+    ylabel="stress [MPa]",
+    right_label="T [K]",
+    title="Line x = 70 mm, mid-thickness",
+    legend="lower right",
+    ax=fig["line"],
+)
+plots.line(
+    hs,
+    {label: values / values[-1] for label, values in tracked.items()},
+    hlines=1.0,
+    markers=True,
+    xlabel="cell size at the features h [mm]",
+    ylabel="value / value on the finest mesh",
+    title="Mesh study",
+    ax=fig["study"],
+)
 plots.show()
 
 

@@ -14,5 +14,7 @@ wire, spacing, length = 0.5e-3, 5.0e-3, 1.0e-3
 for far, suffix in ((125e-3, ""), (50e-3, "_r50"), (25e-3, "_r25")):
     air = Cylinder(radius=far, length=length)
     for name, x in (("left", -spacing / 2), ("right", spacing / 2)):
-        air = air - Cylinder(radius=wire, length=length, origin=(x, 0.0, 0.0)).named(name)
+        air = air - Cylinder(radius=wire, length=length, origin=(x, 0.0, 0.0)).named(
+            name
+        )
     air.save(f"parallel_wire_line_impedance{suffix}.step")

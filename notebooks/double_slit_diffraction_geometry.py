@@ -11,10 +11,19 @@ from onesim.cad.d3 import Prism
 
 width, spacing, guide, outer = 0.05, 0.30, 0.15, 1.0
 left, right = -spacing / 2, spacing / 2
-outline = Path((-outer, 0.0), (
-    Segment((left - width / 2, 0.0), name="screen"), Segment((left - width / 2, -guide), name="guide"),
-    Segment((left + width / 2, -guide), name="inlet"), Segment((left + width / 2, 0.0), name="guide"),
-    Segment((right - width / 2, 0.0), name="screen"), Segment((right - width / 2, -guide), name="guide"),
-    Segment((right + width / 2, -guide), name="inlet"), Segment((right + width / 2, 0.0), name="guide"),
-    Segment((outer, 0.0), name="screen"), Segment((-outer, 0.0), center=(0.0, 0.0), name="outer")))
+outline = Path(
+    (-outer, 0.0),
+    (
+        Segment((left - width / 2, 0.0), name="screen"),
+        Segment((left - width / 2, -guide), name="guide"),
+        Segment((left + width / 2, -guide), name="inlet"),
+        Segment((left + width / 2, 0.0), name="guide"),
+        Segment((right - width / 2, 0.0), name="screen"),
+        Segment((right - width / 2, -guide), name="guide"),
+        Segment((right + width / 2, -guide), name="inlet"),
+        Segment((right + width / 2, 0.0), name="guide"),
+        Segment((outer, 0.0), name="screen"),
+        Segment((-outer, 0.0), center=(0.0, 0.0), name="outer"),
+    ),
+)
 Prism(profile=Profile(outline), height=0.01).save("double_slit_diffraction.step")

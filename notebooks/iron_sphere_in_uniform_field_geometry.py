@@ -12,7 +12,12 @@ iron_radius, air_radius = 0.125, 0.5
 octant = Box(length=air_radius, width=air_radius, height=air_radius).named("plane")
 air = Sphere(radius=air_radius) & octant
 faces = air.boundaries
-air = air.grouped(plane_x=faces["plane.x_min"], plane_y=faces["plane.y_min"], plane_z=faces["plane.z_min"], outer=faces.surface)
+air = air.grouped(
+    plane_x=faces["plane.x_min"],
+    plane_y=faces["plane.y_min"],
+    plane_z=faces["plane.z_min"],
+    outer=faces.surface,
+)
 air.save("iron_sphere_in_uniform_field.step")
 
 iron = Sphere(radius=iron_radius) & octant

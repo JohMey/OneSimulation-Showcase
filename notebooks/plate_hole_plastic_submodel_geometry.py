@@ -11,7 +11,19 @@ submodel x_max and y_max are the cut faces that take the displacements of the pl
 
 from onesim.cad.d3 import Box, Cylinder
 
-half_width, half_length, half_thickness, radius, detail = 0.050, 0.100, 0.005, 0.010, 0.025
-hole = lambda: Cylinder(radius=radius, length=4 * half_thickness, origin=(0.0, 0.0, -half_thickness)).named("hole")
-(Box(length=half_width, width=half_length, height=half_thickness) - hole()).save("plate_hole_plastic_submodel.step")
-(Box(length=detail, width=detail, height=half_thickness) - hole()).save("plate_hole_plastic_submodel_detail.step")
+half_width, half_length, half_thickness, radius, detail = (
+    0.050,
+    0.100,
+    0.005,
+    0.010,
+    0.025,
+)
+hole = lambda: Cylinder(
+    radius=radius, length=4 * half_thickness, origin=(0.0, 0.0, -half_thickness)
+).named("hole")
+(Box(length=half_width, width=half_length, height=half_thickness) - hole()).save(
+    "plate_hole_plastic_submodel.step"
+)
+(Box(length=detail, width=detail, height=half_thickness) - hole()).save(
+    "plate_hole_plastic_submodel_detail.step"
+)

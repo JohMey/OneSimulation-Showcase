@@ -7,7 +7,6 @@ from a STEP file, and the pressure on the sphere and around it is compared with 
 partial-wave series at ka = 1 and ka = 3.
 """
 
-
 # # Plane wave scattered by a rigid sphere
 #
 # A plane wave $p_i=p_0e^{-ikz}$ travels along $z$ and meets a rigid sphere of radius $a=0.1$ m.
@@ -37,16 +36,22 @@ partial-wave series at ka = 1 and ka = 3.
 # with spherical Bessel and Hankel functions and $\theta$ measured from the direction of incidence.
 
 import numpy as np
-from scipy.sparse.linalg import spsolve
-from scipy.special import eval_legendre, spherical_jn, spherical_yn
-
 from onesim.cad.exchange import load
 from onesim.meshing import LocalRefinement, TetrahedralMesher
 from onesim.numerics.fem import FiniteElement, Lagrange
-from onesim.physics.acoustics import (AcousticHarmonicPressure, ComplexPressurePencil, ConstantPressureForms,
-                                      PressureAdmittanceBoundary, PressureTraceSamples, SampledPressureAdmittanceForms,
-                                      SampledPressureVolumeForms, pressure_space_volume_samples)
-from onesim.visualization import theme, plots
+from onesim.physics.acoustics import (
+    AcousticHarmonicPressure,
+    ComplexPressurePencil,
+    ConstantPressureForms,
+    PressureAdmittanceBoundary,
+    PressureTraceSamples,
+    SampledPressureAdmittanceForms,
+    SampledPressureVolumeForms,
+    pressure_space_volume_samples,
+)
+from onesim.visualization import plots, theme
+from scipy.sparse.linalg import spsolve
+from scipy.special import eval_legendre, spherical_jn, spherical_yn
 
 theme.set()
 
@@ -62,18 +67,48 @@ omegas = c0 * ka / radius
 # quadratic tetrahedra follow the spheres; they are 10 mm on the scatterer and 35 mm (a sixth of
 # the wavelength at $ka=3$) far away. On the small shell a second mesh shrinks both sizes by 0.7.
 
-airs = {"R = 0.4 m": load("rigid_sphere_scattering.step"), "R = 0.7 m": load("rigid_sphere_scattering_large.step")}
+airs = {
+    "R = 0.4 m": load("rigid_sphere_scattering.step"),
+    "R = 0.7 m": load("rigid_sphere_scattering_large.step"),
+}
 cases = (("R = 0.4 m", 1.0), ("R = 0.4 m", 0.7), ("R = 0.7 m", 1.0))
-meshes = {(name, s): TetrahedralMesher(target_size=0.035 * s, geometry_order=2, refinements=(
-    LocalRefinement(region=airs[name].boundaries.scatterer, target_size=0.010 * s),)).generate(airs[name]) for name, s in cases}
+meshes = {
+    (name, s): TetrahedralMesher(
+        target_size=0.035 * s,
+        geometry_order=2,
+        refinements=(
+            LocalRefinement(
+                region=airs[name].boundaries.scatterer, target_size=0.010 * s
+            ),
+        ),
+    ).generate(airs[name])
+    for name, s in cases
+}
 air = airs["R = 0.4 m"]
 faces = air.boundaries
 
 view = plots.Camera(elevation=25, azimuth=35)
 fig = plots.figure(1, 2, size=(15, 7))
-plots.geometry(air, selection={"scatterer": faces.scatterer, "outer sphere": faces.outer, "symmetry planes": faces.symmetry_xz | faces.symmetry_yz},
-               labels=False, camera=view, title="Quarter of the air around the sphere (STEP)", ax=fig[0])
-plots.mesh(meshes[cases[0]], groups=("all",), legend=False, camera=view, title=f"{meshes[cases[0]].cell_count} curved quadratic tetrahedra", ax=fig[1])
+plots.geometry(
+    air,
+    selection={
+        "scatterer": faces.scatterer,
+        "outer sphere": faces.outer,
+        "symmetry planes": faces.symmetry_xz | faces.symmetry_yz,
+    },
+    labels=False,
+    camera=view,
+    title="Quarter of the air around the sphere (STEP)",
+    ax=fig[0],
+)
+plots.mesh(
+    meshes[cases[0]],
+    groups=("all",),
+    legend=False,
+    camera=view,
+    title=f"{meshes[cases[0]].cell_count} curved quadratic tetrahedra",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Model
@@ -84,25 +119,53 @@ plots.show()
 # incident wave. `AcousticHarmonicPressure` solves both frequencies.
 
 incident = lambda omega, points: amplitude * np.exp(-1j * omega / c0 * points[:, 2])
-incident_flux = lambda omega, points: 1j * omega / c0 * points[:, 2] / radius * incident(omega, points)
+incident_flux = (
+    lambda omega, points: 1j
+    * omega
+    / c0
+    * points[:, 2]
+    / radius
+    * incident(omega, points)
+)
 
 
 def solve_scattering(name, level):
     """Scattered pressure at the two frequencies for one outer sphere and mesh."""
     mesh, faces, outer = meshes[name, level], airs[name].boundaries, airs[name].size[0]
     space = FiniteElement(element=Lagrange(order=2)).bind_space(mesh)
-    volume = ConstantPressureForms(*SampledPressureVolumeForms(
-        size=space.dof_count, samples=lambda: pressure_space_volume_samples(space),
-        inverse_density=lambda omega, sample: 1 / rho0, compressibility=lambda omega, sample: 1 / impedance / c0)(0.0))
-    traces = {face: SampledPressureAdmittanceForms(size=space.dof_count, admittance=lambda omega, sample: 1.0, samples=lambda face=face: iter(
-        [PressureTraceSamples(space.cell_dofs[owner], points, weights, basis)
-         for owner, points, weights, _, basis, _ in map(space.trace_data, mesh.facets(getattr(faces, face)))]))(0.0)
-        for face in ("scatterer", "outer")}
-    radiation = PressureAdmittanceBoundary(lambda omega: (1 + c0 / (1j * omega * outer)) / impedance * traces["outer"])
+    volume = ConstantPressureForms(
+        *SampledPressureVolumeForms(
+            size=space.dof_count,
+            samples=lambda: pressure_space_volume_samples(space),
+            inverse_density=lambda omega, sample: 1 / rho0,
+            compressibility=lambda omega, sample: 1 / impedance / c0,
+        )(0.0)
+    )
+    traces = {
+        face: SampledPressureAdmittanceForms(
+            size=space.dof_count,
+            admittance=lambda omega, sample: 1.0,
+            samples=lambda face=face: iter(
+                [
+                    PressureTraceSamples(space.cell_dofs[owner], points, weights, basis)
+                    for owner, points, weights, _, basis, _ in map(
+                        space.trace_data, mesh.facets(getattr(faces, face))
+                    )
+                ]
+            ),
+        )(0.0)
+        for face in ("scatterer", "outer")
+    }
+    radiation = PressureAdmittanceBoundary(
+        lambda omega: (1 + c0 / (1j * omega * outer)) / impedance * traces["outer"]
+    )
     nodes = space.dof_coordinates
-    result = AcousticHarmonicPressure(operator=ComplexPressurePencil(volume, boundary=radiation), angular_frequencies=omegas,
-                                      load=lambda omega: -traces["scatterer"] @ incident_flux(omega, nodes) / rho0,
-                                      linear_solver=spsolve).run()
+    result = AcousticHarmonicPressure(
+        operator=ComplexPressurePencil(volume, boundary=radiation),
+        angular_frequencies=omegas,
+        load=lambda omega: -traces["scatterer"] @ incident_flux(omega, nodes) / rho0,
+        linear_solver=spsolve,
+    ).run()
     return dict(space=space, mesh=mesh, scattered=result.pressure, dofs=space.dof_count)
 
 
@@ -113,10 +176,20 @@ runs = {case: solve_scattering(*case) for case in cases}
 # The series, summed to $n=40$.
 
 orders = np.arange(41)
-hankel = lambda n, x, derivative=False: spherical_jn(n, x, derivative) - 1j * spherical_yn(n, x, derivative)
+hankel = lambda n, x, derivative=False: spherical_jn(
+    n, x, derivative
+) - 1j * spherical_yn(n, x, derivative)
 series = lambda value, r, theta: -amplitude * np.sum(
-    ((-1j) ** orders * (2 * orders + 1) * spherical_jn(orders, value, True) / hankel(orders, value, True))[:, None]
-    * hankel(orders[:, None], value * r / radius) * eval_legendre(orders[:, None], np.cos(theta)), axis=0)
+    (
+        (-1j) ** orders
+        * (2 * orders + 1)
+        * spherical_jn(orders, value, True)
+        / hankel(orders, value, True)
+    )[:, None]
+    * hankel(orders[:, None], value * r / radius)
+    * eval_legendre(orders[:, None], np.cos(theta)),
+    axis=0,
+)
 
 # ## Results
 #
@@ -125,7 +198,11 @@ series = lambda value, r, theta: -amplitude * np.sum(
 # against the series.
 
 theta = np.linspace(0.0, np.pi, 181)
-on_sphere = 1.002 * radius * np.column_stack((np.sin(theta), np.zeros_like(theta), np.cos(theta)))
+on_sphere = (
+    1.002
+    * radius
+    * np.column_stack((np.sin(theta), np.zeros_like(theta), np.cos(theta)))
+)
 ring = 0.3 * np.column_stack((np.sin(theta), np.zeros_like(theta), np.cos(theta)))
 surface, around = {}, {}
 for level, run in runs.items():
@@ -138,11 +215,15 @@ for value, omega in zip(ka, omegas):
     exact_surface = series(value, 1.002 * radius, theta) + incident(omega, on_sphere)
     exact_around = series(value, 0.3, theta)
     for level, run in runs.items():
-        print(f"ka = {value:.0f}, {level[0]}, mesh {level[1]} ({run['dofs']} unknowns): pressure on the sphere, largest deviation "
-              f"{np.max(np.abs(surface[level, value] - exact_surface)) / np.max(np.abs(exact_surface)):.1e} of its maximum; "
-              f"scattered pressure at r = 0.3 m, largest deviation {np.max(np.abs(around[level, value] - exact_around)) / np.max(np.abs(exact_around)):.1e}")
-    print(f"ka = {value:.0f}: |p| on the lit pole {np.abs(surface[cases[-1], value][-1]):.4f} (series {np.abs(exact_surface[-1]):.4f}), "
-          f"on the shadow pole {np.abs(surface[cases[-1], value][0]):.4f} (series {np.abs(exact_surface[0]):.4f})")
+        print(
+            f"ka = {value:.0f}, {level[0]}, mesh {level[1]} ({run['dofs']} unknowns): pressure on the sphere, largest deviation "
+            f"{np.max(np.abs(surface[level, value] - exact_surface)) / np.max(np.abs(exact_surface)):.1e} of its maximum; "
+            f"scattered pressure at r = 0.3 m, largest deviation {np.max(np.abs(around[level, value] - exact_around)) / np.max(np.abs(exact_around)):.1e}"
+        )
+    print(
+        f"ka = {value:.0f}: |p| on the lit pole {np.abs(surface[cases[-1], value][-1]):.4f} (series {np.abs(exact_surface[-1]):.4f}), "
+        f"on the shadow pole {np.abs(surface[cases[-1], value][0]):.4f} (series {np.abs(exact_surface[0]):.4f})"
+    )
 
 # ## Figure
 #
@@ -150,19 +231,55 @@ for value, omega in zip(ka, omegas):
 # pressure amplitude on the sphere and the scattered amplitude at 0.3 m against the series.
 
 fine = runs[cases[-1]]
-total = lambda position: np.abs(np.asarray(fine["space"].evaluate(fine["scattered"][1], position)) + incident(omegas[1], position))
+total = lambda position: np.abs(
+    np.asarray(fine["space"].evaluate(fine["scattered"][1], position))
+    + incident(omegas[1], position)
+)
 fig = plots.figure(layout=[["field", "sphere"], ["field", "ring"]], size=(17, 11))
-plots.trisurface(*[np.asarray(item) for item in (fine["mesh"].coordinates, fine["mesh"].facets(airs[cases[-1][0]].boundaries.symmetry_xz | airs[cases[-1][0]].boundaries.symmetry_yz | airs[cases[-1][0]].boundaries.scatterer))],
-                 total(np.asarray(fine["mesh"].coordinates)), camera=plots.Camera(elevation=20, azimuth=40), limits=(0, 2.0),
-                 label="|p| / p0", title="Total pressure at ka = 3 on the symmetry planes and the sphere", ax=fig["field"])
-plots.line(np.degrees(theta), {f"ka = {value:.0f}": np.abs(surface[cases[-1], value]) for value in ka},
-           reference={f"ka = {value:.0f}": np.abs(series(value, 1.002 * radius, theta) + incident(omega, on_sphere)) for value, omega in zip(ka, omegas)},
-           xlabel="angle from the direction of travel [deg]", ylabel="|p| / p0 on the sphere", title="Pressure on the sphere (dashed: series)",
-           legend="upper left", ax=fig["sphere"])
-plots.line(np.degrees(theta), {f"ka = {value:.0f}": np.abs(around[cases[-1], value]) for value in ka},
-           reference={f"ka = {value:.0f}": np.abs(series(value, 0.3, theta)) for value in ka},
-           xlabel="angle from the direction of travel [deg]", ylabel="|p_s| / p0 at r = 0.3 m", title="Scattered pressure (dashed: series)",
-           legend="upper center", ax=fig["ring"])
+plots.trisurface(
+    *[
+        np.asarray(item)
+        for item in (
+            fine["mesh"].coordinates,
+            fine["mesh"].facets(
+                airs[cases[-1][0]].boundaries.symmetry_xz
+                | airs[cases[-1][0]].boundaries.symmetry_yz
+                | airs[cases[-1][0]].boundaries.scatterer
+            ),
+        )
+    ],
+    total(np.asarray(fine["mesh"].coordinates)),
+    camera=plots.Camera(elevation=20, azimuth=40),
+    limits=(0, 2.0),
+    label="|p| / p0",
+    title="Total pressure at ka = 3 on the symmetry planes and the sphere",
+    ax=fig["field"],
+)
+plots.line(
+    np.degrees(theta),
+    {f"ka = {value:.0f}": np.abs(surface[cases[-1], value]) for value in ka},
+    reference={
+        f"ka = {value:.0f}": np.abs(
+            series(value, 1.002 * radius, theta) + incident(omega, on_sphere)
+        )
+        for value, omega in zip(ka, omegas)
+    },
+    xlabel="angle from the direction of travel [deg]",
+    ylabel="|p| / p0 on the sphere",
+    title="Pressure on the sphere (dashed: series)",
+    legend="upper left",
+    ax=fig["sphere"],
+)
+plots.line(
+    np.degrees(theta),
+    {f"ka = {value:.0f}": np.abs(around[cases[-1], value]) for value in ka},
+    reference={f"ka = {value:.0f}": np.abs(series(value, 0.3, theta)) for value in ka},
+    xlabel="angle from the direction of travel [deg]",
+    ylabel="|p_s| / p0 at r = 0.3 m",
+    title="Scattered pressure (dashed: series)",
+    legend="upper center",
+    ax=fig["ring"],
+)
 plots.show()
 
 # ## Going further

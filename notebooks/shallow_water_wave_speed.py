@@ -4,7 +4,6 @@ Requires the installed, activated OneSimulation runtime.
 The measured front speed is checked against the shallow-water celerity sqrt(g*h).
 """
 
-
 # # Shallow-water waves: how fast a small disturbance travels
 #
 # A shallow lake of still-water depth $h$ is disturbed by a small, smooth ridge
@@ -28,9 +27,8 @@ The measured front speed is checked against the shallow-water celerity sqrt(g*h)
 # produces one left-going and one right-going pulse.
 
 import numpy as np
-
 from onesim.physics.hydrodynamics import ShallowWater2DSolver
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -51,16 +49,21 @@ n = 200
 final_time = 0.10
 
 c_formula = np.sqrt(g * h)
-print(f"predicted celerity c = sqrt(g*h) = {c_formula:.4f} m/s,  c*t = {c_formula*final_time:.3f}")
+print(
+    f"predicted celerity c = sqrt(g*h) = {c_formula:.4f} m/s,  c*t = {c_formula*final_time:.3f}"
+)
 
 
 def initial_state(x, y):
-    depth = h + amplitude * np.exp(-((x - x0) ** 2) / (2.0 * sigma ** 2))
+    depth = h + amplitude * np.exp(-((x - x0) ** 2) / (2.0 * sigma**2))
     return depth, np.zeros_like(x), np.zeros_like(y)
 
 
 result = ShallowWater2DSolver(
-    mesh_size=n, gravity=g, final_time=final_time, cfl=0.4,
+    mesh_size=n,
+    gravity=g,
+    final_time=final_time,
+    cfl=0.4,
 ).run(initial_state)
 print(f"Integrated {result.step_count} explicit steps to t = {result.time:.4f} s")
 
@@ -96,11 +99,23 @@ print(f"relative error vs sqrt(g*h) = {100*rel_error:.2f} %")
 # ## Figure
 
 predicted = [x0 - c_formula * result.time, x0 + c_formula * result.time]
-plots.line(axis, {"computed surface deviation": delta_h * 1000.0},
-           points={"predicted x0 ± sqrt(g h) t": (predicted, np.interp(predicted, axis, delta_h * 1000.0))},
-           vlines={"measured left pulse": centroid_left, "measured right pulse": centroid_right},
-           xlabel="position x [m]", ylabel="surface deviation [mm]",
-           title=f"Shallow-water pulse: measured c = {speed_measured:.3f} m/s, sqrt(g h) = {c_formula:.3f} m/s")
+plots.line(
+    axis,
+    {"computed surface deviation": delta_h * 1000.0},
+    points={
+        "predicted x0 ± sqrt(g h) t": (
+            predicted,
+            np.interp(predicted, axis, delta_h * 1000.0),
+        )
+    },
+    vlines={
+        "measured left pulse": centroid_left,
+        "measured right pulse": centroid_right,
+    },
+    xlabel="position x [m]",
+    ylabel="surface deviation [mm]",
+    title=f"Shallow-water pulse: measured c = {speed_measured:.3f} m/s, sqrt(g h) = {c_formula:.3f} m/s",
+)
 plots.show()
 
 

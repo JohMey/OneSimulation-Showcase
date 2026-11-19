@@ -7,7 +7,6 @@ three exact results: the early growth rate, the herd-immunity threshold at the p
 and the final size of the epidemic.
 """
 
-
 # # SEIR epidemic with Erlang-distributed stages
 #
 # A population of $N$ people is divided into susceptible $S$, exposed (infected but not
@@ -46,11 +45,10 @@ and the final size of the epidemic.
 # The last two hold for any stage numbers, the first one depends on them.
 
 import numpy as np
-from scipy.optimize import brentq
-
 from onesim.numerics.time import DEFAULT_TIME_INTEGRATOR_REGISTRY
 from onesim.physics.systems import ControlSignalFlowProvider, SignalBlock
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
+from scipy.optimize import brentq
 
 theme.set()
 
@@ -72,30 +70,84 @@ print(f"β = {beta:.3f} per day, herd-immunity threshold 1 - 1/R0 = {1 - 1 / r0:
 # 300 days with a step of 0.05 days. The block `infection` evaluates $\beta S I/N$ from
 # $S$ and all infectious stages; every stage is an integrator fed by a weighted sum.
 
-runs = {name: ControlSignalFlowProvider(
-            blocks=(
-                SignalBlock("S", "integrator", inputs=("dS",), parameters={"initial_value": population - 20.0}),
-                SignalBlock("dS", "gain", inputs=("infection",), parameters={"gain": -1.0}),
-                SignalBlock("infection", "custom", inputs=("S", *(f"I{j}" for j in range(1, n + 1))),
-                            custom_evaluator=lambda s, t, p: beta * s[0] * sum(s[1:]) / population, custom_derivative=lambda *a: ()),
-                *(SignalBlock(f"E{j}", "integrator", inputs=(f"dE{j}",), parameters={"initial_value": 20.0 if j == 1 else 0.0})
-                  for j in range(1, n + 1)),
-                *(SignalBlock(f"dE{j}", "sum", inputs=("infection" if j == 1 else f"E{j - 1}", f"E{j}"),
-                              parameters={"weights": (1.0 if j == 1 else n * sigma, -n * sigma)}) for j in range(1, n + 1)),
-                *(SignalBlock(f"I{j}", "integrator", inputs=(f"dI{j}",)) for j in range(1, n + 1)),
-                *(SignalBlock(f"dI{j}", "sum", inputs=(f"E{n}" if j == 1 else f"I{j - 1}", f"I{j}"),
-                              parameters={"weights": (n * sigma if j == 1 else n * gamma, -n * gamma)}) for j in range(1, n + 1)),
-                SignalBlock("R", "integrator", inputs=("dR",)),
-                SignalBlock("dR", "gain", inputs=(f"I{n}",), parameters={"gain": n * gamma}),
+runs = {
+    name: ControlSignalFlowProvider(
+        blocks=(
+            SignalBlock(
+                "S",
+                "integrator",
+                inputs=("dS",),
+                parameters={"initial_value": population - 20.0},
             ),
-            final_time=300.0, time_step=0.05,
-            time_integrator=DEFAULT_TIME_INTEGRATOR_REGISTRY.resolve_id("classical_rk4")).execute()
-        for name, n in stages.items()}
+            SignalBlock("dS", "gain", inputs=("infection",), parameters={"gain": -1.0}),
+            SignalBlock(
+                "infection",
+                "custom",
+                inputs=("S", *(f"I{j}" for j in range(1, n + 1))),
+                custom_evaluator=lambda s, t, p: beta * s[0] * sum(s[1:]) / population,
+                custom_derivative=lambda *a: (),
+            ),
+            *(
+                SignalBlock(
+                    f"E{j}",
+                    "integrator",
+                    inputs=(f"dE{j}",),
+                    parameters={"initial_value": 20.0 if j == 1 else 0.0},
+                )
+                for j in range(1, n + 1)
+            ),
+            *(
+                SignalBlock(
+                    f"dE{j}",
+                    "sum",
+                    inputs=("infection" if j == 1 else f"E{j - 1}", f"E{j}"),
+                    parameters={"weights": (1.0 if j == 1 else n * sigma, -n * sigma)},
+                )
+                for j in range(1, n + 1)
+            ),
+            *(
+                SignalBlock(f"I{j}", "integrator", inputs=(f"dI{j}",))
+                for j in range(1, n + 1)
+            ),
+            *(
+                SignalBlock(
+                    f"dI{j}",
+                    "sum",
+                    inputs=(f"E{n}" if j == 1 else f"I{j - 1}", f"I{j}"),
+                    parameters={
+                        "weights": (n * sigma if j == 1 else n * gamma, -n * gamma)
+                    },
+                )
+                for j in range(1, n + 1)
+            ),
+            SignalBlock("R", "integrator", inputs=("dR",)),
+            SignalBlock(
+                "dR", "gain", inputs=(f"I{n}",), parameters={"gain": n * gamma}
+            ),
+        ),
+        final_time=300.0,
+        time_step=0.05,
+        time_integrator=DEFAULT_TIME_INTEGRATOR_REGISTRY.resolve_id("classical_rk4"),
+    ).execute()
+    for name, n in stages.items()
+}
 days = np.asarray(next(iter(runs.values())).times)
-groups = {name: {c: sum(np.asarray(run.signals[f"{c}{j}"]) for j in range(1, stages[name] + 1)) for c in "EI"}
-          | {c: np.asarray(run.signals[c]) for c in "SR"} for name, run in runs.items()}
-load = {name: groups[name]["E"] + sum((n - j + 1) / n * np.asarray(runs[name].signals[f"I{j}"]) for j in range(1, n + 1))
-        for name, n in stages.items()}
+groups = {
+    name: {
+        c: sum(np.asarray(run.signals[f"{c}{j}"]) for j in range(1, stages[name] + 1))
+        for c in "EI"
+    }
+    | {c: np.asarray(run.signals[c]) for c in "SR"}
+    for name, run in runs.items()
+}
+load = {
+    name: groups[name]["E"]
+    + sum(
+        (n - j + 1) / n * np.asarray(runs[name].signals[f"I{j}"])
+        for j in range(1, n + 1)
+    )
+    for name, n in stages.items()
+}
 
 # ## Comparison with the exact results
 #
@@ -104,19 +156,34 @@ load = {name: groups[name]["E"] + sum((n - j + 1) / n * np.asarray(runs[name].si
 # the threshold is $S/N$ at the maximum of the load $L$; the final size is the removed
 # fraction after 300 days.
 
-growth = lambda n: brentq(lambda r: r / gamma * (1 + r / (n * sigma)) ** n / (1 - (1 + r / (n * gamma)) ** -n) - r0, 1e-6, 2.0)
-final = brentq(lambda s: np.log((population - 20.0) / s) - r0 * (population - s) / population, 1.0, population / r0)
-print("model                      growth rate [1/day]       doubling  S/N at peak of L     peak day   final size")
+growth = lambda n: brentq(
+    lambda r: r / gamma * (1 + r / (n * sigma)) ** n / (1 - (1 + r / (n * gamma)) ** -n)
+    - r0,
+    1e-6,
+    2.0,
+)
+final = brentq(
+    lambda s: np.log((population - 20.0) / s) - r0 * (population - s) / population,
+    1.0,
+    population / r0,
+)
+print(
+    "model                      growth rate [1/day]       doubling  S/N at peak of L     peak day   final size"
+)
 for name, g in groups.items():
     infected = g["E"] + g["I"]
     peak = np.argmax(load[name])
     early = (days > 14.0) & (days < days[peak]) & (infected < 1e-3 * population)
     rate = np.polyfit(days[early], np.log(infected[early]), 1)[0]
-    print(f"{name:24s} {rate:7.4f} (exact {growth(stages[name]):.4f}) {np.log(2) / rate:7.2f} d "
-          f"{g['S'][peak] / population:9.4f} (1/R0 {1 / r0:.4f}) {days[peak]:8.1f} "
-          f"{g['R'][-1] / population:9.4f} (exact {1 - final / population:.4f})")
-print(f"population conserved: largest |S + E + I + R - N| = "
-      f"{max(np.abs(sum(g.values()) - population).max() for g in groups.values()):.1e}")
+    print(
+        f"{name:24s} {rate:7.4f} (exact {growth(stages[name]):.4f}) {np.log(2) / rate:7.2f} d "
+        f"{g['S'][peak] / population:9.4f} (1/R0 {1 / r0:.4f}) {days[peak]:8.1f} "
+        f"{g['R'][-1] / population:9.4f} (exact {1 - final / population:.4f})"
+    )
+print(
+    f"population conserved: largest |S + E + I + R - N| = "
+    f"{max(np.abs(sum(g.values()) - population).max() for g in groups.values()):.1e}"
+)
 
 # ## Figure
 #
@@ -125,18 +192,57 @@ print(f"population conserved: largest |S + E + I + R - N| = "
 # against the exact growth rates.
 
 fig = plots.figure(1, 3, size=(17, 5))
-plots.line(days, {f"{c}, {'k = m = 1' if n == 1 else 'k = m = 3'}": groups[name][c] / population for name, n in stages.items() for c in "SEIR"},
-           styles={f"{c}, k = m = 1": "dashdot" for c in "SEIR"}, colors={f"{c}, {lab}": i for c, i in zip("SEIR", (0, 5, 3, 6)) for lab in ("k = m = 1", "k = m = 3")},
-           xlimits=(0.0, 250.0), xlabel="time [days]", ylabel="fraction of the population", title="Compartments (dash-dot: k = m = 1)",
-           legend="center right", ax=fig[0])
-plots.line(days, {name: value / population for name, value in load.items()},
-           vlines={f"S/N = 1/R0 ({name.split()[0]})": days[np.argmax(g["S"] < population / r0)] for name, g in groups.items()},
-           xlimits=(0.0, 200.0), xlabel="time [days]", ylabel="infection load L / N", title="Peak at the herd-immunity threshold",
-           legend="upper right", ax=fig[1])
-plots.line(days, {name: g["E"] + g["I"] for name, g in groups.items()},
-           reference={name: (groups[name]["E"] + groups[name]["I"])[600] * np.exp(growth(n) * (days - days[600])) for name, n in stages.items()},
-           scale="logy", xlimits=(0.0, 100.0), ylimits=(5.0, 2e6), xlabel="time [days]", ylabel="infected people E + I",
-           title="Early growth (dashed: exact rate)", legend="lower right", ax=fig[2])
+plots.line(
+    days,
+    {
+        f"{c}, {'k = m = 1' if n == 1 else 'k = m = 3'}": groups[name][c] / population
+        for name, n in stages.items()
+        for c in "SEIR"
+    },
+    styles={f"{c}, k = m = 1": "dashdot" for c in "SEIR"},
+    colors={
+        f"{c}, {lab}": i
+        for c, i in zip("SEIR", (0, 5, 3, 6))
+        for lab in ("k = m = 1", "k = m = 3")
+    },
+    xlimits=(0.0, 250.0),
+    xlabel="time [days]",
+    ylabel="fraction of the population",
+    title="Compartments (dash-dot: k = m = 1)",
+    legend="center right",
+    ax=fig[0],
+)
+plots.line(
+    days,
+    {name: value / population for name, value in load.items()},
+    vlines={
+        f"S/N = 1/R0 ({name.split()[0]})": days[np.argmax(g["S"] < population / r0)]
+        for name, g in groups.items()
+    },
+    xlimits=(0.0, 200.0),
+    xlabel="time [days]",
+    ylabel="infection load L / N",
+    title="Peak at the herd-immunity threshold",
+    legend="upper right",
+    ax=fig[1],
+)
+plots.line(
+    days,
+    {name: g["E"] + g["I"] for name, g in groups.items()},
+    reference={
+        name: (groups[name]["E"] + groups[name]["I"])[600]
+        * np.exp(growth(n) * (days - days[600]))
+        for name, n in stages.items()
+    },
+    scale="logy",
+    xlimits=(0.0, 100.0),
+    ylimits=(5.0, 2e6),
+    xlabel="time [days]",
+    ylabel="infected people E + I",
+    title="Early growth (dashed: exact rate)",
+    legend="lower right",
+    ax=fig[2],
+)
 plots.show()
 
 # ## Going further

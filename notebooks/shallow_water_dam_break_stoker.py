@@ -7,7 +7,6 @@ of Stoker (wet bed) and Ritter (dry bed) on four grids, and a lake at rest aroun
 the exact still water.
 """
 
-
 # # Shallow-water equations: dam breaks and a lake at rest
 #
 # Where water is shallow compared with the length of its waves, the pressure is hydrostatic and
@@ -38,17 +37,23 @@ the exact still water.
 # for the hydrostatic reconstruction that keeps the lake at rest.
 
 import numpy as np
-from scipy.optimize import brentq
-
 from onesim.cad.d1 import Line
 from onesim.meshing import StructuredLineMesher
 from onesim.numerics import Numerics
-from onesim.numerics.fvm import ConvexInvariantDomain, FiniteVolume, HydrostaticReconstruction, MinmodLimiter, MUSCL, Rusanov
+from onesim.numerics.fvm import (
+    MUSCL,
+    ConvexInvariantDomain,
+    FiniteVolume,
+    HydrostaticReconstruction,
+    MinmodLimiter,
+    Rusanov,
+)
 from onesim.numerics.time import TimeMethod, TimeStepLimits
 from onesim.physics.hydrodynamics import TopographicShallowWater
 from onesim.simulation import Problem, ReflectingWall, Simulation
 from onesim.simulation.initial_conditions import InitialValue
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
+from scipy.optimize import brentq
 
 theme.set()
 
@@ -64,12 +69,24 @@ g, gate, deep, end = 9.81, 5.0, 1.0, 0.6
 def dam_break(x, t, shallow):
     """Exact depth of the dam break at time t (Stoker; Ritter for a dry bed)."""
     c0 = np.sqrt(g * deep)
-    middle = brentq(lambda h: 2 * (c0 - np.sqrt(g * h)) - (h - shallow) * np.sqrt(g * (h + shallow) / (2 * h * shallow)),
-                    shallow, deep) if shallow > 0 else 0.0
+    middle = (
+        brentq(
+            lambda h: 2 * (c0 - np.sqrt(g * h))
+            - (h - shallow) * np.sqrt(g * (h + shallow) / (2 * h * shallow)),
+            shallow,
+            deep,
+        )
+        if shallow > 0
+        else 0.0
+    )
     speed = 2 * (c0 - np.sqrt(g * middle))
     front = middle * speed / (middle - shallow) if shallow > 0 else speed
     xi = (x - gate) / t
-    return np.select([xi < -c0, xi < speed - np.sqrt(g * middle), xi < front], [deep, (2 * c0 - xi) ** 2 / (9 * g), middle], shallow)
+    return np.select(
+        [xi < -c0, xi < speed - np.sqrt(g * middle), xi < front],
+        [deep, (2 * c0 - xi) ** 2 / (9 * g), middle],
+        shallow,
+    )
 
 
 # ## Model
@@ -81,21 +98,58 @@ def dam_break(x, t, shallow):
 
 channel = Line(start=(0, 0, 0), end=(10, 0, 0))
 model = TopographicShallowWater(domain=channel.line, bed_elevation=0.0)
-released = {0.1: lambda x: np.where(x < gate, deep, 0.1), 0.0: lambda x: np.where(x < gate, deep, 0.0)}
-problems = {shallow: Problem(name="Dam break", geometry=channel, physics=(model,),
-                             boundary_conditions=(ReflectingWall(physics=model, boundary=channel.boundaries.all),),
-                             initial_conditions=(InitialValue(model.depth, initial), InitialValue(model.discharge, 0.0)))
-            for shallow, initial in released.items()}
-schemes = {"first order": FiniteVolume(convection=Rusanov(), provider=HydrostaticReconstruction(), positivity=ConvexInvariantDomain(),
-                                       cell_quadrature_order=4),
-           "MUSCL, minmod": FiniteVolume(convection=Rusanov(), provider=HydrostaticReconstruction(), reconstruction=MUSCL(),
-                                         limiter=MinmodLimiter(), positivity=ConvexInvariantDomain(), cell_quadrature_order=4)}
+released = {
+    0.1: lambda x: np.where(x < gate, deep, 0.1),
+    0.0: lambda x: np.where(x < gate, deep, 0.0),
+}
+problems = {
+    shallow: Problem(
+        name="Dam break",
+        geometry=channel,
+        physics=(model,),
+        boundary_conditions=(
+            ReflectingWall(physics=model, boundary=channel.boundaries.all),
+        ),
+        initial_conditions=(
+            InitialValue(model.depth, initial),
+            InitialValue(model.discharge, 0.0),
+        ),
+    )
+    for shallow, initial in released.items()
+}
+schemes = {
+    "first order": FiniteVolume(
+        convection=Rusanov(),
+        provider=HydrostaticReconstruction(),
+        positivity=ConvexInvariantDomain(),
+        cell_quadrature_order=4,
+    ),
+    "MUSCL, minmod": FiniteVolume(
+        convection=Rusanov(),
+        provider=HydrostaticReconstruction(),
+        reconstruction=MUSCL(),
+        limiter=MinmodLimiter(),
+        positivity=ConvexInvariantDomain(),
+        cell_quadrature_order=4,
+    ),
+}
 grids = (100, 200, 400)
-depths = {(shallow, scheme, cells): Simulation(problem=problems[shallow], mesh=StructuredLineMesher(cells=cells).generate(channel),
-                                               numerics=Numerics(spatial=spatial, time_integrator=TimeMethod("ssprk2"),
-                                                                 step_limits=TimeStepLimits(stability_safety_factor=0.8)))
-          .run(start_time=0.0, end_time=end, time_step=0.05).field(model.depth)
-          for shallow in problems for scheme, spatial in schemes.items() for cells in grids}
+depths = {
+    (shallow, scheme, cells): Simulation(
+        problem=problems[shallow],
+        mesh=StructuredLineMesher(cells=cells).generate(channel),
+        numerics=Numerics(
+            spatial=spatial,
+            time_integrator=TimeMethod("ssprk2"),
+            step_limits=TimeStepLimits(stability_safety_factor=0.8),
+        ),
+    )
+    .run(start_time=0.0, end_time=end, time_step=0.05)
+    .field(model.depth)
+    for shallow in problems
+    for scheme, spatial in schemes.items()
+    for cells in grids
+}
 
 # ## Results
 #
@@ -104,15 +158,31 @@ depths = {(shallow, scheme, cells): Simulation(problem=problems[shallow], mesh=S
 
 x = np.linspace(0.005, 9.995, 2000)
 points = np.column_stack((x, 0 * x, 0 * x))
-errors = {key: np.mean(np.abs(np.ravel(depth.evaluate(points)) - dam_break(x, end, key[0]))) for key, depth in depths.items()}
-for shallow, label in ((0.1, "wet bed, h1 = 0.1 m (Stoker)"), (0.0, "dry bed (Ritter)")):
+errors = {
+    key: np.mean(np.abs(np.ravel(depth.evaluate(points)) - dam_break(x, end, key[0])))
+    for key, depth in depths.items()
+}
+for shallow, label in (
+    (0.1, "wet bed, h1 = 0.1 m (Stoker)"),
+    (0.0, "dry bed (Ritter)"),
+):
     print(label)
-    print("  cells    first order    MUSCL      observed order (MUSCL)   volume change (MUSCL)")
+    print(
+        "  cells    first order    MUSCL      observed order (MUSCL)   volume change (MUSCL)"
+    )
     for index, cells in enumerate(grids):
         second = errors[(shallow, "MUSCL, minmod", cells)]
-        order = np.log2(errors[(shallow, "MUSCL, minmod", grids[index - 1])] / second) if index else np.nan
-        volume = depths[(shallow, "MUSCL, minmod", cells)].integrate().value - 5 * (deep + shallow)
-        print(f"  {cells:5d} {errors[(shallow, 'first order', cells)]:13.2e} {second:10.2e} {order:16.2f} {volume:22.1e} m³")
+        order = (
+            np.log2(errors[(shallow, "MUSCL, minmod", grids[index - 1])] / second)
+            if index
+            else np.nan
+        )
+        volume = depths[(shallow, "MUSCL, minmod", cells)].integrate().value - 5 * (
+            deep + shallow
+        )
+        print(
+            f"  {cells:5d} {errors[(shallow, 'first order', cells)]:13.2e} {second:10.2e} {order:16.2f} {volume:22.1e} m³"
+        )
 
 # ## Lake at rest around an island
 #
@@ -120,21 +190,36 @@ for shallow, label in ((0.1, "wet bed, h1 = 0.1 m (Stoker)"), (0.0, "dry bed (Ri
 # lasts two seconds; the exact solution is the initial state, so depth and discharge must not
 # change.
 
-hill = lambda x: 0.8 * np.exp(-((x - 5.0) / 1.2) ** 2)
+hill = lambda x: 0.8 * np.exp(-(((x - 5.0) / 1.2) ** 2))
 lake = TopographicShallowWater(domain=channel.line, bed_elevation=hill)
-still = Simulation(problem=Problem(name="Lake at rest", geometry=channel, physics=(lake,),
-                                   boundary_conditions=(ReflectingWall(physics=lake, boundary=channel.boundaries.all),),
-                                   initial_conditions=(InitialValue(lake.depth, lambda x: np.maximum(0.6 - hill(x), 0.0)),
-                                                       InitialValue(lake.discharge, 0.0))),
-                   mesh=StructuredLineMesher(cells=200).generate(channel),
-                   numerics=Numerics(spatial=schemes["MUSCL, minmod"], time_integrator=TimeMethod("ssprk2"),
-                                     step_limits=TimeStepLimits(stability_safety_factor=0.8))).run(start_time=0.0, end_time=2.0, time_step=0.1)
+still = Simulation(
+    problem=Problem(
+        name="Lake at rest",
+        geometry=channel,
+        physics=(lake,),
+        boundary_conditions=(
+            ReflectingWall(physics=lake, boundary=channel.boundaries.all),
+        ),
+        initial_conditions=(
+            InitialValue(lake.depth, lambda x: np.maximum(0.6 - hill(x), 0.0)),
+            InitialValue(lake.discharge, 0.0),
+        ),
+    ),
+    mesh=StructuredLineMesher(cells=200).generate(channel),
+    numerics=Numerics(
+        spatial=schemes["MUSCL, minmod"],
+        time_integrator=TimeMethod("ssprk2"),
+        step_limits=TimeStepLimits(stability_safety_factor=0.8),
+    ),
+).run(start_time=0.0, end_time=2.0, time_step=0.1)
 lake_depth = still.field(lake.depth)
 level = np.ravel(still.field(lake.free_surface).evaluate(points))
 wet = np.ravel(lake_depth.evaluate(points)) > 0
-print(f"\nlake at rest after 2 s: largest change of the depth {np.abs(lake_depth.values - lake_depth.at(0.0).values).max():.1e} m, "
-      f"largest discharge {np.abs(still.field(lake.discharge).values).max():.1e} m²/s, "
-      f"dry cells {np.count_nonzero(lake_depth.values == 0)} (island)")
+print(
+    f"\nlake at rest after 2 s: largest change of the depth {np.abs(lake_depth.values - lake_depth.at(0.0).values).max():.1e} m, "
+    f"largest discharge {np.abs(still.field(lake.discharge).values).max():.1e} m²/s, "
+    f"dry cells {np.count_nonzero(lake_depth.values == 0)} (island)"
+)
 
 # ## Figure
 #
@@ -142,16 +227,53 @@ print(f"\nlake at rest after 2 s: largest change of the depth {np.abs(lake_depth
 # the grid study, and the lake at rest.
 
 fig = plots.figure(2, 2, size=(15, 10))
-for panel, shallow, title in ((fig[0], 0.1, "Wet bed: rarefaction and bore"), (fig[1], 0.0, "Dry bed: rarefaction and front")):
-    plots.line(x, {scheme: np.ravel(depths[(shallow, scheme, 200)].evaluate(points)) for scheme in schemes},
-               reference={"exact (Stoker)" if shallow else "exact (Ritter)": dam_break(x, end, shallow)},
-               xlabel="x [m]", ylabel="depth h [m]", ylimits=(-0.02, 1.05), title=f"{title}, t = {end} s, 200 cells", ax=panel)
-plots.convergence([10 / cells for cells in grids], {f"{scheme}, {'wet' if shallow else 'dry'} bed": [errors[(shallow, scheme, cells)] for cells in grids]
-                                                    for shallow in problems for scheme in schemes},
-                  order=1, xlabel="cell width [m]", ylabel="mean depth error [m]", title="Grid study", ax=fig[2])
-plots.line(x, {"water surface after 2 s": np.where(wet, level, np.nan), "bed": hill(x)}, hlines={"initial surface": 0.6},
-           xlabel="x [m]", ylabel="elevation [m]", ylimits=(0.0, 1.0), title="Lake at rest around an island", legend="upper right",
-           ax=fig[3])
+for panel, shallow, title in (
+    (fig[0], 0.1, "Wet bed: rarefaction and bore"),
+    (fig[1], 0.0, "Dry bed: rarefaction and front"),
+):
+    plots.line(
+        x,
+        {
+            scheme: np.ravel(depths[(shallow, scheme, 200)].evaluate(points))
+            for scheme in schemes
+        },
+        reference={
+            "exact (Stoker)" if shallow else "exact (Ritter)": dam_break(
+                x, end, shallow
+            )
+        },
+        xlabel="x [m]",
+        ylabel="depth h [m]",
+        ylimits=(-0.02, 1.05),
+        title=f"{title}, t = {end} s, 200 cells",
+        ax=panel,
+    )
+plots.convergence(
+    [10 / cells for cells in grids],
+    {
+        f"{scheme}, {'wet' if shallow else 'dry'} bed": [
+            errors[(shallow, scheme, cells)] for cells in grids
+        ]
+        for shallow in problems
+        for scheme in schemes
+    },
+    order=1,
+    xlabel="cell width [m]",
+    ylabel="mean depth error [m]",
+    title="Grid study",
+    ax=fig[2],
+)
+plots.line(
+    x,
+    {"water surface after 2 s": np.where(wet, level, np.nan), "bed": hill(x)},
+    hlines={"initial surface": 0.6},
+    xlabel="x [m]",
+    ylabel="elevation [m]",
+    ylimits=(0.0, 1.0),
+    title="Lake at rest around an island",
+    legend="upper right",
+    ax=fig[3],
+)
 plots.show()
 
 # ## Going further

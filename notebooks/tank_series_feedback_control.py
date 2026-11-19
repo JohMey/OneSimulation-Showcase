@@ -7,7 +7,6 @@ closed-loop step response and the classical stability limit of three lags; a Zie
 controller then removes the offset.
 """
 
-
 # # Tank series with feedback control
 #
 # Three equal, perfectly mixed tanks of volume $V$ are connected in series with the flow $q$. In
@@ -37,10 +36,13 @@ controller then removes the offset.
 # numbers: $K_p = 0.45\,K_u$, $T_i = P_u/1.2$.
 
 import numpy as np
+from onesim.physics.systems import (
+    ControlSignalFlowConfiguration,
+    ControlSignalFlowPublicApi,
+    SignalBlock,
+)
+from onesim.visualization import plots, theme
 from scipy import signal
-
-from onesim.physics.systems import ControlSignalFlowConfiguration, ControlSignalFlowPublicApi, SignalBlock
-from onesim.visualization import theme, plots
 
 theme.set()
 
@@ -53,7 +55,9 @@ theme.set()
 volume, flow, rate, setpoint = 2.0, 0.01, 0.005, 1.0
 tau, G = volume / (flow + rate * volume), flow / (flow + rate * volume)
 ultimate_gain, ultimate_period = 8 / G**3, 2 * np.pi * tau / np.sqrt(3)
-print(f"tank time constant {tau:.1f} s, tank gain {G:.3f}; ultimate gain {ultimate_gain:.1f}, ultimate period {ultimate_period:.1f} s")
+print(
+    f"tank time constant {tau:.1f} s, tank gain {G:.3f}; ultimate gain {ultimate_gain:.1f}, ultimate period {ultimate_period:.1f} s"
+)
 
 
 # ## Proportional control
@@ -62,31 +66,74 @@ print(f"tank time constant {tau:.1f} s, tank gain {G:.3f}; ultimate gain {ultima
 # is 1 mol/m³. Four controller gains between a quarter of
 # the ultimate gain and 10 % above it; the inlet concentration is not limited in these runs.
 
-plant = (SignalBlock("dose", "gain", inputs=("controller",), parameters={"gain": G}),
-         SignalBlock("tank1", "first_order", inputs=("dose",), parameters={"time_constant": tau}),
-         SignalBlock("into2", "gain", inputs=("tank1",), parameters={"gain": G}),
-         SignalBlock("tank2", "first_order", inputs=("into2",), parameters={"time_constant": tau}),
-         SignalBlock("into3", "gain", inputs=("tank2",), parameters={"gain": G}),
-         SignalBlock("tank3", "first_order", inputs=("into3",), parameters={"time_constant": tau}),
-         SignalBlock("error", "sum", inputs=("setpoint", "tank3"), parameters={"weights": (1.0, -1.0)}))
+plant = (
+    SignalBlock("dose", "gain", inputs=("controller",), parameters={"gain": G}),
+    SignalBlock(
+        "tank1", "first_order", inputs=("dose",), parameters={"time_constant": tau}
+    ),
+    SignalBlock("into2", "gain", inputs=("tank1",), parameters={"gain": G}),
+    SignalBlock(
+        "tank2", "first_order", inputs=("into2",), parameters={"time_constant": tau}
+    ),
+    SignalBlock("into3", "gain", inputs=("tank2",), parameters={"gain": G}),
+    SignalBlock(
+        "tank3", "first_order", inputs=("into3",), parameters={"time_constant": tau}
+    ),
+    SignalBlock(
+        "error",
+        "sum",
+        inputs=("setpoint", "tank3"),
+        parameters={"weights": (1.0, -1.0)},
+    ),
+)
 fractions = (0.25, 0.5, 0.95, 1.05)
-loop = lambda K: signal.lti([K * G**3], np.polyadd(np.polymul(np.polymul([tau, 1], [tau, 1]), [tau, 1]), [K * G**3]))
-proportional = {f: ControlSignalFlowPublicApi().run(ControlSignalFlowConfiguration(parameters=dict(
-    blocks=plant + (SignalBlock("setpoint", "constant", parameters={"value": setpoint}),
-                      SignalBlock("controller", "pid", inputs=("error",), parameters={"proportional_gain": f * ultimate_gain})),
-    final_time=4000.0, time_step=1.0))) for f in fractions}
+loop = lambda K: signal.lti(
+    [K * G**3],
+    np.polyadd(np.polymul(np.polymul([tau, 1], [tau, 1]), [tau, 1]), [K * G**3]),
+)
+proportional = {
+    f: ControlSignalFlowPublicApi().run(
+        ControlSignalFlowConfiguration(
+            parameters=dict(
+                blocks=plant
+                + (
+                    SignalBlock("setpoint", "constant", parameters={"value": setpoint}),
+                    SignalBlock(
+                        "controller",
+                        "pid",
+                        inputs=("error",),
+                        parameters={"proportional_gain": f * ultimate_gain},
+                    ),
+                ),
+                final_time=4000.0,
+                time_step=1.0,
+            )
+        )
+    )
+    for f in fractions
+}
 
 for f, run in proportional.items():
     K = f * ultimate_gain
     exact = setpoint * signal.step(loop(K), T=run.times)[1]
     outlet = np.asarray(run.signals["tank3"])
-    print(f"Kp = {f:4.2f} Ku: largest deviation from the exact step response {np.max(np.abs(outlet - exact)):.1e} mol/m^3"
-          + (f", offset {setpoint - outlet[-1]:.5f} (exact {setpoint / (1 + K * G**3):.5f})" if f < 0.9 else ""))
+    print(
+        f"Kp = {f:4.2f} Ku: largest deviation from the exact step response {np.max(np.abs(outlet - exact)):.1e} mol/m^3"
+        + (
+            f", offset {setpoint - outlet[-1]:.5f} (exact {setpoint / (1 + K * G**3):.5f})"
+            if f < 0.9
+            else ""
+        )
+    )
 for f in (0.95, 1.05):
-    times, outlet = np.asarray(proportional[f].times), np.asarray(proportional[f].signals["tank3"])
+    times, outlet = np.asarray(proportional[f].times), np.asarray(
+        proportional[f].signals["tank3"]
+    )
     peaks = times[1:-1][(outlet[1:-1] > outlet[:-2]) & (outlet[1:-1] > outlet[2:])]
-    print(f"Kp = {f:4.2f} Ku: oscillation period {np.diff(peaks).mean():.1f} s, from the closed-loop poles {2 * np.pi / loop(f * ultimate_gain).poles.imag.max():.1f} s "
-          f"(ultimate period {ultimate_period:.1f} s)")
+    print(
+        f"Kp = {f:4.2f} Ku: oscillation period {np.diff(peaks).mean():.1f} s, from the closed-loop poles {2 * np.pi / loop(f * ultimate_gain).poles.imag.max():.1f} s "
+        f"(ultimate period {ultimate_period:.1f} s)"
+    )
 
 
 # ## Ziegler-Nichols PI control
@@ -96,15 +143,41 @@ for f in (0.95, 1.05):
 # raised to 1.5 mol/m³. The tuning aims at a quarter decay ratio, so the response rings before it settles.
 
 Kp, Ti = 0.45 * ultimate_gain, ultimate_period / 1.2
-pi_run = ControlSignalFlowPublicApi().run(ControlSignalFlowConfiguration(parameters=dict(
-    blocks=plant + (SignalBlock("setpoint", "source", source=lambda t: setpoint if t < 4000 else 1.5 * setpoint),
-                      SignalBlock("controller", "pid", inputs=("error",),
-                                  parameters={"proportional_gain": Kp, "integral_gain": Kp / Ti, "lower": 0.0, "upper": 20.0,
-                                              "anti_windup": "back_calculation", "tracking_time": Ti})),
-    final_time=8000.0, time_step=1.0, event_times=(4000.0,))))
+pi_run = ControlSignalFlowPublicApi().run(
+    ControlSignalFlowConfiguration(
+        parameters=dict(
+            blocks=plant
+            + (
+                SignalBlock(
+                    "setpoint",
+                    "source",
+                    source=lambda t: setpoint if t < 4000 else 1.5 * setpoint,
+                ),
+                SignalBlock(
+                    "controller",
+                    "pid",
+                    inputs=("error",),
+                    parameters={
+                        "proportional_gain": Kp,
+                        "integral_gain": Kp / Ti,
+                        "lower": 0.0,
+                        "upper": 20.0,
+                        "anti_windup": "back_calculation",
+                        "tracking_time": Ti,
+                    },
+                ),
+            ),
+            final_time=8000.0,
+            time_step=1.0,
+            event_times=(4000.0,),
+        )
+    )
+)
 pi_times, pi_outlet = np.asarray(pi_run.times), np.asarray(pi_run.signals["tank3"])
-print(f"PI controller Kp = {Kp:.2f}, Ti = {Ti:.1f} s: outlet at 4000 s {pi_outlet[pi_times <= 4000][-1]:.5f}, at 8000 s {pi_outlet[-1]:.5f} "
-      f"(set points 1.0 and 1.5); highest inlet concentration {np.max(pi_run.signals['controller']):.2f} mol/m^3")
+print(
+    f"PI controller Kp = {Kp:.2f}, Ti = {Ti:.1f} s: outlet at 4000 s {pi_outlet[pi_times <= 4000][-1]:.5f}, at 8000 s {pi_outlet[-1]:.5f} "
+    f"(set points 1.0 and 1.5); highest inlet concentration {np.max(pi_run.signals['controller']):.2f} mol/m^3"
+)
 
 
 # ## Figure
@@ -114,16 +187,48 @@ print(f"PI controller Kp = {Kp:.2f}, Ti = {Ti:.1f} s: outlet at 4000 s {pi_outle
 # the PI controller sets.
 
 fig = plots.figure(1, 3, size=(18, 5))
-plots.line(points={f"Kp = {f} Ku": (np.asarray(run.times)[::40], np.asarray(run.signals["tank3"])[::40]) for f, run in proportional.items() if f != 0.95},
-           reference={f"Kp = {f} Ku": (run.times, setpoint * signal.step(loop(f * ultimate_gain), T=run.times)[1])
-                      for f, run in proportional.items() if f != 0.95},
-           hlines={"set point": setpoint}, xlimits=(0, 3000), ylimits=(-0.3, 2.3), xlabel="time [s]", ylabel="outlet concentration c3 [mol/m3]",
-           title="Proportional control, dashed: exact", legend="upper left", ax=fig[0])
-plots.line(y={"outlet c3": (pi_times, pi_run.signals["tank3"])},
-           hlines={"set point": 1.0, "new set point": 1.5}, xlabel="time [s]", ylabel="concentration [mol/m3]",
-           title="Ziegler-Nichols PI control", legend="lower right", ax=fig[1])
-plots.line(y={"inlet concentration c0": (pi_times, pi_run.signals["controller"])}, xlabel="time [s]",
-           ylabel="inlet concentration [mol/m3]", title="Controller output (limited to 20 mol/m3)", ax=fig[2])
+plots.line(
+    points={
+        f"Kp = {f} Ku": (
+            np.asarray(run.times)[::40],
+            np.asarray(run.signals["tank3"])[::40],
+        )
+        for f, run in proportional.items()
+        if f != 0.95
+    },
+    reference={
+        f"Kp = {f} Ku": (
+            run.times,
+            setpoint * signal.step(loop(f * ultimate_gain), T=run.times)[1],
+        )
+        for f, run in proportional.items()
+        if f != 0.95
+    },
+    hlines={"set point": setpoint},
+    xlimits=(0, 3000),
+    ylimits=(-0.3, 2.3),
+    xlabel="time [s]",
+    ylabel="outlet concentration c3 [mol/m3]",
+    title="Proportional control, dashed: exact",
+    legend="upper left",
+    ax=fig[0],
+)
+plots.line(
+    y={"outlet c3": (pi_times, pi_run.signals["tank3"])},
+    hlines={"set point": 1.0, "new set point": 1.5},
+    xlabel="time [s]",
+    ylabel="concentration [mol/m3]",
+    title="Ziegler-Nichols PI control",
+    legend="lower right",
+    ax=fig[1],
+)
+plots.line(
+    y={"inlet concentration c0": (pi_times, pi_run.signals["controller"])},
+    xlabel="time [s]",
+    ylabel="inlet concentration [mol/m3]",
+    title="Controller output (limited to 20 mol/m3)",
+    ax=fig[2],
+)
 plots.show()
 
 

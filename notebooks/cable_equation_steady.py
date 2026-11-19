@@ -5,7 +5,6 @@ The OneSimulation solution is checked against the known closed-form steady-state
 solution of the linear cable equation.
 """
 
-
 # # Electrotonic decay along a passive cable
 #
 # A long, thin passive nerve fibre (a "cable") is held at a fixed membrane
@@ -38,7 +37,6 @@ solution of the linear cable equation.
 # space constant $\lambda$ from a fit of the numerical solution.
 
 import numpy as np
-
 from onesim.cad.d1 import Line
 from onesim.meshing import StructuredLineMesher
 from onesim.physics.biophysics import (
@@ -48,8 +46,7 @@ from onesim.physics.biophysics import (
     MembraneVoltageClamp,
     Monodomain,
 )
-
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -78,7 +75,9 @@ print(f"space constant lambda = {lam*1000:.3f} mm,  L/lambda = {L/lam:.2f}")
 D = sigma / (beta * C_m)
 tau = max(C_m / g_L, L * L / D)
 end_time = 25.0 * tau
-print(f"diffusivity = {D:.3e} m^2/s,  settling time ~ {tau:.3f} s,  end time = {end_time:.3f} s")
+print(
+    f"diffusivity = {D:.3e} m^2/s,  settling time ~ {tau:.3f} s,  end time = {end_time:.3f} s"
+)
 
 line = Line(start=(0.0, 0.0, 0.0), end=(L, 0.0, 0.0))
 mesh = StructuredLineMesher(cells=cells).generate(line)
@@ -88,7 +87,9 @@ model = Monodomain(
     capacitance=C_m,
     surface_to_volume=beta,
     membrane=MembraneKinetics(
-        channels=(MembraneChannel(name="leak", conductance=g_L, reversal_potential=E_L),),
+        channels=(
+            MembraneChannel(name="leak", conductance=g_L, reversal_potential=E_L),
+        ),
     ),
 )
 
@@ -129,7 +130,9 @@ def reference(xx):
 v_ref = reference(x)
 max_abs_error = float(np.max(np.abs(v_num - v_ref)))
 rel_error = max_abs_error / delta
-print(f"maximum deviation from the cosh reference: {max_abs_error*1000:.4f} mV  ({100*rel_error:.2f} % of the clamp step)")
+print(
+    f"maximum deviation from the cosh reference: {max_abs_error*1000:.4f} mV  ({100*rel_error:.2f} % of the clamp step)"
+)
 
 drift = float(np.max(np.abs(result.voltage[-1] - result.voltage[-2])))
 print(f"change over the last stored interval: {drift*1e6:.3f} uV")
@@ -145,10 +148,14 @@ print(f"fitted space constant: {lam_fit*1000:.3f} mm  (reference {lam*1000:.3f} 
 # ## Figure
 
 xs = np.linspace(0.0, L, 400)
-plots.line(points={"OneSimulation": (x * 1000, v_num * 1000)},
-           reference={"cable equation (cosh)": (xs * 1000, reference(xs) * 1000)},
-           vlines={f"length constant = {lam * 1000:.2f} mm": lam * 1000},
-           xlabel="position x [mm]", ylabel="depolarisation V - E_L [mV]", title="Steady passive cable")
+plots.line(
+    points={"OneSimulation": (x * 1000, v_num * 1000)},
+    reference={"cable equation (cosh)": (xs * 1000, reference(xs) * 1000)},
+    vlines={f"length constant = {lam * 1000:.2f} mm": lam * 1000},
+    xlabel="position x [mm]",
+    ylabel="depolarisation V - E_L [mV]",
+    title="Steady passive cable",
+)
 plots.show()
 
 

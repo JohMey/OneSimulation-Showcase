@@ -9,7 +9,9 @@ the label of its centre.
 import numpy as np
 
 spacing, shape = 0.5e-3, (64, 48, 48)
-centres = (np.stack(np.meshgrid(*[np.arange(n) for n in shape], indexing="ij"), axis=-1) + 0.5) * spacing
+centres = (
+    np.stack(np.meshgrid(*[np.arange(n) for n in shape], indexing="ij"), axis=-1) + 0.5
+) * spacing
 x, y, z = (centres - np.array(shape) * spacing / 2).transpose(3, 0, 1, 2)
 labels = np.zeros(shape, dtype=np.uint8)
 labels[(x / 0.014) ** 2 + (y / 0.010) ** 2 + (z / 0.010) ** 2 < 1.0] = 1

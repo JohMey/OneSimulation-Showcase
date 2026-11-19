@@ -6,7 +6,6 @@ by Monod kinetics and converts it to ethanol and carbon dioxide; the growth rate
 fermentation temperature. The simulation is compared with the exact integrated Monod equation.
 """
 
-
 # # Fermentation in beer brewing
 #
 # After the wort is cooled it is pitched with yeast. The yeast multiplies on the fermentable
@@ -45,9 +44,12 @@ fermentation temperature. The simulation is compared with the exact integrated M
 # and the products follow the sugar stoichiometrically, $E=Y_{E/S}\,(S_0-S)$.
 
 import numpy as np
-
-from onesim.physics.systems import ProcessModelsConfiguration, ProcessModelsPublicApi, ProcessUnit
-from onesim.visualization import theme, plots
+from onesim.physics.systems import (
+    ProcessModelsConfiguration,
+    ProcessModelsPublicApi,
+    ProcessUnit,
+)
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -64,7 +66,12 @@ mu_max = lambda T: 0.025 / 3600 * np.exp(-70e3 / 8.314 * (1 / T - 1 / 285.15))
 
 def fermentation(c, T, t):
     growth = mu_max(T) * c["S"] / (Ks + c["S"]) * c["X"]
-    return {"X": growth, "S": -growth / Y, "E": Y_E * growth / Y, "CO2": Y_C * growth / Y}, 0.0
+    return {
+        "X": growth,
+        "S": -growth / Y,
+        "E": Y_E * growth / Y,
+        "CO2": Y_C * growth / Y,
+    }, 0.0
 
 
 # ## Fermentations at three temperatures
@@ -72,12 +79,26 @@ def fermentation(c, T, t):
 # Lager at 10 and 12 °C and an ale at 18 °C, each followed for fourteen days in steps of two minutes.
 
 temperatures = {"10 C lager": 283.15, "12 C lager": 285.15, "18 C ale": 291.15}
-runs = {label: ProcessModelsPublicApi().run(ProcessModelsConfiguration(parameters=dict(
-    component_ids=("X", "S", "E", "CO2"),
-    units=(ProcessUnit("fermenter", initial_concentrations={"X": X0, "S": S0, "E": 0.0, "CO2": 0.0}, initial_temperature=T,
-                       reaction_law=fermentation),),
-    final_time=14 * 86400.0, time_step=120.0)))
-    for label, T in temperatures.items()}
+runs = {
+    label: ProcessModelsPublicApi().run(
+        ProcessModelsConfiguration(
+            parameters=dict(
+                component_ids=("X", "S", "E", "CO2"),
+                units=(
+                    ProcessUnit(
+                        "fermenter",
+                        initial_concentrations={"X": X0, "S": S0, "E": 0.0, "CO2": 0.0},
+                        initial_temperature=T,
+                        reaction_law=fermentation,
+                    ),
+                ),
+                final_time=14 * 86400.0,
+                time_step=120.0,
+            )
+        )
+    )
+    for label, T in temperatures.items()
+}
 
 
 # ## Comparison with the integrated Monod equation
@@ -89,12 +110,16 @@ runs = {label: ProcessModelsPublicApi().run(ProcessModelsConfiguration(parameter
 M = X0 + Y * S0
 for label, run in runs.items():
     c, t = run.concentrations["fermenter"], run.times
-    exact_time = ((1 + Ks * Y / M) * np.log(c["X"] / X0) - Ks * Y / M * np.log(c["S"] / S0)) / mu_max(temperatures[label])
+    exact_time = (
+        (1 + Ks * Y / M) * np.log(c["X"] / X0) - Ks * Y / M * np.log(c["S"] / S0)
+    ) / mu_max(temperatures[label])
     active = c["S"] > 1e-3 * S0
     day_95 = t[np.argmax(c["S"] < 0.05 * S0)] / 86400
-    print(f"{label}: largest time deviation from the integrated Monod law {np.max(np.abs(exact_time[active] - t[active])):.2e} s, "
-          f"ethanol deviation {np.max(np.abs(c['E'] - Y_E * (S0 - c['S']))):.1e} kg/m^3, "
-          f"95 % of the sugar fermented after {day_95:.2f} days, final ethanol {c['E'][-1]:.1f} kg/m^3 ({c['E'][-1] / 789 * 100:.1f} % by volume), CO2 released {c['CO2'][-1] / 1.83:.1f} m^3 per m^3 of wort")
+    print(
+        f"{label}: largest time deviation from the integrated Monod law {np.max(np.abs(exact_time[active] - t[active])):.2e} s, "
+        f"ethanol deviation {np.max(np.abs(c['E'] - Y_E * (S0 - c['S']))):.1e} kg/m^3, "
+        f"95 % of the sugar fermented after {day_95:.2f} days, final ethanol {c['E'][-1]:.1f} kg/m^3 ({c['E'][-1] / 789 * 100:.1f} % by volume), CO2 released {c['CO2'][-1] / 1.83:.1f} m^3 per m^3 of wort"
+    )
 
 
 # ## Figure
@@ -104,14 +129,54 @@ for label, run in runs.items():
 days = {label: run.times / 86400 for label, run in runs.items()}
 X_line = np.linspace(X0, M * 0.9999, 400)
 fig = plots.figure(1, 3, size=(18, 5))
-plots.line(y={label: (days[label], run.concentrations["fermenter"]["S"]) for label, run in runs.items()}, xlimits=(0, 10),
-           xlabel="time [days]", ylabel="sugar [kg/m3]", title="Fermentable sugar", legend="upper right", ax=fig[0])
-plots.line(points={label: (days[label][::90], run.concentrations["fermenter"]["X"][::90]) for label, run in runs.items()},
-           reference={label: (((1 + Ks * Y / M) * np.log(X_line / X0) - Ks * Y / M * np.log((M - X_line) / Y / S0)) / mu_max(T) / 86400, X_line)
-                      for label, T in temperatures.items()},
-           xlimits=(0, 10), xlabel="time [days]", ylabel="yeast [kg/m3]", title="Yeast, dashed: integrated Monod law", legend="lower right", ax=fig[1])
-plots.line(y={label: (days[label], run.concentrations["fermenter"]["E"] / 789 * 100) for label, run in runs.items()}, xlimits=(0, 10),
-           xlabel="time [days]", ylabel="ethanol [% by volume]", title="Alcohol", legend="lower right", ax=fig[2])
+plots.line(
+    y={
+        label: (days[label], run.concentrations["fermenter"]["S"])
+        for label, run in runs.items()
+    },
+    xlimits=(0, 10),
+    xlabel="time [days]",
+    ylabel="sugar [kg/m3]",
+    title="Fermentable sugar",
+    legend="upper right",
+    ax=fig[0],
+)
+plots.line(
+    points={
+        label: (days[label][::90], run.concentrations["fermenter"]["X"][::90])
+        for label, run in runs.items()
+    },
+    reference={
+        label: (
+            (
+                (1 + Ks * Y / M) * np.log(X_line / X0)
+                - Ks * Y / M * np.log((M - X_line) / Y / S0)
+            )
+            / mu_max(T)
+            / 86400,
+            X_line,
+        )
+        for label, T in temperatures.items()
+    },
+    xlimits=(0, 10),
+    xlabel="time [days]",
+    ylabel="yeast [kg/m3]",
+    title="Yeast, dashed: integrated Monod law",
+    legend="lower right",
+    ax=fig[1],
+)
+plots.line(
+    y={
+        label: (days[label], run.concentrations["fermenter"]["E"] / 789 * 100)
+        for label, run in runs.items()
+    },
+    xlimits=(0, 10),
+    xlabel="time [days]",
+    ylabel="ethanol [% by volume]",
+    title="Alcohol",
+    legend="lower right",
+    ax=fig[2],
+)
 plots.show()
 
 

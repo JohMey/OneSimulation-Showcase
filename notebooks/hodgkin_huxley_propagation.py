@@ -8,7 +8,6 @@ all-or-nothing threshold and the shape of the action potential are compared with
 computation of Hodgkin and Huxley.
 """
 
-
 # # The Hodgkin-Huxley membrane action potential
 #
 # Hodgkin and Huxley (1952) described the membrane of the squid giant axon by a capacitor in
@@ -45,11 +44,10 @@ computation of Hodgkin and Huxley.
 # milliseconds at this temperature and ends with an after-hyperpolarisation below rest.
 
 import numpy as np
-
 from onesim.numerics.time import DEFAULT_TIME_INTEGRATOR_REGISTRY
 from onesim.physics.biophysics import HodgkinHuxley1952
 from onesim.physics.systems import ControlSignalFlowProvider, SignalBlock
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -62,21 +60,60 @@ theme.set()
 membrane = HodgkinHuxley1952()
 capacitance, rest = 0.01, -0.065
 state = ("V",) + tuple(gate.name for gate in membrane.gates)
-ionic = lambda s: sum(channel.conductance * np.prod([s[state.index(g)] ** power for g, power in channel.gate_powers.items()])
-                      * (s[0] - channel.reversal_potential) for channel in membrane.channels)
+ionic = lambda s: sum(
+    channel.conductance
+    * np.prod([s[state.index(g)] ** power for g, power in channel.gate_powers.items()])
+    * (s[0] - channel.reversal_potential)
+    for channel in membrane.channels
+)
 action_potential = lambda shift: ControlSignalFlowProvider(
-    blocks=(SignalBlock("V", "integrator", inputs=("dV",), parameters={"initial_value": rest + shift}),
-            SignalBlock("dV", "custom", inputs=state, custom_evaluator=lambda s, t, p: -ionic(s) / capacitance,
-                        custom_derivative=lambda *a: ()))
-    + tuple(block for gate in membrane.gates for block in (
-        SignalBlock(gate.name, "integrator", inputs=("d" + gate.name,), parameters={"initial_value": gate.initial_value}),
-        SignalBlock("d" + gate.name, "custom", inputs=("V", gate.name),
-                    custom_evaluator=lambda s, t, p, rate=gate.rate: float(np.dot(rate(np.asarray(s[0])), (1 - s[1], -s[1]))),
-                    custom_derivative=lambda *a: ()))),
-    final_time=0.02, time_step=1e-5, time_integrator=DEFAULT_TIME_INTEGRATOR_REGISTRY.resolve_id("classical_rk4")).execute()
+    blocks=(
+        SignalBlock(
+            "V",
+            "integrator",
+            inputs=("dV",),
+            parameters={"initial_value": rest + shift},
+        ),
+        SignalBlock(
+            "dV",
+            "custom",
+            inputs=state,
+            custom_evaluator=lambda s, t, p: -ionic(s) / capacitance,
+            custom_derivative=lambda *a: (),
+        ),
+    )
+    + tuple(
+        block
+        for gate in membrane.gates
+        for block in (
+            SignalBlock(
+                gate.name,
+                "integrator",
+                inputs=("d" + gate.name,),
+                parameters={"initial_value": gate.initial_value},
+            ),
+            SignalBlock(
+                "d" + gate.name,
+                "custom",
+                inputs=("V", gate.name),
+                custom_evaluator=lambda s, t, p, rate=gate.rate: float(
+                    np.dot(rate(np.asarray(s[0])), (1 - s[1], -s[1]))
+                ),
+                custom_derivative=lambda *a: (),
+            ),
+        )
+    ),
+    final_time=0.02,
+    time_step=1e-5,
+    time_integrator=DEFAULT_TIME_INTEGRATOR_REGISTRY.resolve_id("classical_rk4"),
+).execute()
 
-print("channels:", ", ".join(f"{c.name} {c.conductance / 10:g} mS/cm²" for c in membrane.channels),
-      "| gates at rest:", ", ".join(f"{g.name} = {g.initial_value:.4f}" for g in membrane.gates))
+print(
+    "channels:",
+    ", ".join(f"{c.name} {c.conductance / 10:g} mS/cm²" for c in membrane.channels),
+    "| gates at rest:",
+    ", ".join(f"{g.name} = {g.initial_value:.4f}" for g in membrane.gates),
+)
 
 # ## Results
 #
@@ -85,19 +122,30 @@ print("channels:", ", ".join(f"{c.name} {c.conductance / 10:g} mS/cm²" for c in
 
 shifts = (0.006, 0.007, 0.015, 0.090)
 runs = {shift: action_potential(shift) for shift in shifts}
-scan = {shift: max(action_potential(shift).signals["V"]) for shift in np.round(np.arange(0.0060, 0.00701, 0.0001), 4)}
+scan = {
+    shift: max(action_potential(shift).signals["V"])
+    for shift in np.round(np.arange(0.0060, 0.00701, 0.0001), 4)
+}
 times = 1e3 * np.asarray(runs[shifts[0]].times)
 voltage = {shift: 1e3 * np.asarray(run.signals["V"]) for shift, run in runs.items()}
 threshold = min(shift for shift, peak in scan.items() if peak > 0.0)
 
-print("ΔV [mV]   peak [mV]   time of peak [ms]   after-hyperpolarisation [mV]   duration above -40 mV [ms]")
+print(
+    "ΔV [mV]   peak [mV]   time of peak [ms]   after-hyperpolarisation [mV]   duration above -40 mV [ms]"
+)
 for shift, v in voltage.items():
     above = times[v > -40.0]
-    print(f"{1e3 * shift:7.0f} {v.max():11.1f} {times[v.argmax()]:19.2f} {v.min():30.1f} "
-          f"{(above[-1] - above[0]) if len(above) else 0.0:27.2f}")
-print(f"threshold from the scan: between {1e3 * (threshold - 0.0001):.1f} and {1e3 * threshold:.1f} mV "
-      f"(Hodgkin and Huxley 1952: between 6 and 7 mV)")
-print(f"potential 20 ms after a 6 mV displacement: {voltage[0.006][-1]:.2f} mV (rest {1e3 * rest:.0f} mV)")
+    print(
+        f"{1e3 * shift:7.0f} {v.max():11.1f} {times[v.argmax()]:19.2f} {v.min():30.1f} "
+        f"{(above[-1] - above[0]) if len(above) else 0.0:27.2f}"
+    )
+print(
+    f"threshold from the scan: between {1e3 * (threshold - 0.0001):.1f} and {1e3 * threshold:.1f} mV "
+    f"(Hodgkin and Huxley 1952: between 6 and 7 mV)"
+)
+print(
+    f"potential 20 ms after a 6 mV displacement: {voltage[0.006][-1]:.2f} mV (rest {1e3 * rest:.0f} mV)"
+)
 
 # ## Figure
 #
@@ -105,11 +153,25 @@ print(f"potential 20 ms after a 6 mV displacement: {voltage[0.006][-1]:.2f} mV (
 # the sodium and potassium gates during the action potential after 15 mV.
 
 fig = plots.figure(1, 2, size=(14, 5.2))
-plots.line(times, {f"ΔV = {1e3 * shift:.0f} mV": v for shift, v in voltage.items()}, hlines={"rest": 1e3 * rest},
-           xlabel="time [ms]", ylabel="membrane potential [mV]",
-           title=f"Membrane action potentials, threshold {1e3 * threshold:.1f} mV", legend="upper right", ax=fig[0])
-plots.line(times, {f"gate {name}": runs[0.015].signals[name] for name in state[1:]}, xlabel="time [ms]",
-           ylabel="gate opening", title="Gates during the action potential (ΔV = 15 mV)", legend="center right", ax=fig[1])
+plots.line(
+    times,
+    {f"ΔV = {1e3 * shift:.0f} mV": v for shift, v in voltage.items()},
+    hlines={"rest": 1e3 * rest},
+    xlabel="time [ms]",
+    ylabel="membrane potential [mV]",
+    title=f"Membrane action potentials, threshold {1e3 * threshold:.1f} mV",
+    legend="upper right",
+    ax=fig[0],
+)
+plots.line(
+    times,
+    {f"gate {name}": runs[0.015].signals[name] for name in state[1:]},
+    xlabel="time [ms]",
+    ylabel="gate opening",
+    title="Gates during the action potential (ΔV = 15 mV)",
+    legend="center right",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Going further

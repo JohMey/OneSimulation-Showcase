@@ -10,7 +10,6 @@ The hexahedral meshes are compared with tetrahedral meshes of the same parts: nu
 volume against the exact volume and the shape of the cells.
 """
 
-
 # # Swept meshing of a bracket
 #
 # A body that is one face carried along a path, straight or round a bend, can be filled with
@@ -34,12 +33,11 @@ volume against the exact volume and the shape of the cells.
 # of two straight pieces and a quarter circle of radius $R$.
 
 import numpy as np
-
 from onesim.cad.d2 import Profile
 from onesim.cad.d3 import Prism, Sweep
 from onesim.meshing import Geometric, SweepMesher, TetrahedralMesher
 from onesim.meshing.quality import quality
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -49,29 +47,57 @@ theme.set()
 # 12 mm and a lightening hole of 36 mm become faces of their own names. The strap rises 60 mm,
 # turns through a corner of 30 mm radius and runs 80 mm on.
 
-outline = Profile.rounded_polygon([(0.0, 0.0), (0.15, 0.0), (0.15, 0.025), (0.035, 0.12), (0.0, 0.12)],
-                                  [0.008, 0.008, 0.01, 0.01, 0.008]).with_holes(
+outline = Profile.rounded_polygon(
+    [(0.0, 0.0), (0.15, 0.0), (0.15, 0.025), (0.035, 0.12), (0.0, 0.12)],
+    [0.008, 0.008, 0.01, 0.01, 0.008],
+).with_holes(
     Profile.circle(0.006, center=(0.12, 0.0125), name="bolt_lower"),
     Profile.circle(0.006, center=(0.0175, 0.09), name="bolt_upper"),
-    Profile.circle(0.018, center=(0.045, 0.04), name="lightening"))
+    Profile.circle(0.018, center=(0.045, 0.04), name="lightening"),
+)
 thickness = 0.012
 bracket = Prism(profile=outline, height=thickness)
 section, rise, run, corner = (0.03, 0.004), 0.06, 0.08, 0.03
-strap = Sweep(profile=Profile.rectangle(*section, origin=(-section[0] / 2, -section[1] / 2)),
-              path=[(0.0, 0.0, 0.0), (0.0, 0.0, rise), (run, 0.0, rise)], corner_radius=corner)
+strap = Sweep(
+    profile=Profile.rectangle(*section, origin=(-section[0] / 2, -section[1] / 2)),
+    path=[(0.0, 0.0, 0.0), (0.0, 0.0, rise), (run, 0.0, rise)],
+    corner_radius=corner,
+)
 path_length = (rise - corner) + (run - corner) + np.pi * corner / 2
-print(f"bracket: faces {', '.join(face.id for face in bracket.faces)}; volume {bracket.measure * 1e6:.4f} cm3 "
-      f"= outline area x thickness {outline.area * thickness * 1e6:.4f} cm3")
-print(f"strap: path length {strap.length * 1e3:.3f} mm (closed form {path_length * 1e3:.3f} mm), "
-      f"volume {strap.measure * 1e6:.4f} cm3 (closed form {section[0] * section[1] * path_length * 1e6:.4f} cm3)")
+print(
+    f"bracket: faces {', '.join(face.id for face in bracket.faces)}; volume {bracket.measure * 1e6:.4f} cm3 "
+    f"= outline area x thickness {outline.area * thickness * 1e6:.4f} cm3"
+)
+print(
+    f"strap: path length {strap.length * 1e3:.3f} mm (closed form {path_length * 1e3:.3f} mm), "
+    f"volume {strap.measure * 1e6:.4f} cm3 (closed form {section[0] * section[1] * path_length * 1e6:.4f} cm3)"
+)
 
-swept = SweepMesher(source=bracket.boundaries.bottom, target_size=0.005, layers=4).generate(bracket)
+swept = SweepMesher(
+    source=bracket.boundaries.bottom, target_size=0.005, layers=4
+).generate(bracket)
 view = plots.Camera(elevation=35, azimuth=-60)
 fig = plots.figure(1, 2, size=(16, 6))
-plots.geometry(bracket, selection={"source face": bracket.boundaries.bottom, "bolt holes": bracket.boundaries.bolt_lower
-                                   | bracket.boundaries.bolt_upper, "lightening hole": bracket.boundaries.lightening},
-               labels=False, camera=view, title="Gusset bracket", ax=fig[0])
-plots.mesh(swept, groups=("all",), legend=False, camera=view, title=f"Swept mesh: {swept.cell_count} hexahedra in 4 layers", ax=fig[1])
+plots.geometry(
+    bracket,
+    selection={
+        "source face": bracket.boundaries.bottom,
+        "bolt holes": bracket.boundaries.bolt_lower | bracket.boundaries.bolt_upper,
+        "lightening hole": bracket.boundaries.lightening,
+    },
+    labels=False,
+    camera=view,
+    title="Gusset bracket",
+    ax=fig[0],
+)
+plots.mesh(
+    swept,
+    groups=("all",),
+    legend=False,
+    camera=view,
+    title=f"Swept mesh: {swept.cell_count} hexahedra in 4 layers",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Straight sweep through the bracket
@@ -82,17 +108,29 @@ plots.show()
 
 meshes = {
     "4 equal layers": swept,
-    "6 graded layers": SweepMesher(source=bracket.boundaries.bottom, target_size=0.005, layers=Geometric(cells=6, ratio=3.0)).generate(bracket),
+    "6 graded layers": SweepMesher(
+        source=bracket.boundaries.bottom,
+        target_size=0.005,
+        layers=Geometric(cells=6, ratio=3.0),
+    ).generate(bracket),
     "tetrahedra": TetrahedralMesher(target_size=0.005).generate(bracket),
 }
-print("mesh               cells   kind          volume error   scaled Jacobian min   shape mean")
+print(
+    "mesh               cells   kind          volume error   scaled Jacobian min   shape mean"
+)
 for name, mesh in meshes.items():
     report = quality(mesh)
-    print(f"{name:16s} {mesh.cell_count:7d}   {report.family:12s} {100 * (report['size'].sum() / bracket.measure - 1):+10.3f} %"
-          f" {report['scaled_jacobian'].min():18.3f} {report['shape'].mean():12.3f}")
-heights = np.unique(np.round(np.asarray(meshes["6 graded layers"].coordinates)[:, 2], 9))
-print(f"graded layers: heights {', '.join(f'{1e3 * h:.2f}' for h in heights)} mm; "
-      f"last to first layer {np.diff(heights)[-1] / np.diff(heights)[0]:.2f} (stated 3)")
+    print(
+        f"{name:16s} {mesh.cell_count:7d}   {report.family:12s} {100 * (report['size'].sum() / bracket.measure - 1):+10.3f} %"
+        f" {report['scaled_jacobian'].min():18.3f} {report['shape'].mean():12.3f}"
+    )
+heights = np.unique(
+    np.round(np.asarray(meshes["6 graded layers"].coordinates)[:, 2], 9)
+)
+print(
+    f"graded layers: heights {', '.join(f'{1e3 * h:.2f}' for h in heights)} mm; "
+    f"last to first layer {np.diff(heights)[-1] / np.diff(heights)[0]:.2f} (stated 3)"
+)
 
 # ## Sweep round the bend of the strap
 #
@@ -100,15 +138,21 @@ print(f"graded layers: heights {', '.join(f'{1e3 * h:.2f}' for h in heights)} mm
 # faces through the three pieces and shares the 30 layers out by their lengths. Every layer holds
 # the same quadrilaterals as the start face.
 
-bent = SweepMesher(source=strap.boundaries.start, target_size=0.004, layers=30).generate(strap)
+bent = SweepMesher(
+    source=strap.boundaries.start, target_size=0.004, layers=30
+).generate(strap)
 bent_tetrahedra = TetrahedralMesher(target_size=0.004).generate(strap)
 per_layer = len(bent.facets(strap.boundaries.start))
-print(f"strap: {per_layer} quadrilaterals on the start face, {len(bent.facets(strap.boundaries.end))} on the end face, "
-      f"{bent.cell_count // per_layer} layers")
+print(
+    f"strap: {per_layer} quadrilaterals on the start face, {len(bent.facets(strap.boundaries.end))} on the end face, "
+    f"{bent.cell_count // per_layer} layers"
+)
 for name, mesh in {"swept hexahedra": bent, "tetrahedra": bent_tetrahedra}.items():
     report = quality(mesh)
-    print(f"{name:16s} {mesh.cell_count:7d} cells, volume error {100 * (report['size'].sum() / strap.measure - 1):+.3f} %, "
-          f"scaled Jacobian min {report['scaled_jacobian'].min():.3f}")
+    print(
+        f"{name:16s} {mesh.cell_count:7d} cells, volume error {100 * (report['size'].sum() / strap.measure - 1):+.3f} %, "
+        f"scaled Jacobian min {report['scaled_jacobian'].min():.3f}"
+    )
 
 # ## Figure
 #
@@ -117,13 +161,40 @@ for name, mesh in {"swept hexahedra": bent, "tetrahedra": bent_tetrahedra}.items
 
 strap_view = plots.Camera(elevation=20, azimuth=-70)
 fig = plots.figure(2, 2, size=(16, 12))
-plots.mesh(meshes["6 graded layers"], cell_values=quality(meshes["6 graded layers"])["scaled_jacobian"], limits=(0, 1),
-           label="scaled Jacobian", camera=view, title=f"6 graded layers: {meshes['6 graded layers'].cell_count} hexahedra", ax=fig[0])
-plots.mesh(meshes["tetrahedra"], cell_values=quality(meshes["tetrahedra"])["scaled_jacobian"], limits=(0, 1),
-           label="scaled Jacobian", camera=view, title=f"Tetrahedra: {meshes['tetrahedra'].cell_count} cells", ax=fig[1])
-plots.geometry(strap, selection={"start face": strap.boundaries.start, "end face": strap.boundaries.end}, labels=False,
-               camera=strap_view, title="Bent strap", ax=fig[2])
-plots.mesh(bent, groups=("all",), legend=False, camera=strap_view, title=f"Swept round the bend: {bent.cell_count} hexahedra", ax=fig[3])
+plots.mesh(
+    meshes["6 graded layers"],
+    cell_values=quality(meshes["6 graded layers"])["scaled_jacobian"],
+    limits=(0, 1),
+    label="scaled Jacobian",
+    camera=view,
+    title=f"6 graded layers: {meshes['6 graded layers'].cell_count} hexahedra",
+    ax=fig[0],
+)
+plots.mesh(
+    meshes["tetrahedra"],
+    cell_values=quality(meshes["tetrahedra"])["scaled_jacobian"],
+    limits=(0, 1),
+    label="scaled Jacobian",
+    camera=view,
+    title=f"Tetrahedra: {meshes['tetrahedra'].cell_count} cells",
+    ax=fig[1],
+)
+plots.geometry(
+    strap,
+    selection={"start face": strap.boundaries.start, "end face": strap.boundaries.end},
+    labels=False,
+    camera=strap_view,
+    title="Bent strap",
+    ax=fig[2],
+)
+plots.mesh(
+    bent,
+    groups=("all",),
+    legend=False,
+    camera=strap_view,
+    title=f"Swept round the bend: {bent.cell_count} hexahedra",
+    ax=fig[3],
+)
 plots.show()
 
 # ## Going further

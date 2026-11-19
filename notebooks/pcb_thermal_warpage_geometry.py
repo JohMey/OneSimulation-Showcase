@@ -12,4 +12,6 @@ from onesim.cad.d3 import Box
 mm = 1e-3
 half, laminate, copper = 20 * mm, 1.0 * mm, 0.1 * mm
 Box(length=half, width=half, height=laminate + copper).save("pcb_thermal_warpage.step")
-Box(length=half, width=half, height=copper, origin=(0.0, 0.0, laminate)).save("pcb_thermal_warpage_copper.step")
+Box(length=half, width=half, height=copper, origin=(0.0, 0.0, laminate)).save(
+    "pcb_thermal_warpage_copper.step"
+)

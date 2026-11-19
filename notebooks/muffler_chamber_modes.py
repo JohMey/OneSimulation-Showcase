@@ -8,7 +8,6 @@ modes - are computed with quadratic triangles; their cut-off frequencies are com
 solution in Mathieu functions.
 """
 
-
 # # Eigenmodes in a muffler chamber
 #
 # Automotive mufflers are often oval. A wave $p=\psi(x,y)\,e^{i(\omega t-k_zz)}$ in a duct of
@@ -33,16 +32,20 @@ solution in Mathieu functions.
 # and each root gives $f_c=c\sqrt q/(\pi h)$.
 
 import numpy as np
-from scipy.optimize import brentq
-from scipy.special import mathieu_modcem1, mathieu_modsem1
-
 from onesim.cad.exchange import load
 from onesim.meshing import TriangularMesher
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import SparseSymmetricEigenSolver
-from onesim.physics.acoustics import (AcousticPressureSpectrum, ComplexPressurePencil, ConstantPressureForms,
-                                      SampledPressureVolumeForms, pressure_space_volume_samples)
-from onesim.visualization import theme, plots
+from onesim.physics.acoustics import (
+    AcousticPressureSpectrum,
+    ComplexPressurePencil,
+    ConstantPressureForms,
+    SampledPressureVolumeForms,
+    pressure_space_volume_samples,
+)
+from onesim.visualization import plots, theme
+from scipy.optimize import brentq
+from scipy.special import mathieu_modcem1, mathieu_modsem1
 
 theme.set()
 
@@ -56,13 +59,28 @@ a, b, top_frequency = 0.10, 0.06, 4500.0
 
 h, rim = np.sqrt(a**2 - b**2), np.arctanh(b / a)
 scan = np.linspace(0.01, 40.0, 1600)
-cutoffs = sorted([(c0 * np.sqrt(brentq(lambda q: radial(m, q, rim)[1], scan[i], scan[i + 1])) / (np.pi * h), f"{kind}{m}")
-                  for kind, radial, orders in (("even ", mathieu_modcem1, range(0, 8)), ("odd ", mathieu_modsem1, range(1, 8)))
-                  for m in orders
-                  for i in np.flatnonzero(np.diff(np.sign([radial(m, q, rim)[1] for q in scan])))])
+cutoffs = sorted(
+    [
+        (
+            c0
+            * np.sqrt(brentq(lambda q: radial(m, q, rim)[1], scan[i], scan[i + 1]))
+            / (np.pi * h),
+            f"{kind}{m}",
+        )
+        for kind, radial, orders in (
+            ("even ", mathieu_modcem1, range(0, 8)),
+            ("odd ", mathieu_modsem1, range(1, 8)),
+        )
+        for m in orders
+        for i in np.flatnonzero(np.diff(np.sign([radial(m, q, rim)[1] for q in scan])))
+    ]
+)
 cutoffs = [(0.0, "plane")] + [item for item in cutoffs if item[0] < top_frequency]
 reference = np.array([fc for fc, _ in cutoffs])
-print(f"{len(cutoffs) - 1} cross modes cut on below {top_frequency:.0f} Hz:", ", ".join(f"{name} {fc:.1f} Hz" for fc, name in cutoffs[1:]))
+print(
+    f"{len(cutoffs) - 1} cross modes cut on below {top_frequency:.0f} Hz:",
+    ", ".join(f"{name} {fc:.1f} Hz" for fc, name in cutoffs[1:]),
+)
 
 # ## Geometry and mesh
 #
@@ -76,9 +94,21 @@ sizes = (0.010, 0.005, 0.0025)
 meshes = {s: TriangularMesher(target_size=s).generate(section) for s in sizes}
 
 fig = plots.figure(1, 2, size=(15, 6))
-plots.geometry(chamber, selection={"mantle": chamber.boundaries.mantle, "ends": chamber.boundaries.ends}, labels=False,
-               camera=plots.Camera(elevation=25, azimuth=-60), title="Oval muffler chamber (STEP)", ax=fig[0])
-plots.mesh(meshes[0.005], groups=("all",), legend=False, title=f"Cross-section: {meshes[0.005].cell_count} quadratic triangles", ax=fig[1])
+plots.geometry(
+    chamber,
+    selection={"mantle": chamber.boundaries.mantle, "ends": chamber.boundaries.ends},
+    labels=False,
+    camera=plots.Camera(elevation=25, azimuth=-60),
+    title="Oval muffler chamber (STEP)",
+    ax=fig[0],
+)
+plots.mesh(
+    meshes[0.005],
+    groups=("all",),
+    legend=False,
+    title=f"Cross-section: {meshes[0.005].cell_count} quadratic triangles",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Model
@@ -95,14 +125,27 @@ def solve_section(size):
     """Cut-off modes of the cross-section on one mesh."""
     mesh = meshes[size]
     space = FiniteElement(element=Lagrange(order=2)).bind_space(mesh)
-    stiffness, mass = SampledPressureVolumeForms(size=space.dof_count, samples=lambda: pressure_space_volume_samples(space),
-                                                 inverse_density=lambda omega, sample: 1 / rho0,
-                                                 compressibility=lambda omega, sample: 1 / (rho0 * c0**2))(0.0)
-    eigenpairs = lambda operator: (lambda values, vectors: (np.sqrt(np.abs(values)), vectors))(
-        *solver(mass, operator(0.0).real, mode_count=len(cutoffs), target=-1.0))
-    modes = AcousticPressureSpectrum(operator=ComplexPressurePencil(ConstantPressureForms(stiffness, mass)), eigensolver=eigenpairs).run()
+    stiffness, mass = SampledPressureVolumeForms(
+        size=space.dof_count,
+        samples=lambda: pressure_space_volume_samples(space),
+        inverse_density=lambda omega, sample: 1 / rho0,
+        compressibility=lambda omega, sample: 1 / (rho0 * c0**2),
+    )(0.0)
+    eigenpairs = lambda operator: (
+        lambda values, vectors: (np.sqrt(np.abs(values)), vectors)
+    )(*solver(mass, operator(0.0).real, mode_count=len(cutoffs), target=-1.0))
+    modes = AcousticPressureSpectrum(
+        operator=ComplexPressurePencil(ConstantPressureForms(stiffness, mass)),
+        eigensolver=eigenpairs,
+    ).run()
     order = np.argsort(modes.eigenfrequencies)
-    return dict(space=space, mesh=mesh, dofs=space.dof_count, f=modes.eigenfrequencies[order], shapes=modes.pressure_modes[:, order])
+    return dict(
+        space=space,
+        mesh=mesh,
+        dofs=space.dof_count,
+        f=modes.eigenfrequencies[order],
+        shapes=modes.pressure_modes[:, order],
+    )
 
 
 runs = {s: solve_section(s) for s in sizes}
@@ -115,13 +158,19 @@ runs = {s: solve_section(s) for s in sizes}
 
 fine = runs[sizes[-1]]
 for s, run in runs.items():
-    print(f"mesh {1e3 * s:.1f} mm, {run['dofs']} unknowns: plane wave at {run['f'][0]:.1e} Hz, largest relative error of the "
-          f"{len(cutoffs) - 1} cut-off frequencies {np.max(np.abs(run['f'][1:] / reference[1:] - 1)):.1e}")
+    print(
+        f"mesh {1e3 * s:.1f} mm, {run['dofs']} unknowns: plane wave at {run['f'][0]:.1e} Hz, largest relative error of the "
+        f"{len(cutoffs) - 1} cut-off frequencies {np.max(np.abs(run['f'][1:] / reference[1:] - 1)):.1e}"
+    )
 print("\n  #   cross mode   exact [Hz]   computed [Hz]   rel. dev.")
 for k, (f, name) in enumerate(cutoffs):
     if k:
-        print(f"{k:3d}   {name:9s}   {f:10.2f}   {fine['f'][k]:13.3f}   {fine['f'][k] / f - 1:+.1e}")
-print(f"first cut-off: {fine['f'][1]:.1f} Hz - below it only plane waves travel in the chamber")
+        print(
+            f"{k:3d}   {name:9s}   {f:10.2f}   {fine['f'][k]:13.3f}   {fine['f'][k] / f - 1:+.1e}"
+        )
+print(
+    f"first cut-off: {fine['f'][1]:.1f} Hz - below it only plane waves travel in the chamber"
+)
 
 # ## Figure
 #
@@ -129,14 +178,42 @@ print(f"first cut-off: {fine['f'][1]:.1f} Hz - below it only plane waves travel 
 # cut-off frequency on the three meshes.
 
 x, y = np.asarray(fine["mesh"].coordinates).T
-fig = plots.figure(layout=[["m0", "m1", "m2", "conv"], ["m3", "m4", "m5", "conv"], ["m6", "m7", "m8", "conv"]], size=(22, 13))
+fig = plots.figure(
+    layout=[
+        ["m0", "m1", "m2", "conv"],
+        ["m3", "m4", "m5", "conv"],
+        ["m6", "m7", "m8", "conv"],
+    ],
+    size=(22, 13),
+)
 for k in range(1, 10):
     shape = np.asarray(fine["shapes"][: len(x), k])
-    plots.heatmap(x, y, shape / np.max(np.abs(shape)), triangles=np.asarray(fine["mesh"].cells), colormap="diverging", limits=(-1, 1),
-                  label="p / max|p|", title=f"{cutoffs[k][1]}: {fine['f'][k]:.0f} Hz", ax=fig[f"m{k - 1}"])
-plots.line(points={f"mesh {1e3 * s:.1f} mm": (np.arange(1, len(cutoffs)), np.abs(run["f"][1:] / reference[1:] - 1)) for s, run in runs.items()},
-           scale="logy", ylimits=(1e-5, 1e-2), xlabel="cross mode (in order of frequency)", ylabel="relative error of the cut-off frequency",
-           title="Error per cut-off frequency", ax=fig["conv"])
+    plots.heatmap(
+        x,
+        y,
+        shape / np.max(np.abs(shape)),
+        triangles=np.asarray(fine["mesh"].cells),
+        colormap="diverging",
+        limits=(-1, 1),
+        label="p / max|p|",
+        title=f"{cutoffs[k][1]}: {fine['f'][k]:.0f} Hz",
+        ax=fig[f"m{k - 1}"],
+    )
+plots.line(
+    points={
+        f"mesh {1e3 * s:.1f} mm": (
+            np.arange(1, len(cutoffs)),
+            np.abs(run["f"][1:] / reference[1:] - 1),
+        )
+        for s, run in runs.items()
+    },
+    scale="logy",
+    ylimits=(1e-5, 1e-2),
+    xlabel="cross mode (in order of frequency)",
+    ylabel="relative error of the cut-off frequency",
+    title="Error per cut-off frequency",
+    ax=fig["conv"],
+)
 plots.show()
 
 # ## Going further

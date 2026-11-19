@@ -12,6 +12,14 @@ surface) and soil.y_min (base).
 from onesim.cad.d3 import Box
 
 width, depth, half_footing = 5.0, 3.0, 0.5
-stratum = (Box(length=half_footing, width=depth, height=1.0, origin=(0.0, -depth, 0.0)).named("footing")
-           | Box(length=width - half_footing, width=depth, height=1.0, origin=(half_footing, -depth, 0.0)).named("soil"))
+stratum = Box(
+    length=half_footing, width=depth, height=1.0, origin=(0.0, -depth, 0.0)
+).named("footing") | Box(
+    length=width - half_footing,
+    width=depth,
+    height=1.0,
+    origin=(half_footing, -depth, 0.0),
+).named(
+    "soil"
+)
 stratum.save("strip_footing_bearing_capacity.step")

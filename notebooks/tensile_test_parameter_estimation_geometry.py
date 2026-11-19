@@ -11,17 +11,46 @@ section, where the extensometer measures the contraction of the width).
 
 from onesim.cad.d3 import Box, Cylinder
 
-gauge_width, thickness, gauge_length, radius, grip_width, grip_length = 0.0125, 0.003, 0.060, 0.0125, 0.020, 0.030
+gauge_width, thickness, gauge_length, radius, grip_width, grip_length = (
+    0.0125,
+    0.003,
+    0.060,
+    0.0125,
+    0.020,
+    0.030,
+)
 shoulder = 0.012
 reduced = Box(length=gauge_width / 2, width=gauge_length / 2, height=thickness / 2)
-fillet = (Box(length=grip_width / 2, width=shoulder, height=thickness / 2, origin=(0.0, gauge_length / 2, 0.0))
-          - Cylinder(radius=radius, length=2 * thickness, origin=(gauge_width / 2 + radius, gauge_length / 2, -thickness / 2)))
-grip = Box(length=grip_width / 2, width=grip_length, height=thickness / 2, origin=(0.0, gauge_length / 2 + shoulder, 0.0))
+fillet = Box(
+    length=grip_width / 2,
+    width=shoulder,
+    height=thickness / 2,
+    origin=(0.0, gauge_length / 2, 0.0),
+) - Cylinder(
+    radius=radius,
+    length=2 * thickness,
+    origin=(gauge_width / 2 + radius, gauge_length / 2, -thickness / 2),
+)
+grip = Box(
+    length=grip_width / 2,
+    width=grip_length,
+    height=thickness / 2,
+    origin=(0.0, gauge_length / 2 + shoulder, 0.0),
+)
 specimen = reduced | fillet | grip
 end = gauge_length / 2 + shoulder + grip_length
-plane = lambda axis, value: specimen.select(faces=lambda face: face.kind == "plane" and abs(face.center[axis] - value) < 1e-9)
+plane = lambda axis, value: specimen.select(
+    faces=lambda face: face.kind == "plane" and abs(face.center[axis] - value) < 1e-9
+)
 specimen = specimen.grouped(
-    symmetry_x=plane(0, 0.0), symmetry_y=plane(1, 0.0), symmetry_z=plane(2, 0.0), grip=plane(1, end),
-    gauge_side=specimen.select(faces=lambda face: face.kind == "plane" and abs(face.center[0] - gauge_width / 2) < 1e-9
-                               and face.center[1] < gauge_length / 2))
+    symmetry_x=plane(0, 0.0),
+    symmetry_y=plane(1, 0.0),
+    symmetry_z=plane(2, 0.0),
+    grip=plane(1, end),
+    gauge_side=specimen.select(
+        faces=lambda face: face.kind == "plane"
+        and abs(face.center[0] - gauge_width / 2) < 1e-9
+        and face.center[1] < gauge_length / 2
+    ),
+)
 specimen.save("tensile_test_parameter_estimation.step")

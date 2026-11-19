@@ -11,7 +11,6 @@ integrator with Newton iterations. It is graded against the published probe temp
 of this benchmark, the global energy balance and mesh and time-step studies.
 """
 
-
 # # Isothermal shipping box: melting ice packs keep the goods at 2-8 °C
 #
 # Medicines and vaccines are shipped in foam boxes that must keep their contents between
@@ -101,21 +100,31 @@ of this benchmark, the global energy balance and mesh and time-step studies.
 # study and a time-step study (60, 30, 15 min) with observed orders and Richardson estimate.
 
 import time
-import numpy as np
-from scipy import sparse
-from scipy.sparse.linalg import LinearOperator, gmres, spilu, splu
 
+import numpy as np
 from onesim.cad.d3 import Box
 from onesim.materials import IsotropicSolid
-from onesim.meshing import ExplicitGeometry, Piecewise, StructuredHexahedralMesher, Uniform, region_mesh
+from onesim.meshing import (
+    ExplicitGeometry,
+    Piecewise,
+    StructuredHexahedralMesher,
+    Uniform,
+    region_mesh,
+)
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import SparseDirect
-from onesim.numerics.time import AdaptiveIMEXSDIRK2Provider, IMEXSDIRK2Options, MaxNormStateAlgebra
+from onesim.numerics.time import (
+    AdaptiveIMEXSDIRK2Provider,
+    IMEXSDIRK2Options,
+    MaxNormStateAlgebra,
+)
 from onesim.physics.heat_transfer import ConvectiveHeatFlux, HeatConduction, HeatFlux
 from onesim.results.comparisons import convergence
 from onesim.simulation import Problem, Simulation
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
+from scipy import sparse
+from scipy.sparse.linalg import LinearOperator, gmres, spilu, splu
 
 theme.set()
 
@@ -133,8 +142,35 @@ V_pocket = 0.04 * 0.04 * 0.20
 t_end_h = 72.0
 
 t_amb_h = np.arange(0.0, 73.0, 3.0)
-T_amb_tab = np.array([23.1, 27.6, 29.8, 28.5, 23.4, 20.1, 18.1, 17.9, 23.2, 27.7, 29.95, 28.7, 23.6,
-                      20.25, 18.25, 18.05, 23.3, 27.85, 30.1, 28.8, 23.75, 20.4, 18.35, 18.15, 23.45])
+T_amb_tab = np.array(
+    [
+        23.1,
+        27.6,
+        29.8,
+        28.5,
+        23.4,
+        20.1,
+        18.1,
+        17.9,
+        23.2,
+        27.7,
+        29.95,
+        28.7,
+        23.6,
+        20.25,
+        18.25,
+        18.05,
+        23.3,
+        27.85,
+        30.1,
+        28.8,
+        23.75,
+        20.4,
+        18.35,
+        18.15,
+        23.45,
+    ]
+)
 
 
 def T_ambient(t):
@@ -144,18 +180,33 @@ def T_ambient(t):
 
 ref_t = np.array([1, 10, 22, 30, 36, 45, 48, 51, 55, 60, 65, 72], float)
 REF = {
-    "contents minimum": np.array([4.6, 4.85, 4.2, 5.0, 5.4, 5.4, 5.8, 6.3, 7.5, 9.3, 10.8, 12.6]),
-    "contents average": np.array([5.5, 5.65, 4.85, 5.6, 5.95, 5.85, 6.3, 7.0, 8.0, 9.8, 11.0, 12.9]),
-    "contents maximum": np.array([6.1, 6.4, 5.45, 6.35, 6.55, 6.3, 7.0, 8.3, 9.9, 11.3, 12.2, 14.0]),
-    "plates average": np.array([-1.4, -0.6, -0.15, 0.3, 0.9, 2.0, 3.0, 5.0, 7.5, 11.2, 12.8, 14.5]),
+    "contents minimum": np.array(
+        [4.6, 4.85, 4.2, 5.0, 5.4, 5.4, 5.8, 6.3, 7.5, 9.3, 10.8, 12.6]
+    ),
+    "contents average": np.array(
+        [5.5, 5.65, 4.85, 5.6, 5.95, 5.85, 6.3, 7.0, 8.0, 9.8, 11.0, 12.9]
+    ),
+    "contents maximum": np.array(
+        [6.1, 6.4, 5.45, 6.35, 6.55, 6.3, 7.0, 8.3, 9.9, 11.3, 12.2, 14.0]
+    ),
+    "plates average": np.array(
+        [-1.4, -0.6, -0.15, 0.3, 0.9, 2.0, 3.0, 5.0, 7.5, 11.2, 12.8, 14.5]
+    ),
 }
-REF_EVENTS = {"plates average reaches 2 degC": 45.0, "contents maximum reaches 8 degC": 50.5,
-              "contents average reaches 8 degC": 55.0}
+REF_EVENTS = {
+    "plates average reaches 2 degC": 45.0,
+    "contents maximum reaches 8 degC": 50.5,
+    "contents average reaches 8 degC": 55.0,
+}
 
 latent_quarter = rho_w * L_f * 2 * 0.02 * 0.24 / 2 * 0.20
-print(f"latent heat of the four plates: {4 * latent_quarter / 1e6:.3f} MJ "
-      f"({4 * rho_w * 2 * 0.02 * 0.24 / 2 * 0.20:.2f} kg of ice)")
-print(f"thermal resistance of a 4 cm foam wall incl. film: {1 / h_out + 0.04 / k_foam:.3f} m^2 K/W")
+print(
+    f"latent heat of the four plates: {4 * latent_quarter / 1e6:.3f} MJ "
+    f"({4 * rho_w * 2 * 0.02 * 0.24 / 2 * 0.20:.2f} kg of ice)"
+)
+print(
+    f"thermal resistance of a 4 cm foam wall incl. film: {1 / h_out + 0.04 / k_foam:.3f} m^2 K/W"
+)
 
 
 # ## Geometry and mesh
@@ -188,16 +239,28 @@ def material_at(x, y, z):
     x, y, z = map(np.asarray, (x, y, z))
     middle = (z > 0.04) & (z < 0.24)
     contents = middle & (x > 0.08) & (y > 0.08)
-    plates = middle & (((x > 0.04) & (x < 0.06) & (y > 0.08)) | ((y > 0.04) & (y < 0.06) & (x > 0.08)))
+    plates = middle & (
+        ((x > 0.04) & (x < 0.06) & (y > 0.08)) | ((y > 0.04) & (y < 0.06) & (x > 0.08))
+    )
     pocket = middle & (x > 0.04) & (x < 0.08) & (y > 0.04) & (y < 0.08)
     outside = (x < 0) | (y < 0) | (z < 0) | (z > 0.28) | (x > 0.2) | (y > 0.2)
-    return np.where(outside, OUTSIDE, np.where(contents, CONTENTS, np.where(plates, PLATES,
-                    np.where(pocket, POCKET, FOAM))))
+    return np.where(
+        outside,
+        OUTSIDE,
+        np.where(
+            contents, CONTENTS, np.where(plates, PLATES, np.where(pocket, POCKET, FOAM))
+        ),
+    )
 
 
 def axis(breaks, counts):
-    return np.concatenate([[breaks[0]]] + [np.linspace(a, b, n + 1)[1:]
-                                            for a, b, n in zip(breaks[:-1], breaks[1:], counts)])
+    return np.concatenate(
+        [[breaks[0]]]
+        + [
+            np.linspace(a, b, n + 1)[1:]
+            for a, b, n in zip(breaks[:-1], breaks[1:], counts)
+        ]
+    )
 
 
 quarter_box = Box(length=X_BREAKS[-1], width=X_BREAKS[-1], height=Z_BREAKS[-1])
@@ -211,16 +274,27 @@ def beyond_face(point, normal):
     return {OUTSIDE: "outside", POCKET: "pocket"}.get(beyond, "interface")
 
 
-part_names = ExplicitGeometry(dimension=3, boundary_names=("outside", "pocket", "symmetry", "interface"),
-                              classifier=beyond_face)
+part_names = ExplicitGeometry(
+    dimension=3,
+    boundary_names=("outside", "pocket", "symmetry", "interface"),
+    classifier=beyond_face,
+)
 
 
 def part_mesh(m, part):
     """Hex8 cells of one material, cut from a block mesh whose grid lines follow every interface."""
-    segments = lambda breaks, counts: Piecewise(tuple((b - a, Uniform(n)) for a, b, n in zip(breaks[:-1], breaks[1:], counts)))
-    grading = (segments(X_BREAKS, (2 * m, 2 * m, m, 4 * m)),) * 2 + (segments(Z_BREAKS, (2 * m, 8 * m, 2 * m)),)
-    block = StructuredHexahedralMesher(cells=tuple(g.cells for g in grading), grading=grading).generate(quarter_box)
-    return region_mesh(block, lambda centres: material_at(*centres.T) == part, geometry=part_names)
+    segments = lambda breaks, counts: Piecewise(
+        tuple((b - a, Uniform(n)) for a, b, n in zip(breaks[:-1], breaks[1:], counts))
+    )
+    grading = (segments(X_BREAKS, (2 * m, 2 * m, m, 4 * m)),) * 2 + (
+        segments(Z_BREAKS, (2 * m, 8 * m, 2 * m)),
+    )
+    block = StructuredHexahedralMesher(
+        cells=tuple(g.cells for g in grading), grading=grading
+    ).generate(quarter_box)
+    return region_mesh(
+        block, lambda centres: material_at(*centres.T) == part, geometry=part_names
+    )
 
 
 # ## Model
@@ -233,38 +307,80 @@ def part_mesh(m, part):
 # `ConvectiveHeatFlux` on the outside and pocket walls (where the exchange is wanted) or
 # a zero `HeatFlux` (symmetry planes, internal interfaces, and the reference assembly).
 
+
 def assemble(mesh, k, rho_cp, outside=0.0, pocket=0.0):
-    material = IsotropicSolid(density=1.0, specific_heat_capacity=rho_cp, thermal_conductivity=k,
-                              youngs_modulus=1e9, poisson_ratio=0.3, thermal_expansion_coefficient=0.0)
+    material = IsotropicSolid(
+        density=1.0,
+        specific_heat_capacity=rho_cp,
+        thermal_conductivity=k,
+        youngs_modulus=1e9,
+        poisson_ratio=0.3,
+        thermal_expansion_coefficient=0.0,
+    )
     geometry = mesh.geometry
     model = HeatConduction(domain=geometry.domain(), material=material, heating=0.0)
     conditions = []
-    present = [n for n in geometry.boundary_groups()["all"] if mesh.facets(getattr(geometry.boundaries, n))]
+    present = [
+        n
+        for n in geometry.boundary_groups()["all"]
+        if mesh.facets(getattr(geometry.boundaries, n))
+    ]
     for name in present:
         h = {"outside": outside, "pocket": pocket}.get(name, 0.0)
         selection = getattr(geometry.boundaries, name)
-        conditions.append(ConvectiveHeatFlux(boundary=selection, physics=model, heat_transfer_coefficient=h,
-                                             ambient_temperature=0.0) if h > 0
-                          else HeatFlux(boundary=selection, physics=model, value=0.0))
-    problem = Problem(name="Isothermal box: operator assembly", geometry=geometry, physics=(model,),
-                      boundary_conditions=tuple(conditions))
-    simulation = Simulation(problem=problem, mesh=mesh, numerics=Numerics(
-        spatial=FiniteElement(element=Lagrange(order=1)), linear_solver=SparseDirect()))
+        conditions.append(
+            ConvectiveHeatFlux(
+                boundary=selection,
+                physics=model,
+                heat_transfer_coefficient=h,
+                ambient_temperature=0.0,
+            )
+            if h > 0
+            else HeatFlux(boundary=selection, physics=model, value=0.0)
+        )
+    problem = Problem(
+        name="Isothermal box: operator assembly",
+        geometry=geometry,
+        physics=(model,),
+        boundary_conditions=tuple(conditions),
+    )
+    simulation = Simulation(
+        problem=problem,
+        mesh=mesh,
+        numerics=Numerics(
+            spatial=FiniteElement(element=Lagrange(order=1)),
+            linear_solver=SparseDirect(),
+        ),
+    )
     operator = simulation.compile()._operator(model, {})
     weak, system, _, _ = operator.weak_assembly(0.0)
-    return system.matrix.tocsr(), weak.mass.matrix.tocsr(), np.asarray(operator.space.dof_coordinates)
+    return (
+        system.matrix.tocsr(),
+        weak.mass.matrix.tocsr(),
+        np.asarray(operator.space.dof_coordinates),
+    )
 
 
 def build_level(m):
     start = time.time()
-    xs, zs = axis(X_BREAKS, (2 * m, 2 * m, m, 4 * m)), axis(Z_BREAKS, (2 * m, 8 * m, 2 * m))
+    xs, zs = axis(X_BREAKS, (2 * m, 2 * m, m, 4 * m)), axis(
+        Z_BREAKS, (2 * m, 8 * m, 2 * m)
+    )
     shape = (len(xs), len(xs), len(zs))
-    key = lambda X: np.ravel_multi_index((np.searchsorted(xs, X[:, 0] - 1e-9), np.searchsorted(xs, X[:, 1] - 1e-9),
-                                          np.searchsorted(zs, X[:, 2] - 1e-9)), shape)
+    key = lambda X: np.ravel_multi_index(
+        (
+            np.searchsorted(xs, X[:, 0] - 1e-9),
+            np.searchsorted(xs, X[:, 1] - 1e-9),
+            np.searchsorted(zs, X[:, 2] - 1e-9),
+        ),
+        shape,
+    )
     parts = {part: part_mesh(m, part) for part in (FOAM, CONTENTS, PLATES)}
     keys = np.unique(np.concatenate([key(mesh.coordinates) for mesh in parts.values()]))
     n = len(keys)
-    nodes = np.column_stack([v[i] for v, i in zip((xs, xs, zs), np.unravel_index(keys, shape))])
+    nodes = np.column_stack(
+        [v[i] for v, i in zip((xs, xs, zs), np.unravel_index(keys, shape))]
+    )
 
     def to_global(A, X):
         index = np.searchsorted(keys, key(X))
@@ -274,8 +390,12 @@ def build_level(m):
     K0, M0, X = assemble(parts[FOAM], k_foam, rho_foam * cp_foam)
     K1, _, _ = assemble(parts[FOAM], k_foam, rho_foam * cp_foam, outside=h_out)
     K2, _, _ = assemble(parts[FOAM], k_foam, rho_foam * cp_foam, pocket=h_pocket)
-    ops = dict(K_foam=to_global(K0, X), M_foam=to_global(M0, X), B_out=to_global(K1 - K0, X),
-               B_pocket=to_global(K2 - K0, X))
+    ops = dict(
+        K_foam=to_global(K0, X),
+        M_foam=to_global(M0, X),
+        B_out=to_global(K1 - K0, X),
+        B_pocket=to_global(K2 - K0, X),
+    )
     K0, M0, X = assemble(parts[CONTENTS], k_cont, rho_cont * cp_cont)
     ops.update(K_contents=to_global(K0, X), M_contents=to_global(M0, X))
     K0, M0, X = assemble(parts[PLATES], 1.0, 1.0)
@@ -289,16 +409,30 @@ def build_level(m):
     volume = {}
     for part, name in ((FOAM, "foam"), (CONTENTS, "contents"), (PLATES, "plates")):
         mesh, w = parts[part], np.zeros(n)
-        np.add.at(w, np.searchsorted(keys, key(mesh.coordinates))[mesh.cells].ravel(), np.repeat(mesh.cell_volumes / 8, 8))
+        np.add.at(
+            w,
+            np.searchsorted(keys, key(mesh.coordinates))[mesh.cells].ravel(),
+            np.repeat(mesh.cell_volumes / 8, 8),
+        )
         volume[name] = w
-    return dict(m=m, xs=xs, zs=zs, nodes=nodes, n=n, ops=ops, volume=volume,
-                cells=sum(mesh.cell_count for mesh in parts.values()), seconds=time.time() - start)
+    return dict(
+        m=m,
+        xs=xs,
+        zs=zs,
+        nodes=nodes,
+        n=n,
+        ops=ops,
+        volume=volume,
+        cells=sum(mesh.cell_count for mesh in parts.values()),
+        seconds=time.time() - start,
+    )
 
 
 # **Phase change.** Liquid fraction $\theta(T)$ (quintic smoothed step over
 # $T_{pc}\pm\Delta T/2$), its integral $G(T)=\int_{-\infty}^T\theta\,\mathrm{d}T$, the
 # volumetric enthalpy $H(T)$ of the plates and the Kirchhoff potential $\phi(T)$, all
 # relative to 0 °C and in closed form.
+
 
 def liquid_fraction(T):
     x = np.clip((T - T_pc) / dT_pc + 0.5, 0.0, 1.0)
@@ -311,18 +445,25 @@ def fraction_integral(T):
     return dT_pc * (xc**6 - 3 * xc**5 + 2.5 * xc**4) + dT_pc * np.maximum(x - 1.0, 0.0)
 
 
-G_0, THETA_0 = float(fraction_integral(np.array(0.0))), float(liquid_fraction(np.array(0.0))[0])
+G_0, THETA_0 = float(fraction_integral(np.array(0.0))), float(
+    liquid_fraction(np.array(0.0))[0]
+)
 
 
 def plate_enthalpy(T):
     theta, dtheta = liquid_fraction(T)
-    H = rho_w * (cp_ice * T + (cp_wat - cp_ice) * (fraction_integral(T) - G_0)) + rho_w * L_f * (theta - THETA_0)
+    H = rho_w * (
+        cp_ice * T + (cp_wat - cp_ice) * (fraction_integral(T) - G_0)
+    ) + rho_w * L_f * (theta - THETA_0)
     return H, rho_w * (cp_ice + (cp_wat - cp_ice) * theta) + rho_w * L_f * dtheta
 
 
 def plate_kirchhoff(T):
     theta, _ = liquid_fraction(T)
-    return k_ice * T + (k_wat - k_ice) * (fraction_integral(T) - G_0), k_ice + (k_wat - k_ice) * theta
+    return (
+        k_ice * T + (k_wat - k_ice) * (fraction_integral(T) - G_0),
+        k_ice + (k_wat - k_ice) * theta,
+    )
 
 
 # **Semi-discrete system.** With the nodal temperatures $T$ and the pocket temperature
@@ -338,6 +479,7 @@ def plate_kirchhoff(T):
 # all conductivity matrices sum to zero, so $\sum\dot E$ is exactly the heat flow through
 # the outer walls: the discrete energy balance holds by construction.
 
+
 class QuarterBoxModel:
     def __init__(self, level):
         o = level["ops"]
@@ -346,23 +488,33 @@ class QuarterBoxModel:
         self.b_out = np.asarray(o["B_out"].sum(axis=1)).ravel()
         self.b_pocket = np.asarray(o["B_pocket"].sum(axis=1)).ravel()
         self.s_pocket = self.b_pocket.sum()
-        self.c = np.asarray(o["M_foam"].sum(axis=1)).ravel() + np.asarray(o["M_contents"].sum(axis=1)).ravel()
+        self.c = (
+            np.asarray(o["M_foam"].sum(axis=1)).ravel()
+            + np.asarray(o["M_contents"].sum(axis=1)).ravel()
+        )
         self.v_plates = np.asarray(o["M_plates"].sum(axis=1)).ravel()
         self.plate_nodes = np.nonzero(self.v_plates > 0)[0]
         self.C_pocket = rho_air * cp_air * V_pocket
         self.scale = np.r_[self.c + self.v_plates * rho_w * cp_wat, self.C_pocket]
 
     def energy(self, T):
-        return np.r_[self.c * T[:-1] + self.v_plates * plate_enthalpy(T[:-1])[0], self.C_pocket * T[-1]]
+        return np.r_[
+            self.c * T[:-1] + self.v_plates * plate_enthalpy(T[:-1])[0],
+            self.C_pocket * T[-1],
+        ]
 
     def temperature(self, E, guess):
         """Invert E(T) node by node (linear except in the plates, Newton there)."""
-        T = np.r_[E[:-1] / (self.c + self.v_plates * rho_w * cp_ice), E[-1] / self.C_pocket]
+        T = np.r_[
+            E[:-1] / (self.c + self.v_plates * rho_w * cp_ice), E[-1] / self.C_pocket
+        ]
         p = self.plate_nodes
         Tp = guess[p].copy()
         for _ in range(100):
             H, dH = plate_enthalpy(Tp)
-            step = (self.c[p] * Tp + self.v_plates[p] * H - E[p]) / (self.c[p] + self.v_plates[p] * dH)
+            step = (self.c[p] * Tp + self.v_plates[p] * H - E[p]) / (
+                self.c[p] + self.v_plates[p] * dH
+            )
             Tp -= np.clip(step, -2.0, 2.0)
             if np.max(np.abs(step)) < 1e-11:
                 break
@@ -371,7 +523,12 @@ class QuarterBoxModel:
 
     def rate(self, T, t):
         phi, _ = plate_kirchhoff(T[:-1])
-        f = -(self.K @ T[:-1]) - self.K_plates @ phi + self.b_out * T_ambient(t) + self.b_pocket * T[-1]
+        f = (
+            -(self.K @ T[:-1])
+            - self.K_plates @ phi
+            + self.b_out * T_ambient(t)
+            + self.b_pocket * T[-1]
+        )
         return np.r_[f, self.b_pocket @ T[:-1] - self.s_pocket * T[-1]]
 
     def heat_in(self, T, t):
@@ -382,9 +539,19 @@ class QuarterBoxModel:
         """d/dT of E(T) - a * rate(T)."""
         _, dH = plate_enthalpy(T[:-1])
         _, k = plate_kirchhoff(T[:-1])
-        J = sparse.diags(self.c + self.v_plates * dH) + a * (self.K + self.K_plates @ sparse.diags(k))
-        return sparse.bmat([[J, -a * self.b_pocket[:, None]],
-                            [-a * self.b_pocket[None, :], np.array([[self.C_pocket + a * self.s_pocket]])]], format="csc")
+        J = sparse.diags(self.c + self.v_plates * dH) + a * (
+            self.K + self.K_plates @ sparse.diags(k)
+        )
+        return sparse.bmat(
+            [
+                [J, -a * self.b_pocket[:, None]],
+                [
+                    -a * self.b_pocket[None, :],
+                    np.array([[self.C_pocket + a * self.s_pocket]]),
+                ],
+            ],
+            format="csc",
+        )
 
 
 # ## Solve
@@ -419,8 +586,14 @@ def integrate(level, dt_min=30.0, keep_h=(24.0,)):
     dt = 60.0 * dt_min
     loose = 1e9
     integrator = AdaptiveIMEXSDIRK2Provider(
-        IMEXSDIRK2Options(relative_tolerance=1e-12, absolute_tolerance=loose, minimum_step=dt, maximum_step=dt),
-        algebra=MaxNormStateAlgebra(scale=model.scale))
+        IMEXSDIRK2Options(
+            relative_tolerance=1e-12,
+            absolute_tolerance=loose,
+            minimum_step=dt,
+            maximum_step=dt,
+        ),
+        algebra=MaxNormStateAlgebra(scale=model.scale),
+    )
     memory = dict(stage_q=[], lu=None, history=[(-dt, T.copy()), (0.0, T.copy())])
     counts = dict(newton=0, krylov=0, factorizations=0, max_iterations=0)
 
@@ -432,7 +605,9 @@ def integrate(level, dt_min=30.0, keep_h=(24.0,)):
 
     def stage_solver(base, a, rate, t, guess):
         (t0, T_0), (t1, T_1) = memory["history"]
-        Tk = T_1 + (t - t1) / (t1 - t0) * (T_1 - T_0) if counts["newton"] else T_1.copy()
+        Tk = (
+            T_1 + (t - t1) / (t1 - t0) * (T_1 - T_0) if counts["newton"] else T_1.copy()
+        )
         plates = model.plate_nodes
         for iteration in range(1, 40):
             Ek = model.energy(Tk)
@@ -445,9 +620,17 @@ def integrate(level, dt_min=30.0, keep_h=(24.0,)):
                 memory["lu"] = splu(J)
                 counts["factorizations"] += 1
             calls = [0]
-            du, info = gmres(J, -residual, M=LinearOperator(J.shape, memory["lu"].solve), rtol=1e-10, atol=0.0,
-                             restart=40, maxiter=2, callback=lambda r: calls.__setitem__(0, calls[0] + 1),
-                             callback_type="pr_norm")
+            du, info = gmres(
+                J,
+                -residual,
+                M=LinearOperator(J.shape, memory["lu"].solve),
+                rtol=1e-10,
+                atol=0.0,
+                restart=40,
+                maxiter=2,
+                callback=lambda r: calls.__setitem__(0, calls[0] + 1),
+                callback_type="pr_norm",
+            )
             if info != 0 or calls[0] > 20:
                 memory["lu"] = splu(J)
                 counts["factorizations"] += 1
@@ -467,8 +650,24 @@ def integrate(level, dt_min=30.0, keep_h=(24.0,)):
         memory["stage_q"].append(model.heat_in(Tk, t))
         return model.energy(Tk), iteration
 
-    weights_c, weights_p = vol["contents"] / vol["contents"].sum(), vol["plates"] / vol["plates"].sum()
-    probes = {name: [] for name in ("t", "cmin", "cavg", "cmax", "pavg", "melt", "q_in", "T_pocket", "E")}
+    weights_c, weights_p = (
+        vol["contents"] / vol["contents"].sum(),
+        vol["plates"] / vol["plates"].sum(),
+    )
+    probes = {
+        name: []
+        for name in (
+            "t",
+            "cmin",
+            "cavg",
+            "cmax",
+            "pavg",
+            "melt",
+            "q_in",
+            "T_pocket",
+            "E",
+        )
+    }
 
     def record(t, E, T):
         probes["t"].append(t / 3600)
@@ -487,7 +686,14 @@ def integrate(level, dt_min=30.0, keep_h=(24.0,)):
     for n in range(steps):
         t = n * dt
         memory["stage_q"] = []
-        outcome = integrator.advance(E, no_explicit_rate, implicit_rate, t, dt, implicit_stage_solver=stage_solver)
+        outcome = integrator.advance(
+            E,
+            no_explicit_rate,
+            implicit_rate,
+            t,
+            dt,
+            implicit_stage_solver=stage_solver,
+        )
         q1, q2 = memory["stage_q"]
         heat_in += dt * ((1 - GAMMA) * q1 + GAMMA * q2)
         E, t = outcome.state, outcome.end_time
@@ -499,8 +705,16 @@ def integrate(level, dt_min=30.0, keep_h=(24.0,)):
             if any(abs(hours - h) < 1e-9 for h in keep_h):
                 kept[round(hours)] = T.copy()
     probes = {name: np.array(values) for name, values in probes.items()}
-    return dict(level=level, model=model, probes=probes, kept=kept, heat_in=heat_in, steps=steps, counts=counts,
-                seconds=time.time() - start)
+    return dict(
+        level=level,
+        model=model,
+        probes=probes,
+        kept=kept,
+        heat_in=heat_in,
+        steps=steps,
+        counts=counts,
+        seconds=time.time() - start,
+    )
 
 
 # Three mesh levels with $\Delta t=30$ min, and the middle level once more with 60 and
@@ -511,12 +725,19 @@ runs = {}
 for m, level in levels.items():
     runs[m] = integrate(level)
     r = runs[m]
-    print(f"level m = {m}: {level['n']:6d} nodes, {level['cells']:6d} hexahedra, assembly {level['seconds']:4.0f} s; "
-          f"{r['steps']} steps, {r['counts']['newton']} Newton iterations (at most {r['counts']['max_iterations']} per stage), "
-          f"{r['counts']['krylov']} GMRES iterations, {r['counts']['factorizations']} LU factorizations, {r['seconds']:4.0f} s")
+    print(
+        f"level m = {m}: {level['n']:6d} nodes, {level['cells']:6d} hexahedra, assembly {level['seconds']:4.0f} s; "
+        f"{r['steps']} steps, {r['counts']['newton']} Newton iterations (at most {r['counts']['max_iterations']} per stage), "
+        f"{r['counts']['krylov']} GMRES iterations, {r['counts']['factorizations']} LU factorizations, {r['seconds']:4.0f} s"
+    )
 time_study = {dt_min: integrate(levels[2], dt_min=dt_min) for dt_min in (60.0, 15.0)}
 time_study[30.0] = runs[2]
-print("time-step study on level 2: " + ", ".join(f"dt = {k:4.1f} min: {v['seconds']:.0f} s" for k, v in time_study.items()))
+print(
+    "time-step study on level 2: "
+    + ", ".join(
+        f"dt = {k:4.1f} min: {v['seconds']:.0f} s" for k, v in time_study.items()
+    )
+)
 fine = runs[3]
 P = fine["probes"]
 
@@ -531,6 +752,7 @@ P = fine["probes"]
 # at about 17 °C, so its surface nodes of the contents start warmer than 5 °C, which adds
 # some heat in the first hours.
 
+
 def at(probes, key, hours):
     return np.interp(hours, probes["t"], probes[key])
 
@@ -542,7 +764,12 @@ def crossing(probes, key, level, after=20.0):
     return t[i] + (level - y[i]) * (t[i + 1] - t[i]) / (y[i + 1] - y[i])
 
 
-KEYS = {"contents minimum": "cmin", "contents average": "cavg", "contents maximum": "cmax", "plates average": "pavg"}
+KEYS = {
+    "contents minimum": "cmin",
+    "contents average": "cavg",
+    "contents maximum": "cmax",
+    "plates average": "pavg",
+}
 print("  t [h] " + "".join(f"| {name:^27s}" for name in KEYS))
 print("        " + "| computed  published  diff  " * len(KEYS))
 for i, hours in enumerate(ref_t):
@@ -553,21 +780,31 @@ for i, hours in enumerate(ref_t):
     print(row)
 for name, key in KEYS.items():
     d = at(P, key, ref_t) - REF[name]
-    print(f"{name:18s}: mean deviation {d.mean():+.2f} K, largest |deviation| {np.abs(d).max():.2f} K")
+    print(
+        f"{name:18s}: mean deviation {d.mean():+.2f} K, largest |deviation| {np.abs(d).max():.2f} K"
+    )
 
 # **Events and the 2-8 °C window.**
 
-events = {"plates average reaches 2 degC": crossing(P, "pavg", 2.0),
-          "contents maximum reaches 8 degC": crossing(P, "cmax", 8.0),
-          "contents average reaches 8 degC": crossing(P, "cavg", 8.0)}
+events = {
+    "plates average reaches 2 degC": crossing(P, "pavg", 2.0),
+    "contents maximum reaches 8 degC": crossing(P, "cmax", 8.0),
+    "contents average reaches 8 degC": crossing(P, "cavg", 8.0),
+}
 for name, value in events.items():
-    print(f"{name:32s}: computed {value:5.1f} h, published about {REF_EVENTS[name]:4.1f} h, "
-          f"difference {value - REF_EVENTS[name]:+.1f} h")
+    print(
+        f"{name:32s}: computed {value:5.1f} h, published about {REF_EVENTS[name]:4.1f} h, "
+        f"difference {value - REF_EVENTS[name]:+.1f} h"
+    )
 first_day = (P["t"] > 0) & (P["t"] <= 24)
-print(f"contents during the first 24 h: {P['cmin'][first_day].min():.2f} to {P['cmax'][first_day].max():.2f} degC "
-      f"(allowed 2 to 8 degC; published: inside the window)")
-print(f"plates average after 1 h / 12 h / 24 h: {at(P, 'pavg', 1):.2f} / {at(P, 'pavg', 12):.2f} / "
-      f"{at(P, 'pavg', 24):.2f} degC (published: about -1.4 / -0.5 / -0.1 degC)")
+print(
+    f"contents during the first 24 h: {P['cmin'][first_day].min():.2f} to {P['cmax'][first_day].max():.2f} degC "
+    f"(allowed 2 to 8 degC; published: inside the window)"
+)
+print(
+    f"plates average after 1 h / 12 h / 24 h: {at(P, 'pavg', 1):.2f} / {at(P, 'pavg', 12):.2f} / "
+    f"{at(P, 'pavg', 24):.2f} degC (published: about -1.4 / -0.5 / -0.1 degC)"
+)
 
 # **Energy balance** of the whole box (four quarters). The change of stored sensible and
 # latent heat over 72 h is compared with the heat that entered through the walls,
@@ -580,18 +817,25 @@ dE = 4 * (P["E"][-1] - P["E"][0])
 Q_scheme = 4 * fine["heat_in"]
 Q_trapz = 4 * np.trapezoid(P["q_in"], P["t"] * 3600)
 print(f"stored heat gained in 72 h: {dE / 1e6:.5f} MJ")
-print(f"heat in through the walls:  {Q_scheme / 1e6:.5f} MJ with the scheme weights (relative difference "
-      f"{Q_scheme / dE - 1:+.1e}), {Q_trapz / 1e6:.5f} MJ with the trapezoidal rule ({Q_trapz / dE - 1:+.1e})")
-print(f"latent heat absorbed: melted fraction {P['melt'][-1]:.4f} x {4 * latent_quarter / 1e6:.4f} MJ = "
-      f"{P['melt'][-1] * 4 * latent_quarter / 1e6:.4f} MJ ({P['melt'][-1] * 4 * latent_quarter / dE:.0%} of the heat gained)")
-print(f"mean heat leak while the plates melt (0-45 h): {4 * np.mean(P['q_in'][P['t'] <= 45]):.2f} W, "
-      f"which melts the {4 * latent_quarter / 1e6:.2f} MJ in {4 * latent_quarter / (4 * np.mean(P['q_in'][P['t'] <= 45])) / 3600:.0f} h")
+print(
+    f"heat in through the walls:  {Q_scheme / 1e6:.5f} MJ with the scheme weights (relative difference "
+    f"{Q_scheme / dE - 1:+.1e}), {Q_trapz / 1e6:.5f} MJ with the trapezoidal rule ({Q_trapz / dE - 1:+.1e})"
+)
+print(
+    f"latent heat absorbed: melted fraction {P['melt'][-1]:.4f} x {4 * latent_quarter / 1e6:.4f} MJ = "
+    f"{P['melt'][-1] * 4 * latent_quarter / 1e6:.4f} MJ ({P['melt'][-1] * 4 * latent_quarter / dE:.0%} of the heat gained)"
+)
+print(
+    f"mean heat leak while the plates melt (0-45 h): {4 * np.mean(P['q_in'][P['t'] <= 45]):.2f} W, "
+    f"which melts the {4 * latent_quarter / 1e6:.2f} MJ in {4 * latent_quarter / (4 * np.mean(P['q_in'][P['t'] <= 45])) / 3600:.0f} h"
+)
 
 # **Mesh and time-step study.** Mesh levels $m=1,2,3$ (cell size $h\propto1/m$). The
 # observed order follows from $(f_1-f_2)/(f_2-f_3)=(h_1^p-h_2^p)/(h_2^p-h_3^p)$ and the
 # Richardson estimate is $f_3+(f_3-f_2)\,h_3^p/(h_2^p-h_3^p)$. The time-step study
 # repeats level 2 with $\Delta t=60$, 30 and 15 min; for a second-order integrator the
 # differences should drop by a factor of four per halving.
+
 
 def order_and_estimate(values, sizes):
     estimate = convergence(values, sizes)
@@ -610,8 +854,10 @@ QUANTITIES = {
 }
 h_rel = np.array([1.0, 1 / 2, 1 / 3])
 dt_rel = np.array([60.0, 30.0, 15.0])
-print("\nquantity                              m = 1     m = 2     m = 3   change m=2->3  order  Richardson"
-      "   dt = 60 / 30 / 15 min (m = 2)        order in time")
+print(
+    "\nquantity                              m = 1     m = 2     m = 3   change m=2->3  order  Richardson"
+    "   dt = 60 / 30 / 15 min (m = 2)        order in time"
+)
 study = {}
 for name, f in QUANTITIES.items():
     values = np.array([f(runs[m]) for m in (1, 2, 3)])
@@ -620,9 +866,15 @@ for name, f in QUANTITIES.items():
     study[name] = values
     in_time = np.array([f(time_study[dt_min]) for dt_min in dt_rel])
     p_t, _ = order_and_estimate(in_time, dt_rel)
-    print(f"{name:36s} " + "".join(f"{v:9.3f} " for v in values) + f"   {values[2] - values[1]:+8.3f}  "
-          + (f"   {p:4.2f}  {extrapolated:9.3f}" if asymptotic else "   (not asymptotic)")
-          + f"   " + " / ".join(f"{v:.4f}" for v in in_time) + f"   {p_t:5.2f}")
+    print(
+        f"{name:36s} "
+        + "".join(f"{v:9.3f} " for v in values)
+        + f"   {values[2] - values[1]:+8.3f}  "
+        + (f"   {p:4.2f}  {extrapolated:9.3f}" if asymptotic else "   (not asymptotic)")
+        + f"   "
+        + " / ".join(f"{v:.4f}" for v in in_time)
+        + f"   {p_t:5.2f}"
+    )
 
 
 # ## Figure
@@ -638,7 +890,10 @@ level = fine["level"]
 xs, zs = level["xs"], level["zs"]
 T24 = fine["kept"][24]
 quarter = np.full((len(xs), len(xs), len(zs)), np.nan)
-ii, jj, kk = (np.searchsorted(v, level["nodes"][:, c] - 1e-9) for c, v in ((0, xs), (1, xs), (2, zs)))
+ii, jj, kk = (
+    np.searchsorted(v, level["nodes"][:, c] - 1e-9)
+    for c, v in ((0, xs), (1, xs), (2, zs))
+)
 quarter[ii, jj, kk] = T24[:-1]
 quarter[np.isnan(quarter)] = T24[-1]
 box = np.concatenate((quarter, quarter[-2::-1]), axis=0)
@@ -649,24 +904,87 @@ isotherms = [0, 2, 4, 6, 8, 12, 16, 20, 24]
 names = list(QUANTITIES)
 mesh_levels = np.array([1, 2, 3])
 fig = plots.figure(2, 3, size=(17, 11.5))
-plots.heatmap(xf, xf, box[:, :, k14], limits=(-1, 29), contours=isotherms, label="T [°C]", xlabel="x [cm]", ylabel="y [cm]",
-              title=f"Section z = {zs[k14] * 100:.0f} cm after 24 h", ax=fig[0])
-plots.heatmap(xf, zf, box[:, len(xs) - 1, :], limits=(-1, 29), contours=isotherms, label="T [°C]", xlabel="x [cm]",
-              ylabel="z [cm]", title="Vertical mid-section y = 20 cm after 24 h", ax=fig[1])
-plots.line(y={name: (P["t"], P[key]) for name, key in KEYS.items()}, points={name: (ref_t, REF[name]) for name in KEYS},
-           right={"ambient air": (t_amb_h, T_amb_tab)}, hlines={"storage window 2 to 8 °C": 2.0, "": 8.0},
-           xlimits=(0, 72), ylimits=(-6, 16), xlabel="time [h]", ylabel="T [°C]", right_label="ambient air [°C]",
-           title="Probes (markers: published benchmark)", legend="upper left", ax=fig[2])
-plots.line(y={"melted fraction of the plates": (P["t"], P["melt"]),
-              **{f"mesh m = {m}": (runs[m]["probes"]["t"], runs[m]["probes"]["melt"]) for m in (1, 2)}},
-           styles={"mesh m = 1": "dotted", "mesh m = 2": "dashed"}, xlimits=(0, 72), ylimits=(0, 1.05),
-           xlabel="time [h]", ylabel="melted fraction", title="Melting of the plates", ax=fig[3])
-plots.line(P["t"], {"heat flow into the box": 4 * P["q_in"]}, xlimits=(0, 72), xlabel="time [h]",
-           ylabel="heat flow into the box [W]", title="Heat leak", ax=fig[4])
-plots.line(mesh_levels, {"contents average at 24 h [°C]": study[names[0]], "contents maximum at 24 h [°C]": study[names[1]]},
-           right={"plates reach 2 °C [h]": study[names[3]], "contents maximum reaches 8 °C [h]": study[names[4]]},
-           markers=True, xlabel="mesh level m (cell size ~ 1/m)", ylabel="T [°C]", right_label="event time [h]",
-           title="Mesh study", legend="center right", ax=fig[5])
+plots.heatmap(
+    xf,
+    xf,
+    box[:, :, k14],
+    limits=(-1, 29),
+    contours=isotherms,
+    label="T [°C]",
+    xlabel="x [cm]",
+    ylabel="y [cm]",
+    title=f"Section z = {zs[k14] * 100:.0f} cm after 24 h",
+    ax=fig[0],
+)
+plots.heatmap(
+    xf,
+    zf,
+    box[:, len(xs) - 1, :],
+    limits=(-1, 29),
+    contours=isotherms,
+    label="T [°C]",
+    xlabel="x [cm]",
+    ylabel="z [cm]",
+    title="Vertical mid-section y = 20 cm after 24 h",
+    ax=fig[1],
+)
+plots.line(
+    y={name: (P["t"], P[key]) for name, key in KEYS.items()},
+    points={name: (ref_t, REF[name]) for name in KEYS},
+    right={"ambient air": (t_amb_h, T_amb_tab)},
+    hlines={"storage window 2 to 8 °C": 2.0, "": 8.0},
+    xlimits=(0, 72),
+    ylimits=(-6, 16),
+    xlabel="time [h]",
+    ylabel="T [°C]",
+    right_label="ambient air [°C]",
+    title="Probes (markers: published benchmark)",
+    legend="upper left",
+    ax=fig[2],
+)
+plots.line(
+    y={
+        "melted fraction of the plates": (P["t"], P["melt"]),
+        **{
+            f"mesh m = {m}": (runs[m]["probes"]["t"], runs[m]["probes"]["melt"])
+            for m in (1, 2)
+        },
+    },
+    styles={"mesh m = 1": "dotted", "mesh m = 2": "dashed"},
+    xlimits=(0, 72),
+    ylimits=(0, 1.05),
+    xlabel="time [h]",
+    ylabel="melted fraction",
+    title="Melting of the plates",
+    ax=fig[3],
+)
+plots.line(
+    P["t"],
+    {"heat flow into the box": 4 * P["q_in"]},
+    xlimits=(0, 72),
+    xlabel="time [h]",
+    ylabel="heat flow into the box [W]",
+    title="Heat leak",
+    ax=fig[4],
+)
+plots.line(
+    mesh_levels,
+    {
+        "contents average at 24 h [°C]": study[names[0]],
+        "contents maximum at 24 h [°C]": study[names[1]],
+    },
+    right={
+        "plates reach 2 °C [h]": study[names[3]],
+        "contents maximum reaches 8 °C [h]": study[names[4]],
+    },
+    markers=True,
+    xlabel="mesh level m (cell size ~ 1/m)",
+    ylabel="T [°C]",
+    right_label="event time [h]",
+    title="Mesh study",
+    legend="center right",
+    ax=fig[5],
+)
 plots.show()
 
 

@@ -9,7 +9,6 @@ Area, perimeter and centroid of every level are measured on the CAD region and o
 compared with the closed-form geometric series of the snowflake.
 """
 
-
 # # Koch snowflake: a recursively defined planar region
 #
 # The Koch snowflake starts from an equilateral triangle of side $s$. One step of the recursion
@@ -32,11 +31,10 @@ compared with the closed-form geometric series of the snowflake.
 # and perimeter series as in B. Mandelbrot, *The Fractal Geometry of Nature*, Freeman 1982, ch. 6.
 
 import numpy as np
-
 from onesim.cad.d2 import PlanarRegion, Profile
 from onesim.meshing import TriangularMesher
 from onesim.meshing.quality import quality
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -53,9 +51,17 @@ turn = np.array([[0.5, np.sqrt(3) / 2], [-np.sqrt(3) / 2, 0.5]])
 for step in range(5):
     p = corners[-1]
     d = np.roll(p, -1, axis=0) - p
-    corners.append(np.stack([p, p + d / 3, p + d / 3 + (d / 3) @ turn.T, p + 2 * d / 3], axis=1).reshape(-1, 2))
+    corners.append(
+        np.stack(
+            [p, p + d / 3, p + d / 3 + (d / 3) @ turn.T, p + 2 * d / 3], axis=1
+        ).reshape(-1, 2)
+    )
 regions = [PlanarRegion(profile=Profile.polygon(points)) for points in corners]
-print(", ".join(f"level {level}: {len(points)} corners" for level, points in enumerate(corners)))
+print(
+    ", ".join(
+        f"level {level}: {len(points)} corners" for level, points in enumerate(corners)
+    )
+)
 
 # ## Meshes
 #
@@ -66,14 +72,26 @@ print(", ".join(f"level {level}: {len(points)} corners" for level, points in enu
 meshes = [TriangularMesher(target_size=0.05).generate(region) for region in regions]
 
 fig = plots.figure(1, 2, size=(15, 7))
-plots.geometry(regions[-1], title="Level 5: one planar region, outline 'side'", ax=fig[0])
-plots.mesh(meshes[-1], legend=False, title=f"Level 5: {meshes[-1].cell_count} triangles", ax=fig[1])
+plots.geometry(
+    regions[-1], title="Level 5: one planar region, outline 'side'", ax=fig[0]
+)
+plots.mesh(
+    meshes[-1],
+    legend=False,
+    title=f"Level 5: {meshes[-1].cell_count} triangles",
+    ax=fig[1],
+)
 plots.show()
 
 fig = plots.figure(2, 3, size=(16, 10))
 for level, region in enumerate(regions):
-    plots.geometry(region, selection={"outline": region.boundaries.all}, labels=False,
-                   title=f"level {level}: {len(corners[level])} sides", ax=fig[level])
+    plots.geometry(
+        region,
+        selection={"outline": region.boundaries.all},
+        labels=False,
+        title=f"level {level}: {len(corners[level])} sides",
+        ax=fig[level],
+    )
 plots.show()
 
 # ## Results
@@ -84,13 +102,21 @@ plots.show()
 area0 = np.sqrt(3) / 4 * side**2
 area = lambda n: area0 * (8 / 5 - 3 / 5 * (4 / 9) ** n)
 centre = (side / 2, side / (2 * np.sqrt(3)))
-print("level  sides   triangles   area CAD   area mesh   closed form   deviation   perimeter   closed form")
+print(
+    "level  sides   triangles   area CAD   area mesh   closed form   deviation   perimeter   closed form"
+)
 for level, (region, mesh) in enumerate(zip(regions, meshes)):
-    print(f"{level:5d} {len(corners[level]):6d} {mesh.cell_count:10d} {region.measure:10.6f} {quality(mesh)['size'].sum():11.6f}"
-          f" {area(level):12.6f} {region.measure / area(level) - 1:+11.1e} {region.edges[0].length:10.5f} {3 * side * (4 / 3) ** level:12.5f}")
-print(f"limit of the area 8/5 A0 = {8 / 5 * area0:.6f}; level 5 reaches {regions[-1].measure / (8 / 5 * area0):.4%} of it")
+    print(
+        f"{level:5d} {len(corners[level]):6d} {mesh.cell_count:10d} {region.measure:10.6f} {quality(mesh)['size'].sum():11.6f}"
+        f" {area(level):12.6f} {region.measure / area(level) - 1:+11.1e} {region.edges[0].length:10.5f} {3 * side * (4 / 3) ** level:12.5f}"
+    )
+print(
+    f"limit of the area 8/5 A0 = {8 / 5 * area0:.6f}; level 5 reaches {regions[-1].measure / (8 / 5 * area0):.4%} of it"
+)
 centroid = Profile.polygon(corners[-1]).section_values().centroid
-print(f"centroid of level 5: ({centroid[0]:.9f}, {centroid[1]:.9f}), centre of the triangle ({centre[0]:.9f}, {centre[1]:.9f})")
+print(
+    f"centroid of level 5: ({centroid[0]:.9f}, {centroid[1]:.9f}), centre of the triangle ({centre[0]:.9f}, {centre[1]:.9f})"
+)
 
 # ## Figure
 #
@@ -99,15 +125,35 @@ print(f"centroid of level 5: ({centroid[0]:.9f}, {centroid[1]:.9f}), centre of t
 
 levels = np.arange(len(regions))
 fig = plots.figure(1, 3, size=(19, 6))
-plots.mesh(meshes[4], cell_values=np.degrees(quality(meshes[4])["minimum_angle"]), limits=(0, 60),
-           label="smallest angle [deg]", title="Level 4: smallest angle of the triangles", ax=fig[0])
-plots.line(levels, {"meshed area": np.array([quality(mesh)["size"].sum() for mesh in meshes])},
-           reference={"A_n, closed form": (levels, area(levels))},
-           hlines={"limit 8/5 A0": 8 / 5 * area0}, markers=True, xlabel="level n", ylabel="area [m2]",
-           title="Area converges", ax=fig[1])
-plots.line(levels, {"CAD region": np.array([region.edges[0].length for region in regions])},
-           reference={"P_n, closed form": (levels, 3 * side * (4 / 3) ** levels)},
-           markers=True, xlabel="level n", ylabel="perimeter [m]", title="Perimeter grows without bound", ax=fig[2])
+plots.mesh(
+    meshes[4],
+    cell_values=np.degrees(quality(meshes[4])["minimum_angle"]),
+    limits=(0, 60),
+    label="smallest angle [deg]",
+    title="Level 4: smallest angle of the triangles",
+    ax=fig[0],
+)
+plots.line(
+    levels,
+    {"meshed area": np.array([quality(mesh)["size"].sum() for mesh in meshes])},
+    reference={"A_n, closed form": (levels, area(levels))},
+    hlines={"limit 8/5 A0": 8 / 5 * area0},
+    markers=True,
+    xlabel="level n",
+    ylabel="area [m2]",
+    title="Area converges",
+    ax=fig[1],
+)
+plots.line(
+    levels,
+    {"CAD region": np.array([region.edges[0].length for region in regions])},
+    reference={"P_n, closed form": (levels, 3 * side * (4 / 3) ** levels)},
+    markers=True,
+    xlabel="level n",
+    ylabel="perimeter [m]",
+    title="Perimeter grows without bound",
+    ax=fig[2],
+)
 plots.show()
 
 # ## Going further

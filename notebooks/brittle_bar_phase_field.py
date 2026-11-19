@@ -9,7 +9,6 @@ is compared with the homogeneous solution, the final crack and the dissipated en
 analytical localised solution, on three meshes.
 """
 
-
 # # Brittle damage of a bar in uniaxial tension
 #
 # Phase-field models describe a crack by a damage field $d\in[0,1]$ smeared over a width set by
@@ -50,11 +49,10 @@ analytical localised solution, on three meshes.
 # | `y_max` | traction free | zero flux |
 
 import numpy as np
-
 from onesim.cad.exchange import load
 from onesim.meshing import TriangularMesher
 from onesim.physics.solid_mechanics import PhaseFieldFracture
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -73,9 +71,24 @@ fractions = [2, 4, 8]
 meshes = {n: TriangularMesher(target_size=ell / n).generate(plane) for n in fractions}
 
 fig = plots.figure(2, 1, size=(15, 2.8))
-plots.geometry(plane, selection={"held end": faces.x_min, "pulled end": faces.x_max, "symmetry plane": faces.y_min}, labels=False,
-               title="Upper half of the bar (section of the CAD part)", ax=fig[0])
-plots.mesh(meshes[8], groups=("all",), legend=False, title=f"Finest mesh: {meshes[8].cell_count} triangles", ax=fig[1])
+plots.geometry(
+    plane,
+    selection={
+        "held end": faces.x_min,
+        "pulled end": faces.x_max,
+        "symmetry plane": faces.y_min,
+    },
+    labels=False,
+    title="Upper half of the bar (section of the CAD part)",
+    ax=fig[0],
+)
+plots.mesh(
+    meshes[8],
+    groups=("all",),
+    legend=False,
+    title=f"Finest mesh: {meshes[8].cell_count} triangles",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Model
@@ -88,13 +101,34 @@ youngs_modulus, toughness, area = 30e9, 100.0, half_height * thickness
 peak_strain = np.sqrt(toughness / (3 * youngs_modulus * ell))
 peak_stress = 9 / 16 * np.sqrt(youngs_modulus * toughness / (3 * ell))
 strain = np.r_[np.linspace(0, 0.9, 10), np.linspace(0.92, 2.0, 55)] * peak_strain
-model = PhaseFieldFracture(youngs_modulus=youngs_modulus, poisson_ratio=0.2, fracture_energy=toughness, length_scale=ell,
-                           thickness=thickness, plane_stress=True)
-results = {n: model.solve(mesh=mesh, times=strain * length, tolerance=1e-6, max_iterations=5000,
-                          displacements=((faces.x_min, "x", 0.0), (faces.x_max, "x", lambda t: t), (faces.y_min, "y", 0.0)),
-                          initial_damage=lambda x, y: 0.1 * np.exp(-(((x - length / 2) / ell) ** 2)))
-           for n, mesh in meshes.items()}
-stress = {n: result.reactions[:, np.isclose(result.coordinates[:, 0], length), 0].sum(axis=1) / area for n, result in results.items()}
+model = PhaseFieldFracture(
+    youngs_modulus=youngs_modulus,
+    poisson_ratio=0.2,
+    fracture_energy=toughness,
+    length_scale=ell,
+    thickness=thickness,
+    plane_stress=True,
+)
+results = {
+    n: model.solve(
+        mesh=mesh,
+        times=strain * length,
+        tolerance=1e-6,
+        max_iterations=5000,
+        displacements=(
+            (faces.x_min, "x", 0.0),
+            (faces.x_max, "x", lambda t: t),
+            (faces.y_min, "y", 0.0),
+        ),
+        initial_damage=lambda x, y: 0.1 * np.exp(-(((x - length / 2) / ell) ** 2)),
+    )
+    for n, mesh in meshes.items()
+}
+stress = {
+    n: result.reactions[:, np.isclose(result.coordinates[:, 0], length), 0].sum(axis=1)
+    / area
+    for n, result in results.items()
+}
 
 # ## Comparison with the reference
 #
@@ -102,24 +136,42 @@ stress = {n: result.reactions[:, np.isclose(result.coordinates[:, 0], length), 0
 # damage $d_h$, the dissipated energy against the analytical localised solution and the largest
 # deviation of the damage along the symmetry plane from the obstacle profile.
 
-homogeneous = lambda e: youngs_modulus * e**2 / (toughness / ell + youngs_modulus * e**2)
+homogeneous = (
+    lambda e: youngs_modulus * e**2 / (toughness / ell + youngs_modulus * e**2)
+)
 fine = results[8]
 uniform = np.ptp(fine.damage, axis=1) < 0.01
-print(f"peak stress: simulation {stress[8].max() / 1e6:.4f} MPa at ε = {strain[stress[8].argmax()] / peak_strain:.3f} ε_c, "
-      f"homogeneous AT2 solution {peak_stress / 1e6:.4f} MPa at ε = ε_c, deviation {100 * (stress[8].max() / peak_stress - 1):+.3f} %")
-print(f"homogeneous branch up to ε = {strain[uniform].max() / peak_strain:.2f} ε_c: largest stress deviation "
-      f"{np.abs(stress[8][uniform] - (1 - homogeneous(strain[uniform])) ** 2 * youngs_modulus * strain[uniform]).max() / peak_stress:.1e} σ_c")
-print(f"{'mesh':>6s} {'triangles':>9s} {'d_h':>7s} {'dissipated / G_c A':>19s} {'1D obstacle solution':>21s} {'deviation':>10s} {'profile deviation':>18s}")
+print(
+    f"peak stress: simulation {stress[8].max() / 1e6:.4f} MPa at ε = {strain[stress[8].argmax()] / peak_strain:.3f} ε_c, "
+    f"homogeneous AT2 solution {peak_stress / 1e6:.4f} MPa at ε = ε_c, deviation {100 * (stress[8].max() / peak_stress - 1):+.3f} %"
+)
+print(
+    f"homogeneous branch up to ε = {strain[uniform].max() / peak_strain:.2f} ε_c: largest stress deviation "
+    f"{np.abs(stress[8][uniform] - (1 - homogeneous(strain[uniform])) ** 2 * youngs_modulus * strain[uniform]).max() / peak_stress:.1e} σ_c"
+)
+print(
+    f"{'mesh':>6s} {'triangles':>9s} {'d_h':>7s} {'dissipated / G_c A':>19s} {'1D obstacle solution':>21s} {'deviation':>10s} {'profile deviation':>18s}"
+)
 profiles, deviations = {}, []
 for n, result in results.items():
     x, y = result.coordinates.T
     frozen = result.damage[-1, np.argmin(x)]
     reach = ell * np.arccosh(1 / frozen)
-    profiles[n] = np.where(np.abs(x - length / 2) < reach, frozen * np.cosh((reach - np.abs(x - length / 2)) / ell), frozen)
-    exact = np.sqrt(1 - frozen**2) - frozen**2 * np.arccosh(1 / frozen) + length * frozen**2 / (2 * ell)
+    profiles[n] = np.where(
+        np.abs(x - length / 2) < reach,
+        frozen * np.cosh((reach - np.abs(x - length / 2)) / ell),
+        frozen,
+    )
+    exact = (
+        np.sqrt(1 - frozen**2)
+        - frozen**2 * np.arccosh(1 / frozen)
+        + length * frozen**2 / (2 * ell)
+    )
     deviations.append(result.fracture_energy[-1] / (toughness * area) / exact - 1)
-    print(f"{'l/' + str(n):>6s} {meshes[n].cell_count:9d} {frozen:7.4f} {result.fracture_energy[-1] / (toughness * area):19.4f} {exact:21.4f}"
-          f" {100 * deviations[-1]:+9.2f} % {np.abs(result.damage[-1] - profiles[n])[np.isclose(y, 0.0)].max():18.4f}")
+    print(
+        f"{'l/' + str(n):>6s} {meshes[n].cell_count:9d} {frozen:7.4f} {result.fracture_energy[-1] / (toughness * area):19.4f} {exact:21.4f}"
+        f" {100 * deviations[-1]:+9.2f} % {np.abs(result.damage[-1] - profiles[n])[np.isclose(y, 0.0)].max():18.4f}"
+    )
 
 # ## Figure
 #
@@ -130,18 +182,59 @@ for n, result in results.items():
 x, y = fine.coordinates.T
 axis = np.isclose(y, 0.0)
 order = np.argsort(x[axis])
-shown = {f"ε = {strain[k] / peak_strain:.2f} ε_c": k for k in (9, 20, int(np.flatnonzero(uniform).max()) + 2, len(strain) - 1)}
+shown = {
+    f"ε = {strain[k] / peak_strain:.2f} ε_c": k
+    for k in (9, 20, int(np.flatnonzero(uniform).max()) + 2, len(strain) - 1)
+}
 line = np.linspace(0, 2.0, 400) * peak_strain
 fig = plots.figure(layout=[["field", "field"], ["profiles", "curve"]], size=(15, 9))
-plots.heatmap(1e3 * x, 1e3 * y, fine.damage[-1], triangles=np.asarray(meshes[8].cells), limits=(0, 1), label="damage d", aspect=4.0,
-              xlabel="x [mm]", ylabel="y [mm]", xlimits=(40, 60), title="Damage in the broken bar, centre part (height drawn 4 times enlarged)", ax=fig["field"])
-plots.line(y={label: (1e3 * x[axis][order], fine.damage[k, axis][order]) for label, k in shown.items()},
-           reference={"obstacle profile at the end": (1e3 * x[axis][order], profiles[8][axis][order])}, ylimits=(0, 1.05),
-           xlabel="x [mm]", ylabel="damage d on the symmetry plane", title="Damage along the bar, h = l/8", legend="upper left", ax=fig["profiles"])
-plots.line(y={f"h = l/{n}": (strain / peak_strain, values / 1e6) for n, values in stress.items()},
-           reference={"homogeneous AT2 solution": (line / peak_strain, (1 - homogeneous(line)) ** 2 * youngs_modulus * line / 1e6)},
-           hlines={"σ_c": peak_stress / 1e6}, xlabel="strain ε / ε_c", ylabel="stress σ [MPa]", title="Stress-strain curve",
-           legend="lower center", ax=fig["curve"])
+plots.heatmap(
+    1e3 * x,
+    1e3 * y,
+    fine.damage[-1],
+    triangles=np.asarray(meshes[8].cells),
+    limits=(0, 1),
+    label="damage d",
+    aspect=4.0,
+    xlabel="x [mm]",
+    ylabel="y [mm]",
+    xlimits=(40, 60),
+    title="Damage in the broken bar, centre part (height drawn 4 times enlarged)",
+    ax=fig["field"],
+)
+plots.line(
+    y={
+        label: (1e3 * x[axis][order], fine.damage[k, axis][order])
+        for label, k in shown.items()
+    },
+    reference={
+        "obstacle profile at the end": (1e3 * x[axis][order], profiles[8][axis][order])
+    },
+    ylimits=(0, 1.05),
+    xlabel="x [mm]",
+    ylabel="damage d on the symmetry plane",
+    title="Damage along the bar, h = l/8",
+    legend="upper left",
+    ax=fig["profiles"],
+)
+plots.line(
+    y={
+        f"h = l/{n}": (strain / peak_strain, values / 1e6)
+        for n, values in stress.items()
+    },
+    reference={
+        "homogeneous AT2 solution": (
+            line / peak_strain,
+            (1 - homogeneous(line)) ** 2 * youngs_modulus * line / 1e6,
+        )
+    },
+    hlines={"σ_c": peak_stress / 1e6},
+    xlabel="strain ε / ε_c",
+    ylabel="stress σ [MPa]",
+    title="Stress-strain curve",
+    legend="lower center",
+    ax=fig["curve"],
+)
 plots.show()
 
 # ## Going further

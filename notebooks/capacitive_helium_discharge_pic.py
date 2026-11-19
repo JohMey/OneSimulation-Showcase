@@ -7,7 +7,6 @@ periodic steady state. The time-averaged ion density profile and the midplane va
 against the published community benchmark.
 """
 
-
 # # Capacitively coupled helium discharge: particle-in-cell benchmark case 1
 #
 # Two plane electrodes 6.7 cm apart enclose helium at 300 K and about 4 Pa. One electrode is driven
@@ -42,10 +41,13 @@ against the published community benchmark.
 # numerical parameters below are those prescribed by the benchmark.
 
 import numpy as np
-
 from onesim.numerics import PICNumericalConfiguration
-from onesim.physics.plasma import BinomialCollisionCandidates, CapacitiveDischargePIC, PICMCCExecution
-from onesim.visualization import theme, plots
+from onesim.physics.plasma import (
+    BinomialCollisionCandidates,
+    CapacitiveDischargePIC,
+    PICMCCExecution,
+)
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -56,13 +58,27 @@ theme.set()
 # species at the start, 1280 RF periods to reach the periodic state and an average over the last 32.
 
 frequency, gap = 13.56e6, 0.067
-discharge = CapacitiveDischargePIC.helium(gap=gap, frequency=frequency, voltage=450.0, gas_density=9.64e20,
-                                          initial_density=2.56e14)
-numerics = PICNumericalConfiguration(cells=128, time_step=1 / (400 * frequency), steps=1280 * 400,
-                                     averaging_steps=32 * 400, particles_per_cell=512, seed=20130107,
-                                     diagnostic_stride=32, kernel="numba")
-execution = PICMCCExecution(electron_candidate_sampler=BinomialCollisionCandidates(),
-                            ion_candidate_sampler=BinomialCollisionCandidates())
+discharge = CapacitiveDischargePIC.helium(
+    gap=gap,
+    frequency=frequency,
+    voltage=450.0,
+    gas_density=9.64e20,
+    initial_density=2.56e14,
+)
+numerics = PICNumericalConfiguration(
+    cells=128,
+    time_step=1 / (400 * frequency),
+    steps=1280 * 400,
+    averaging_steps=32 * 400,
+    particles_per_cell=512,
+    seed=20130107,
+    diagnostic_stride=32,
+    kernel="numba",
+)
+execution = PICMCCExecution(
+    electron_candidate_sampler=BinomialCollisionCandidates(),
+    ion_candidate_sampler=BinomialCollisionCandidates(),
+)
 result = discharge.run(execution=execution, numerics=numerics)
 
 # ## Comparison with the benchmark
@@ -71,25 +87,71 @@ result = discharge.run(execution=execution, numerics=numerics)
 # $10^{14}$ m$^{-3}$, read from the paper's figure). The simulated profile is interpolated to the
 # same positions.
 
-published_position = np.array([0.0, 0.0625, 0.125, 0.1876, 0.25, 0.3124, 0.3748, 0.4373, 0.5002, 0.5627,
-                               0.6252, 0.6876, 0.75, 0.8124, 0.875, 0.9375, 0.9921])
-published_density = 1e14 * np.array([0.3615, 0.4033, 0.4578, 0.5276, 0.6219, 0.7661, 1.011, 1.301, 1.4047,
-                                     1.3003, 1.011, 0.7668, 0.6226, 0.5282, 0.4578, 0.4027, 0.3648])
+published_position = np.array(
+    [
+        0.0,
+        0.0625,
+        0.125,
+        0.1876,
+        0.25,
+        0.3124,
+        0.3748,
+        0.4373,
+        0.5002,
+        0.5627,
+        0.6252,
+        0.6876,
+        0.75,
+        0.8124,
+        0.875,
+        0.9375,
+        0.9921,
+    ]
+)
+published_density = 1e14 * np.array(
+    [
+        0.3615,
+        0.4033,
+        0.4578,
+        0.5276,
+        0.6219,
+        0.7661,
+        1.011,
+        1.301,
+        1.4047,
+        1.3003,
+        1.011,
+        0.7668,
+        0.6226,
+        0.5282,
+        0.4578,
+        0.4027,
+        0.3648,
+    ]
+)
 simulated = np.interp(published_position, result.coordinates / gap, result.ion_density)
-published = {"midplane ion density [1e14 m^-3]": (1.40, result.midplane_ion_density / 1e14),
-             "midplane electron temperature [eV]": (9.36, result.midplane_electron_temperature),
-             "electron power density [W/m^2]": (34.3, result.electron_power_density),
-             "ion power density [W/m^2]": (90.6, result.ion_power_density),
-             "ion current density [A/m^2]": (0.219, result.ion_current_density)}
+published = {
+    "midplane ion density [1e14 m^-3]": (1.40, result.midplane_ion_density / 1e14),
+    "midplane electron temperature [eV]": (9.36, result.midplane_electron_temperature),
+    "electron power density [W/m^2]": (34.3, result.electron_power_density),
+    "ion power density [W/m^2]": (90.6, result.ion_power_density),
+    "ion current density [A/m^2]": (0.219, result.ion_current_density),
+}
 print("quantity                                published   simulation   deviation")
 for name, (reference, value) in published.items():
-    print(f"{name:38s} {reference:10.3f} {value:12.3f} {100 * (value / reference - 1):+10.1f} %")
-print(f"ion density profile: largest deviation {100 * np.abs(simulated - published_density).max() / published_density.max():.1f} % "
-      f"of the peak, rms deviation {100 * np.sqrt(np.mean((simulated - published_density) ** 2)) / published_density.max():.1f} %")
+    print(
+        f"{name:38s} {reference:10.3f} {value:12.3f} {100 * (value / reference - 1):+10.1f} %"
+    )
+print(
+    f"ion density profile: largest deviation {100 * np.abs(simulated - published_density).max() / published_density.max():.1f} % "
+    f"of the peak, rms deviation {100 * np.sqrt(np.mean((simulated - published_density) ** 2)) / published_density.max():.1f} %"
+)
 diagnostics = result.diagnostics
-print(f"resolution: omega_p dt = {diagnostics['omega_p_dt']:.3f}, Debye length / cell = {diagnostics['debye_over_dx']:.2f}, "
-      f"{diagnostics['particles_per_debye_length']:.0f} particles per Debye length, "
-      f"{result.particle_counts['electron']} electrons and {result.particle_counts['ion']} ions at the end")
+print(
+    f"resolution: omega_p dt = {diagnostics['omega_p_dt']:.3f}, Debye length / cell = {diagnostics['debye_over_dx']:.2f}, "
+    f"{diagnostics['particles_per_debye_length']:.0f} particles per Debye length, "
+    f"{result.particle_counts['electron']} electrons and {result.particle_counts['ion']} ions at the end"
+)
 
 # ## Figure
 #
@@ -101,15 +163,36 @@ print(f"resolution: omega_p dt = {diagnostics['omega_p_dt']:.3f}, Debye length /
 # energies, the typical two-temperature shape of a capacitive discharge.
 
 temperature = result.midplane_electron_temperature
-maxwellian = 2 * np.sqrt(result.energy_bins / np.pi) * temperature**-1.5 * np.exp(-result.energy_bins / temperature)
+maxwellian = (
+    2
+    * np.sqrt(result.energy_bins / np.pi)
+    * temperature**-1.5
+    * np.exp(-result.energy_bins / temperature)
+)
 fig = plots.figure(1, 2, size=(13, 4.8))
-plots.line(100 * result.coordinates, {"ions": result.ion_density, "electrons": result.electron_density},
-           points={"ions": (100 * gap * published_position, published_density)},
-           xlabel="position between the electrodes [cm]", ylabel="time-averaged density [m^-3]",
-           title="Densities (markers: published ion density)", legend="upper right", ax=fig[0])
-plots.line(result.energy_bins, {"simulation": result.energy_distribution}, reference={"Maxwellian, same mean energy": maxwellian},
-           vlines={"first excitation": 19.82}, scale="logy", ylimits=(1e-5, 0.2), xlabel="electron energy [eV]",
-           ylabel="energy distribution [1/eV]", title="Electron energy distribution", legend="lower left", ax=fig[1])
+plots.line(
+    100 * result.coordinates,
+    {"ions": result.ion_density, "electrons": result.electron_density},
+    points={"ions": (100 * gap * published_position, published_density)},
+    xlabel="position between the electrodes [cm]",
+    ylabel="time-averaged density [m^-3]",
+    title="Densities (markers: published ion density)",
+    legend="upper right",
+    ax=fig[0],
+)
+plots.line(
+    result.energy_bins,
+    {"simulation": result.energy_distribution},
+    reference={"Maxwellian, same mean energy": maxwellian},
+    vlines={"first excitation": 19.82},
+    scale="logy",
+    ylimits=(1e-5, 0.2),
+    xlabel="electron energy [eV]",
+    ylabel="energy distribution [1/eV]",
+    title="Electron energy distribution",
+    legend="lower left",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Going further

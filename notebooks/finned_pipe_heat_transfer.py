@@ -7,7 +7,6 @@ compared with the Bessel-function solution of the one-dimensional fin equation, 
 energy balance and a mesh study.
 """
 
-
 # # Heat transfer through a finned pipe
 #
 # Warm water flows through a copper pipe, air blows across the outside. Thin annular **disk fins**
@@ -33,8 +32,6 @@ energy balance and a mesh study.
 # fin at base temperature throughout.
 
 import numpy as np
-from scipy.special import i0, i1, k0, k1
-
 from onesim.cad.d2 import Plane
 from onesim.cad.exchange import load
 from onesim.materials import IsotropicSolid
@@ -46,7 +43,8 @@ from onesim.physics.heat_transfer import ConvectiveHeatFlux, HeatConduction, Hea
 from onesim.results.comparisons import convergence
 from onesim.results.integration import measure
 from onesim.simulation import Problem, Simulation
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
+from scipy.special import i0, i1, k0, k1
 
 theme.set()
 
@@ -59,14 +57,43 @@ theme.set()
 pipe = load("finned_pipe_heat_transfer.step")
 faces = pipe.boundaries
 sizes = (0.7e-3, 0.5e-3, 0.35e-3)
-meshes = [with_order(TetrahedralMesher(target_size=size, refinements=(
-    LocalRefinement(region=faces.bore | faces.pipe_surface, target_size=size / 2),)).generate(pipe), 2) for size in sizes]
+meshes = [
+    with_order(
+        TetrahedralMesher(
+            target_size=size,
+            refinements=(
+                LocalRefinement(
+                    region=faces.bore | faces.pipe_surface, target_size=size / 2
+                ),
+            ),
+        ).generate(pipe),
+        2,
+    )
+    for size in sizes
+]
 
 view = plots.Camera(elevation=25, azimuth=-62)
 fig = plots.figure(1, 2, size=(14, 6))
-plots.geometry(pipe, selection={"bore": faces.bore, "fin_surface": faces.fin_surface, "pipe_surface": faces.pipe_surface},
-               labels=False, camera=view, title="One fin pitch, 15° wedge, with its named faces", ax=fig[0])
-plots.mesh(meshes[0], groups=("all",), legend=False, camera=view, title=f"Coarsest mesh: {meshes[0].cell_count} tetrahedra", ax=fig[1])
+plots.geometry(
+    pipe,
+    selection={
+        "bore": faces.bore,
+        "fin_surface": faces.fin_surface,
+        "pipe_surface": faces.pipe_surface,
+    },
+    labels=False,
+    camera=view,
+    title="One fin pitch, 15° wedge, with its named faces",
+    ax=fig[0],
+)
+plots.mesh(
+    meshes[0],
+    groups=("all",),
+    legend=False,
+    camera=view,
+    title=f"Coarsest mesh: {meshes[0].cell_count} tetrahedra",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Model
@@ -75,21 +102,62 @@ plots.show()
 # taken with 80 W/(m² K).
 
 mm = 1e-3
-bore_radius, wall_radius, fin_radius, fin_thickness, grooves = 10 * mm, 12 * mm, 35 * mm, 0.6 * mm, 12
+bore_radius, wall_radius, fin_radius, fin_thickness, grooves = (
+    10 * mm,
+    12 * mm,
+    35 * mm,
+    0.6 * mm,
+    12,
+)
 wedge = np.pi / grooves
 water_temperature, air_temperature, air_film = 303.15, 293.15, 80.0
-water_film = 0.023 * (0.5 * 2 * bore_radius / 0.801e-6) ** 0.8 * 5.42**0.4 * 0.615 / (2 * bore_radius)
-copper = IsotropicSolid(density=8933.0, specific_heat_capacity=385.0, thermal_conductivity=401.0,
-                        youngs_modulus=110e9, poisson_ratio=0.34, thermal_expansion_coefficient=17e-6)
+water_film = (
+    0.023
+    * (0.5 * 2 * bore_radius / 0.801e-6) ** 0.8
+    * 5.42**0.4
+    * 0.615
+    / (2 * bore_radius)
+)
+copper = IsotropicSolid(
+    density=8933.0,
+    specific_heat_capacity=385.0,
+    thermal_conductivity=401.0,
+    youngs_modulus=110e9,
+    poisson_ratio=0.34,
+    thermal_expansion_coefficient=17e-6,
+)
 model = HeatConduction(domain=pipe.volume, material=copper, heating=0.0)
-problem = Problem(name="Finned pipe periodic element", geometry=pipe, physics=(model,), boundary_conditions=(
-    ConvectiveHeatFlux(boundary=faces.bore, physics=model, heat_transfer_coefficient=water_film,
-                       ambient_temperature=water_temperature),
-    ConvectiveHeatFlux(boundary=faces.fin_surface | faces.pipe_surface, physics=model, heat_transfer_coefficient=air_film,
-                       ambient_temperature=air_temperature),
-    HeatFlux(boundary=faces.end_planes | faces.wedge_planes, physics=model, value=0.0)))
-numerics = Numerics(spatial=FiniteElement(element=Lagrange(order=2)), linear_solver=SparseDirect())
-fields = [Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_stationary().field(model.temperature) for mesh in meshes]
+problem = Problem(
+    name="Finned pipe periodic element",
+    geometry=pipe,
+    physics=(model,),
+    boundary_conditions=(
+        ConvectiveHeatFlux(
+            boundary=faces.bore,
+            physics=model,
+            heat_transfer_coefficient=water_film,
+            ambient_temperature=water_temperature,
+        ),
+        ConvectiveHeatFlux(
+            boundary=faces.fin_surface | faces.pipe_surface,
+            physics=model,
+            heat_transfer_coefficient=air_film,
+            ambient_temperature=air_temperature,
+        ),
+        HeatFlux(
+            boundary=faces.end_planes | faces.wedge_planes, physics=model, value=0.0
+        ),
+    ),
+)
+numerics = Numerics(
+    spatial=FiniteElement(element=Lagrange(order=2)), linear_solver=SparseDirect()
+)
+fields = [
+    Simulation(problem=problem, mesh=mesh, numerics=numerics)
+    .solve_stationary()
+    .field(model.temperature)
+    for mesh in meshes
+]
 field = fields[-1]
 
 # ## Results
@@ -98,29 +166,57 @@ field = fields[-1]
 # the base temperature $T_b$ averaged over the fin root. Heat rates are given for one pitch of the
 # full circumference (24 wedges).
 
+
 def annular_fin(r1, r2, t, h, k):
     """Efficiency and temperature profile theta(r)/theta_base of an annular fin with a convective tip."""
     m = np.sqrt(2 * h / (k * t))
-    A, B = np.linalg.solve([[i0(m * r1), k0(m * r1)],
-                            [k * m * i1(m * r2) + h * i0(m * r2), -k * m * k1(m * r2) + h * k0(m * r2)]], [1.0, 0.0])
+    A, B = np.linalg.solve(
+        [
+            [i0(m * r1), k0(m * r1)],
+            [k * m * i1(m * r2) + h * i0(m * r2), -k * m * k1(m * r2) + h * k0(m * r2)],
+        ],
+        [1.0, 0.0],
+    )
     base_flux = -k * m * (A * i1(m * r1) - B * k1(m * r1))
-    return base_flux * 2 * np.pi * r1 * t / (h * (2 * np.pi * (r2**2 - r1**2) + 2 * np.pi * r2 * t)), lambda r: A * i0(m * r) + B * k0(m * r)
+    return base_flux * 2 * np.pi * r1 * t / (
+        h * (2 * np.pi * (r2**2 - r1**2) + 2 * np.pi * r2 * t)
+    ), lambda r: A * i0(m * r) + B * k0(m * r)
 
 
-x_root, angle_root = np.meshgrid((np.arange(16) + 0.5) / 16 * fin_thickness - fin_thickness / 2, (np.arange(48) + 0.5) / 48 * wedge)
-root = np.column_stack((x_root.ravel(), wall_radius * np.cos(angle_root.ravel()), wall_radius * np.sin(angle_root.ravel())))
+x_root, angle_root = np.meshgrid(
+    (np.arange(16) + 0.5) / 16 * fin_thickness - fin_thickness / 2,
+    (np.arange(48) + 0.5) / 48 * wedge,
+)
+root = np.column_stack(
+    (
+        x_root.ravel(),
+        wall_radius * np.cos(angle_root.ravel()),
+        wall_radius * np.sin(angle_root.ravel()),
+    )
+)
 base_temperature = [float(np.mean(f.evaluate(root))) for f in fields]
-efficiency = [f.boundary_flux(faces.fin_surface) / (air_film * measure(f, boundary=faces.fin_surface) * (T - air_temperature))
-              for f, T in zip(fields, base_temperature)]
-exact_efficiency, fin_profile = annular_fin(wall_radius, fin_radius, fin_thickness, air_film, copper.thermal_conductivity)
+efficiency = [
+    f.boundary_flux(faces.fin_surface)
+    / (air_film * measure(f, boundary=faces.fin_surface) * (T - air_temperature))
+    for f, T in zip(fields, base_temperature)
+]
+exact_efficiency, fin_profile = annular_fin(
+    wall_radius, fin_radius, fin_thickness, air_film, copper.thermal_conductivity
+)
 study = convergence(efficiency, sizes)
-heat_water, heat_air = -24 * field.boundary_flux(faces.bore), 24 * field.boundary_flux(faces.fin_surface | faces.pipe_surface)
+heat_water, heat_air = -24 * field.boundary_flux(faces.bore), 24 * field.boundary_flux(
+    faces.fin_surface | faces.pipe_surface
+)
 print("cell size [mm]   tetrahedra   fin efficiency")
 for size, mesh, eta in zip(sizes, meshes, efficiency):
     print(f"{size / mm:14.2f} {mesh.cell_count:12d} {eta:16.5f}")
-print(f"Richardson estimate {study.extrapolated:.5f} (order {study.order:.2f}),  Bessel solution {exact_efficiency:.5f},  "
-      f"deviation of the finest mesh {100 * (efficiency[-1] / exact_efficiency - 1):+.3f} %")
-print(f"heat from the water {heat_water:.5f} W, heat to the air {heat_air:.5f} W, imbalance {abs(heat_water / heat_air - 1):.1e}")
+print(
+    f"Richardson estimate {study.extrapolated:.5f} (order {study.order:.2f}),  Bessel solution {exact_efficiency:.5f},  "
+    f"deviation of the finest mesh {100 * (efficiency[-1] / exact_efficiency - 1):+.3f} %"
+)
+print(
+    f"heat from the water {heat_water:.5f} W, heat to the air {heat_air:.5f} W, imbalance {abs(heat_water / heat_air - 1):.1e}"
+)
 
 # ## Figure
 #
@@ -129,28 +225,79 @@ print(f"heat from the water {heat_water:.5f} W, heat to the air {heat_air:.5f} W
 # the fin against the Bessel solution, and the mesh study.
 
 pitch = pipe.size[0]
-surface_temperature = np.asarray(field.sample(along=faces.fin_surface | faces.bore).values)
+surface_temperature = np.asarray(
+    field.sample(along=faces.fin_surface | faces.bore).values
+)
 limits = (float(surface_temperature.min()), float(surface_temperature.max()))
-mirror, repeat = [((0, 0, 1), (0, 0, 0))], [((1, 0, 0), (x, 0, 0)) for x in (pitch / 2, -pitch / 2, 1.5 * pitch)]
+mirror, repeat = [((0, 0, 1), (0, 0, 0))], [
+    ((1, 0, 0), (x, 0, 0)) for x in (pitch / 2, -pitch / 2, 1.5 * pitch)
+]
 r_line = np.linspace(wall_radius, fin_radius - 0.05 * mm, 80)
-along_fin = {f"3D model, {np.degrees(angle):.0f}° from a groove ridge":
-             np.column_stack((np.zeros_like(r_line), r_line * np.cos(angle), r_line * np.sin(angle))) for angle in (0.0, wedge)}
-fig = plots.figure(layout=[["surface", "surface", "cut", "fin"], ["surface", "surface", "cut", "study"]], size=(17, 6.4))
-plots.surface(field, boundary=faces.fin_surface | faces.pipe_surface | faces.bore,
-              symmetry={"planes": mirror + repeat, "sector": ((1, 0, 0), grooves)}, limits=limits, subdivisions=1,
-              camera=plots.Camera(elevation=25, azimuth=-62, distance=0.85), label="T [K]",
-              title="Surface temperature, four pitches", ax=fig["surface"])
-plots.section(field, plane=Plane(origin=(0.0, 0.0, 0.0), normal=(1.0, 0.0, 0.0)),
-              symmetry={"planes": mirror, "sector": ((1, 0, 0), grooves)}, subdivisions=3, contours=12, limits=limits,
-              label="T [K]", title="Fin mid-plane near the grooved bore", xlimits=(-14 * mm, 14 * mm),
-              ylimits=(-14 * mm, 14 * mm), ax=fig["cut"])
-plots.line(points={label: (r_line[::4] / mm, ((np.asarray(field.evaluate(points)).ravel() - air_temperature)
-                                              / (base_temperature[-1] - air_temperature))[::4])
-                   for label, points in along_fin.items()},
-           reference={"Bessel solution": (r_line / mm, fin_profile(r_line))}, xlabel="radius [mm]",
-           ylabel="(T - T_air) / (T_base - T_air)", title="Temperature along the fin", legend="lower left", ax=fig["fin"])
-plots.line(np.array(sizes) / mm, {"3D model": efficiency}, hlines={"Bessel solution": exact_efficiency}, markers=True,
-           xlabel="cell size [mm]", ylabel="fin efficiency", title="Mesh study", ax=fig["study"])
+along_fin = {
+    f"3D model, {np.degrees(angle):.0f}° from a groove ridge": np.column_stack(
+        (np.zeros_like(r_line), r_line * np.cos(angle), r_line * np.sin(angle))
+    )
+    for angle in (0.0, wedge)
+}
+fig = plots.figure(
+    layout=[
+        ["surface", "surface", "cut", "fin"],
+        ["surface", "surface", "cut", "study"],
+    ],
+    size=(17, 6.4),
+)
+plots.surface(
+    field,
+    boundary=faces.fin_surface | faces.pipe_surface | faces.bore,
+    symmetry={"planes": mirror + repeat, "sector": ((1, 0, 0), grooves)},
+    limits=limits,
+    subdivisions=1,
+    camera=plots.Camera(elevation=25, azimuth=-62, distance=0.85),
+    label="T [K]",
+    title="Surface temperature, four pitches",
+    ax=fig["surface"],
+)
+plots.section(
+    field,
+    plane=Plane(origin=(0.0, 0.0, 0.0), normal=(1.0, 0.0, 0.0)),
+    symmetry={"planes": mirror, "sector": ((1, 0, 0), grooves)},
+    subdivisions=3,
+    contours=12,
+    limits=limits,
+    label="T [K]",
+    title="Fin mid-plane near the grooved bore",
+    xlimits=(-14 * mm, 14 * mm),
+    ylimits=(-14 * mm, 14 * mm),
+    ax=fig["cut"],
+)
+plots.line(
+    points={
+        label: (
+            r_line[::4] / mm,
+            (
+                (np.asarray(field.evaluate(points)).ravel() - air_temperature)
+                / (base_temperature[-1] - air_temperature)
+            )[::4],
+        )
+        for label, points in along_fin.items()
+    },
+    reference={"Bessel solution": (r_line / mm, fin_profile(r_line))},
+    xlabel="radius [mm]",
+    ylabel="(T - T_air) / (T_base - T_air)",
+    title="Temperature along the fin",
+    legend="lower left",
+    ax=fig["fin"],
+)
+plots.line(
+    np.array(sizes) / mm,
+    {"3D model": efficiency},
+    hlines={"Bessel solution": exact_efficiency},
+    markers=True,
+    xlabel="cell size [mm]",
+    ylabel="fin efficiency",
+    title="Mesh study",
+    ax=fig["study"],
+)
 plots.show()
 
 # ## Going further

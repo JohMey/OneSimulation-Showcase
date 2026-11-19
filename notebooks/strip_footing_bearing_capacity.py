@@ -7,7 +7,6 @@ quadratic triangles. The footing pressure approaches a collapse value, which is 
 Prandtl's bearing capacity (2 + π) s_u on two meshes.
 """
 
-
 # # Bearing capacity of a strip footing on clay
 #
 # How much load can a shallow foundation carry before the soil under it fails? For a long
@@ -42,14 +41,13 @@ Prandtl's bearing capacity (2 + π) s_u on two meshes.
 # **Reference.** Prandtl's collapse pressure $(2+\pi)\,s_u=257.1$ kPa.
 
 import numpy as np
-
 from onesim.cad.exchange import load
 from onesim.meshing import TriangularMesher
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import SparseDirect
 from onesim.numerics.nonlinear import DampedNewton
 from onesim.physics.geotechnics import DruckerPragerSoil, FrictionalSolid
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -63,14 +61,38 @@ stratum = load("strip_footing_bearing_capacity.step")
 plane = stratum.section((0, 0, 1), origin=(0, 0, stratum.size[2] / 2))
 faces = plane.boundaries
 edge_sizes = [0.06, 0.03, 0.015]
-meshes = [TriangularMesher(target_size=0.3, size_field=lambda p, h=h: np.minimum(h + 0.15 * np.hypot(p[:, 0] - 0.5, p[:, 1]), 0.3)).generate(plane)
-          for h in edge_sizes]
+meshes = [
+    TriangularMesher(
+        target_size=0.3,
+        size_field=lambda p, h=h: np.minimum(
+            h + 0.15 * np.hypot(p[:, 0] - 0.5, p[:, 1]), 0.3
+        ),
+    ).generate(plane)
+    for h in edge_sizes
+]
 
 fig = plots.figure(1, 2, size=(15, 5))
-plots.geometry(plane, selection={"footing": faces["footing.y_max"], "ground surface": faces["soil.y_max"],
-                                 "rollers": faces["footing.x_min"] | faces["soil.x_max"] | faces["footing.y_min"] | faces["soil.y_min"]},
-               labels=False, title="Half section of the clay stratum", ax=fig[0])
-plots.mesh(meshes[-1], groups=("all",), legend=False, title=f"Finer mesh: {meshes[-1].cell_count} triangles", ax=fig[1])
+plots.geometry(
+    plane,
+    selection={
+        "footing": faces["footing.y_max"],
+        "ground surface": faces["soil.y_max"],
+        "rollers": faces["footing.x_min"]
+        | faces["soil.x_max"]
+        | faces["footing.y_min"]
+        | faces["soil.y_min"],
+    },
+    labels=False,
+    title="Half section of the clay stratum",
+    ax=fig[0],
+)
+plots.mesh(
+    meshes[-1],
+    groups=("all",),
+    legend=False,
+    title=f"Finer mesh: {meshes[-1].cell_count} triangles",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Model
@@ -78,16 +100,46 @@ plots.show()
 # Plane strain with quadratic triangles; the footing goes down in twelve steps to 0.15 m.
 
 undrained_strength = 50e3
-clay = FrictionalSolid(material=DruckerPragerSoil(youngs_modulus=10e6, poisson_ratio=0.3, cohesion=np.sqrt(3) / 2 * undrained_strength,
-                                                  friction_angle=0.0), kinematics="plane_strain")
+clay = FrictionalSolid(
+    material=DruckerPragerSoil(
+        youngs_modulus=10e6,
+        poisson_ratio=0.3,
+        cohesion=np.sqrt(3) / 2 * undrained_strength,
+        friction_angle=0.0,
+    ),
+    kinematics="plane_strain",
+)
 settlement = np.r_[np.arange(0.0, 0.06, 0.01), np.arange(0.06, 0.151, 0.015)]
-results = [clay.solve(mesh=mesh, times=settlement, spatial=FiniteElement(element=Lagrange(2)),
-                      nonlinear=DampedNewton(relative_tolerance=1e-8, absolute_tolerance=1e-6, maximum_iterations=60, linear_solver=SparseDirect()),
-                      displacements=((faces["footing.x_min"], "x", 0.0), (faces["soil.x_max"], "x", 0.0),
-                                     (faces["footing.y_min"] | faces["soil.y_min"], "y", 0.0), (faces["footing.y_max"], "y", lambda t: -t)))
-           for mesh in meshes]
-pressure = [-result.reactions[:, (result.coordinates[:, 0] <= 0.5 + 1e-9) & (np.abs(result.coordinates[:, 1]) < 1e-9), 1].sum(axis=1) / 0.5
-            for result in results]
+results = [
+    clay.solve(
+        mesh=mesh,
+        times=settlement,
+        spatial=FiniteElement(element=Lagrange(2)),
+        nonlinear=DampedNewton(
+            relative_tolerance=1e-8,
+            absolute_tolerance=1e-6,
+            maximum_iterations=60,
+            linear_solver=SparseDirect(),
+        ),
+        displacements=(
+            (faces["footing.x_min"], "x", 0.0),
+            (faces["soil.x_max"], "x", 0.0),
+            (faces["footing.y_min"] | faces["soil.y_min"], "y", 0.0),
+            (faces["footing.y_max"], "y", lambda t: -t),
+        ),
+    )
+    for mesh in meshes
+]
+pressure = [
+    -result.reactions[
+        :,
+        (result.coordinates[:, 0] <= 0.5 + 1e-9)
+        & (np.abs(result.coordinates[:, 1]) < 1e-9),
+        1,
+    ].sum(axis=1)
+    / 0.5
+    for result in results
+]
 
 # ## Comparison with the reference
 #
@@ -96,10 +148,14 @@ pressure = [-result.reactions[:, (result.coordinates[:, 0] <= 0.5 + 1e-9) & (np.
 
 prandtl = (2 + np.pi) * undrained_strength
 print(f"Prandtl: q_f = (2 + π) s_u = {prandtl / 1e3:.1f} kPa")
-print(f"{'size at the edge':>16s} {'triangles':>9s} {'q at δ = 0.15 m [kPa]':>22s} {'q / s_u':>8s} {'deviation':>10s} {'increase over the last step':>28s}")
+print(
+    f"{'size at the edge':>16s} {'triangles':>9s} {'q at δ = 0.15 m [kPa]':>22s} {'q / s_u':>8s} {'deviation':>10s} {'increase over the last step':>28s}"
+)
 for size, mesh, values in zip(edge_sizes, meshes, pressure):
-    print(f"{100 * size:13.1f} cm {mesh.cell_count:9d} {values[-1] / 1e3:22.1f} {values[-1] / undrained_strength:8.3f}"
-          f" {100 * (values[-1] / prandtl - 1):+9.1f} % {100 * (values[-1] / values[-2] - 1):27.2f} %")
+    print(
+        f"{100 * size:13.1f} cm {mesh.cell_count:9d} {values[-1] / 1e3:22.1f} {values[-1] / undrained_strength:8.3f}"
+        f" {100 * (values[-1] / prandtl - 1):+9.1f} % {100 * (values[-1] / values[-2] - 1):27.2f} %"
+    )
 
 # ## Figure
 #
@@ -109,14 +165,39 @@ for size, mesh, values in zip(edge_sizes, meshes, pressure):
 
 result, mesh = results[-1], meshes[-1]
 nodes = len(mesh.coordinates)
-increment = np.hypot(*(result.displacement[-1, :nodes] - result.displacement[-2, :nodes]).T)
+increment = np.hypot(
+    *(result.displacement[-1, :nodes] - result.displacement[-2, :nodes]).T
+)
 fig = plots.figure(1, 2, size=(16, 5.5))
-plots.line(y={f"{mesh.cell_count} triangles": (100 * settlement, values / undrained_strength) for mesh, values in zip(meshes, pressure)},
-           hlines={"Prandtl, 2 + π": 2 + np.pi}, markers=True, ylimits=(0, 6),
-           xlabel="settlement δ [cm]", ylabel="mean footing pressure q / s_u", title="Load-settlement curve", legend="lower right", ax=fig[0])
-plots.heatmap(result.coordinates[:nodes, 0], result.coordinates[:nodes, 1], 100 * increment / (settlement[-1] - settlement[-2]),
-              triangles=np.asarray(mesh.cells), limits=(0, 100), contours=10, label="displacement increment / footing increment [%]",
-              xlabel="x [m]", ylabel="y [m]", xlimits=(0, 2.5), ylimits=(-1.5, 0), title="Collapse mechanism in the last step", ax=fig[1])
+plots.line(
+    y={
+        f"{mesh.cell_count} triangles": (100 * settlement, values / undrained_strength)
+        for mesh, values in zip(meshes, pressure)
+    },
+    hlines={"Prandtl, 2 + π": 2 + np.pi},
+    markers=True,
+    ylimits=(0, 6),
+    xlabel="settlement δ [cm]",
+    ylabel="mean footing pressure q / s_u",
+    title="Load-settlement curve",
+    legend="lower right",
+    ax=fig[0],
+)
+plots.heatmap(
+    result.coordinates[:nodes, 0],
+    result.coordinates[:nodes, 1],
+    100 * increment / (settlement[-1] - settlement[-2]),
+    triangles=np.asarray(mesh.cells),
+    limits=(0, 100),
+    contours=10,
+    label="displacement increment / footing increment [%]",
+    xlabel="x [m]",
+    ylabel="y [m]",
+    xlimits=(0, 2.5),
+    ylimits=(-1.5, 0),
+    title="Collapse mechanism in the last step",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Going further

@@ -7,7 +7,6 @@ quadratic finite elements for Peclet numbers from almost mixed to almost plug fl
 with the closed-form solution of Danckwerts and Wehner & Wilhelm.
 """
 
-
 # # Danckwerts benchmark: tubular reactor with axial dispersion
 #
 # In a real tube the fluid is neither perfectly mixed nor in ideal plug flow. The dispersion model
@@ -39,7 +38,6 @@ with the closed-form solution of Danckwerts and Wehner & Wilhelm.
 # $e^{-\mathrm{Da}}$, for $\mathrm{Pe}\to\infty$.
 
 import numpy as np
-
 from onesim.cad.d1 import Line
 from onesim.meshing import StructuredLineMesher
 from onesim.numerics import Numerics
@@ -51,7 +49,7 @@ from onesim.physics.chemistry import SpeciesTransport, TransportSpecies
 from onesim.results.comparisons import convergence
 from onesim.simulation import OutwardFluxBoundary, Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -64,12 +62,30 @@ theme.set()
 
 length, velocity, rate, inlet = 1.0, 1.0, 2.0, 1.0
 tube = Line(start=(0.0, 0.0, 0.0), end=(length, 0.0, 0.0))
-numerics = Numerics(spatial=FiniteElement(element=Lagrange(2), quadrature_order=5), linear_solver=SparseDirect(),
-                    nonlinear_solver=Newton(linear_solver=SparseDirect(), jacobian="analytic", absolute_tolerance=1e-12, relative_tolerance=1e-11),
-                    time_integrator=BDF(order=2, startup=BackwardEuler()))
+numerics = Numerics(
+    spatial=FiniteElement(element=Lagrange(2), quadrature_order=5),
+    linear_solver=SparseDirect(),
+    nonlinear_solver=Newton(
+        linear_solver=SparseDirect(),
+        jacobian="analytic",
+        absolute_tolerance=1e-12,
+        relative_tolerance=1e-11,
+    ),
+    time_integrator=BDF(order=2, startup=BackwardEuler()),
+)
 a = lambda Pe: np.sqrt(1 + 4 * rate * length / velocity / Pe)
-exact = lambda Pe, z: (2 * np.exp(Pe * z / 2) * ((1 + a(Pe)) * np.exp(a(Pe) * Pe * (1 - z) / 2) - (1 - a(Pe)) * np.exp(-a(Pe) * Pe * (1 - z) / 2))
-                       / ((1 + a(Pe)) ** 2 * np.exp(a(Pe) * Pe / 2) - (1 - a(Pe)) ** 2 * np.exp(-a(Pe) * Pe / 2)))
+exact = lambda Pe, z: (
+    2
+    * np.exp(Pe * z / 2)
+    * (
+        (1 + a(Pe)) * np.exp(a(Pe) * Pe * (1 - z) / 2)
+        - (1 - a(Pe)) * np.exp(-a(Pe) * Pe * (1 - z) / 2)
+    )
+    / (
+        (1 + a(Pe)) ** 2 * np.exp(a(Pe) * Pe / 2)
+        - (1 - a(Pe)) ** 2 * np.exp(-a(Pe) * Pe / 2)
+    )
+)
 
 
 # ## Model and Peclet sweep
@@ -79,18 +95,50 @@ exact = lambda Pe, z: (2 * np.exp(Pe * z / 2) * ((1 + a(Pe)) * np.exp(a(Pe) * Pe
 # the outlet.
 
 peclets = (0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0)
-models = {Pe: SpeciesTransport(domain=tube.line, velocity=velocity, species=(TransportSpecies("A", diffusivity=velocity * length / Pe, decay_rate=rate),))
-          for Pe in peclets}
-problems = {Pe: Problem(
-    name="Danckwerts tubular reactor", geometry=tube, physics=(model,),
-    boundary_conditions=(OutwardFluxBoundary(physics=model, boundary=tube.boundaries.start, flux=lambda **kw: np.array([-velocity * inlet]),
-                                             jacobian=lambda **kw: np.zeros((1, 1))),
-                         OutwardFluxBoundary(physics=model, boundary=tube.boundaries.end, flux=lambda interior, **kw: velocity * interior,
-                                             jacobian=lambda **kw: np.array([[velocity]]), wave_speed=velocity)),
-    initial_conditions=(InitialValue(model.concentration("A"), 0.0),)) for Pe, model in models.items()}
-fields = {Pe: Simulation(problem=problems[Pe], mesh=StructuredLineMesher(cells=80).generate(tube), numerics=numerics)
-          .run(start_time=0.0, end_time=15 * length / velocity, time_step=0.05).field(model.concentration("A"))
-          for Pe, model in models.items()}
+models = {
+    Pe: SpeciesTransport(
+        domain=tube.line,
+        velocity=velocity,
+        species=(
+            TransportSpecies("A", diffusivity=velocity * length / Pe, decay_rate=rate),
+        ),
+    )
+    for Pe in peclets
+}
+problems = {
+    Pe: Problem(
+        name="Danckwerts tubular reactor",
+        geometry=tube,
+        physics=(model,),
+        boundary_conditions=(
+            OutwardFluxBoundary(
+                physics=model,
+                boundary=tube.boundaries.start,
+                flux=lambda **kw: np.array([-velocity * inlet]),
+                jacobian=lambda **kw: np.zeros((1, 1)),
+            ),
+            OutwardFluxBoundary(
+                physics=model,
+                boundary=tube.boundaries.end,
+                flux=lambda interior, **kw: velocity * interior,
+                jacobian=lambda **kw: np.array([[velocity]]),
+                wave_speed=velocity,
+            ),
+        ),
+        initial_conditions=(InitialValue(model.concentration("A"), 0.0),),
+    )
+    for Pe, model in models.items()
+}
+fields = {
+    Pe: Simulation(
+        problem=problems[Pe],
+        mesh=StructuredLineMesher(cells=80).generate(tube),
+        numerics=numerics,
+    )
+    .run(start_time=0.0, end_time=15 * length / velocity, time_step=0.05)
+    .field(model.concentration("A"))
+    for Pe, model in models.items()
+}
 
 
 # ## Results
@@ -102,9 +150,13 @@ z = np.linspace(0.0, 1.0, 401)
 line_points = np.column_stack([z * length, 0 * z, 0 * z])
 profiles = {Pe: np.ravel(field.evaluate(line_points)) for Pe, field in fields.items()}
 for Pe, c in profiles.items():
-    print(f"Pe = {Pe:5.1f}: outlet c/c0 {c[-1]:.6f} (exact {exact(Pe, 1.0):.6f}), inlet c/c0 {c[0]:.6f} (exact {exact(Pe, 0.0):.6f}), "
-          f"largest deviation along the tube {np.max(np.abs(c - exact(Pe, z))):.1e}")
-print(f"limits: stirred tank 1/(1+Da) = {1 / (1 + rate * length / velocity):.4f}, plug flow exp(-Da) = {np.exp(-rate * length / velocity):.4f}")
+    print(
+        f"Pe = {Pe:5.1f}: outlet c/c0 {c[-1]:.6f} (exact {exact(Pe, 1.0):.6f}), inlet c/c0 {c[0]:.6f} (exact {exact(Pe, 0.0):.6f}), "
+        f"largest deviation along the tube {np.max(np.abs(c - exact(Pe, z))):.1e}"
+    )
+print(
+    f"limits: stirred tank 1/(1+Da) = {1 / (1 + rate * length / velocity):.4f}, plug flow exp(-Da) = {np.exp(-rate * length / velocity):.4f}"
+)
 
 
 # ## Mesh study
@@ -113,13 +165,29 @@ print(f"limits: stirred tank 1/(1+Da) = {1 / (1 + rate * length / velocity):.4f}
 # elements are superconvergent, so the error falls with the fourth power of the element size.
 
 cells = (5, 10, 20, 40)
-outlet = [float(np.ravel(Simulation(problem=problems[20.0], mesh=StructuredLineMesher(cells=n).generate(tube), numerics=numerics)
-                        .run(start_time=0.0, end_time=15 * length / velocity, time_step=0.05).field(models[20.0].concentration("A"))
-                        .evaluate(np.array([[length, 0.0, 0.0]])))[0]) for n in cells]
+outlet = [
+    float(
+        np.ravel(
+            Simulation(
+                problem=problems[20.0],
+                mesh=StructuredLineMesher(cells=n).generate(tube),
+                numerics=numerics,
+            )
+            .run(start_time=0.0, end_time=15 * length / velocity, time_step=0.05)
+            .field(models[20.0].concentration("A"))
+            .evaluate(np.array([[length, 0.0, 0.0]]))
+        )[0]
+    )
+    for n in cells
+]
 study = convergence(outlet, [length / n for n in cells])
 for n, value in zip(cells, outlet):
-    print(f"{n:3d} elements: outlet c/c0 {value:.9f}, error {abs(value - exact(20.0, 1.0)):.2e}")
-print(f"observed order of convergence {study.order:.2f}, Richardson extrapolation {study.extrapolated:.9f} (exact {exact(20.0, 1.0):.9f})")
+    print(
+        f"{n:3d} elements: outlet c/c0 {value:.9f}, error {abs(value - exact(20.0, 1.0)):.2e}"
+    )
+print(
+    f"observed order of convergence {study.order:.2f}, Richardson extrapolation {study.extrapolated:.9f} (exact {exact(20.0, 1.0):.9f})"
+)
 
 
 # ## Figure
@@ -129,15 +197,48 @@ print(f"observed order of convergence {study.order:.2f}, Richardson extrapolatio
 
 Pe_line = np.geomspace(0.05, 100, 200)
 fig = plots.figure(1, 3, size=(18, 5))
-plots.line(points={f"Pe = {Pe:g}": (z[::20], profiles[Pe][::20]) for Pe in (0.1, 1.0, 5.0, 50.0)},
-           reference={f"Pe = {Pe:g}": (z, exact(Pe, z)) for Pe in (0.1, 1.0, 5.0, 50.0)},
-           hlines={"feed": inlet}, ylimits=(0, 1.05), xlabel="position x / L", ylabel="c / c0", title="Profiles, dashed: exact", ax=fig[0])
-plots.line(points={"OneSimulation": (peclets, [1 - profiles[Pe][-1] for Pe in peclets])}, reference={"Danckwerts": (Pe_line, 1 - exact(Pe_line, 1.0))},
-           hlines={"stirred tank": 1 - 1 / (1 + rate * length / velocity), "plug flow": 1 - np.exp(-rate * length / velocity)},
-           scale="logx", ylimits=(0.65, 0.88), xlabel="Peclet number uL/D", ylabel="conversion at the outlet", title="Between mixed and plug flow (Da = 2)",
-           legend="lower right", ax=fig[1])
-plots.line(y={"outlet error": ([length / n for n in cells], [abs(value - exact(20.0, 1.0)) for value in outlet])}, markers=True, scale="loglog", slope=4,
-           xlabel="element size [m]", ylabel="error of c/c0 at the outlet", title="Mesh study at Pe = 20", ax=fig[2])
+plots.line(
+    points={
+        f"Pe = {Pe:g}": (z[::20], profiles[Pe][::20]) for Pe in (0.1, 1.0, 5.0, 50.0)
+    },
+    reference={f"Pe = {Pe:g}": (z, exact(Pe, z)) for Pe in (0.1, 1.0, 5.0, 50.0)},
+    hlines={"feed": inlet},
+    ylimits=(0, 1.05),
+    xlabel="position x / L",
+    ylabel="c / c0",
+    title="Profiles, dashed: exact",
+    ax=fig[0],
+)
+plots.line(
+    points={"OneSimulation": (peclets, [1 - profiles[Pe][-1] for Pe in peclets])},
+    reference={"Danckwerts": (Pe_line, 1 - exact(Pe_line, 1.0))},
+    hlines={
+        "stirred tank": 1 - 1 / (1 + rate * length / velocity),
+        "plug flow": 1 - np.exp(-rate * length / velocity),
+    },
+    scale="logx",
+    ylimits=(0.65, 0.88),
+    xlabel="Peclet number uL/D",
+    ylabel="conversion at the outlet",
+    title="Between mixed and plug flow (Da = 2)",
+    legend="lower right",
+    ax=fig[1],
+)
+plots.line(
+    y={
+        "outlet error": (
+            [length / n for n in cells],
+            [abs(value - exact(20.0, 1.0)) for value in outlet],
+        )
+    },
+    markers=True,
+    scale="loglog",
+    slope=4,
+    xlabel="element size [m]",
+    ylabel="error of c/c0 at the outlet",
+    title="Mesh study at Pe = 20",
+    ax=fig[2],
+)
 plots.show()
 
 

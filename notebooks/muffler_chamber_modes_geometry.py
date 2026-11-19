@@ -9,4 +9,6 @@ from onesim.cad.d3 import Cylinder
 
 chamber = Cylinder(radius=0.1, length=0.4).scaled((1.0, 0.6, 1.0))
 faces = chamber.boundaries
-chamber.grouped(mantle=faces.outer_wall, ends=faces.bottom | faces.top).save("muffler_chamber_modes.step")
+chamber.grouped(mantle=faces.outer_wall, ends=faces.bottom | faces.top).save(
+    "muffler_chamber_modes.step"
+)

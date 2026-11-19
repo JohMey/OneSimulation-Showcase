@@ -4,7 +4,6 @@ Requires the installed, activated OneSimulation runtime.
 The OneSimulation solution is checked against the closed-form closed-loop response.
 """
 
-
 # # Proportional control of a first-order plant
 #
 # A first-order plant with the time constant $\tau$ and the static gain $K$,
@@ -27,9 +26,8 @@ The OneSimulation solution is checked against the closed-form closed-loop respon
 # the steady-state offset $r-y_\infty=r/(1+KK_p)$. Both facts are checked below.
 
 import numpy as np
-
 from onesim.physics.systems import ControlSignalFlowProvider, SignalBlock
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -50,17 +48,35 @@ steady_output = loop_gain / (1.0 + loop_gain) * setpoint
 closed_loop_time_constant = time_constant / (1.0 + loop_gain)
 end_time = 6.0 * closed_loop_time_constant
 time_step = 0.01
-print(f"loop gain K*Kp = {loop_gain:.1f},  closed-loop time constant = {closed_loop_time_constant:.3f} s "
-      f"(open loop {time_constant:.1f} s),  steady output = {steady_output:.4f}")
+print(
+    f"loop gain K*Kp = {loop_gain:.1f},  closed-loop time constant = {closed_loop_time_constant:.3f} s "
+    f"(open loop {time_constant:.1f} s),  steady output = {steady_output:.4f}"
+)
 
 loop = ControlSignalFlowProvider(
     blocks=(
         SignalBlock("setpoint", "constant", parameters={"value": setpoint}),
-        SignalBlock("error", "sum", inputs=("setpoint", "plant"), parameters={"weights": (1.0, -1.0)}),
-        SignalBlock("controller", "pid", inputs=("error",), parameters={"proportional_gain": proportional_gain}),
-        SignalBlock("actuator", "gain", inputs=("controller",), parameters={"gain": plant_gain}),
-        SignalBlock("plant", "first_order", inputs=("actuator",),
-                    parameters={"time_constant": time_constant, "initial_value": 0.0}),
+        SignalBlock(
+            "error",
+            "sum",
+            inputs=("setpoint", "plant"),
+            parameters={"weights": (1.0, -1.0)},
+        ),
+        SignalBlock(
+            "controller",
+            "pid",
+            inputs=("error",),
+            parameters={"proportional_gain": proportional_gain},
+        ),
+        SignalBlock(
+            "actuator", "gain", inputs=("controller",), parameters={"gain": plant_gain}
+        ),
+        SignalBlock(
+            "plant",
+            "first_order",
+            inputs=("actuator",),
+            parameters={"time_constant": time_constant, "initial_value": 0.0},
+        ),
     ),
     final_time=end_time,
     time_step=time_step,
@@ -82,30 +98,52 @@ print("evaluation order:", " -> ".join(run.evaluation_order))
 
 reference = steady_output * (1.0 - np.exp(-times / closed_loop_time_constant))
 max_output_error = float(np.max(np.abs(outputs - reference)))
-print(f"Maximum output error against the closed-loop exponential: {max_output_error:.3e}")
+print(
+    f"Maximum output error against the closed-loop exponential: {max_output_error:.3e}"
+)
 
 
 approach = steady_output - outputs
 fitted_rate = -np.polyfit(times, np.log(approach), 1)[0]
 fitted_time_constant = 1.0 / fitted_rate
-print(f"Closed-loop time constant: fitted {fitted_time_constant:.5f} s, exact {closed_loop_time_constant:.5f} s")
+print(
+    f"Closed-loop time constant: fitted {fitted_time_constant:.5f} s, exact {closed_loop_time_constant:.5f} s"
+)
 final_offset = setpoint - outputs[-1]
 expected_offset = setpoint / (1.0 + loop_gain)
-print(f"Steady-state offset: simulated {final_offset:.5f}, exact r/(1+K Kp) = {expected_offset:.5f}")
+print(
+    f"Steady-state offset: simulated {final_offset:.5f}, exact r/(1+K Kp) = {expected_offset:.5f}"
+)
 
 
 # ## Figure
 
 dense_t = np.linspace(0.0, end_time, 400)
 fig = plots.figure(2, 1, size=(8, 7))
-plots.line(times, points={"OneSimulation RK4": (times[::10], outputs[::10])},
-           reference={"exact step response": (dense_t, steady_output * (1.0 - np.exp(-dense_t / closed_loop_time_constant)))},
-           hlines={"setpoint r": setpoint, "steady state K Kp r / (1 + K Kp)": steady_output},
-           vlines={"closed-loop time constant": closed_loop_time_constant},
-           ylabel="plant output y", title="First-order plant under proportional control", legend="lower right", ax=fig[0])
-plots.line(times, {"controller output u = Kp (r - y)": commands},
-           hlines={"steady state Kp r / (1 + K Kp)": proportional_gain * expected_offset},
-           xlabel="time [s]", ylabel="control signal u", ax=fig[1])
+plots.line(
+    times,
+    points={"OneSimulation RK4": (times[::10], outputs[::10])},
+    reference={
+        "exact step response": (
+            dense_t,
+            steady_output * (1.0 - np.exp(-dense_t / closed_loop_time_constant)),
+        )
+    },
+    hlines={"setpoint r": setpoint, "steady state K Kp r / (1 + K Kp)": steady_output},
+    vlines={"closed-loop time constant": closed_loop_time_constant},
+    ylabel="plant output y",
+    title="First-order plant under proportional control",
+    legend="lower right",
+    ax=fig[0],
+)
+plots.line(
+    times,
+    {"controller output u = Kp (r - y)": commands},
+    hlines={"steady state Kp r / (1 + K Kp)": proportional_gain * expected_offset},
+    xlabel="time [s]",
+    ylabel="control signal u",
+    ax=fig[1],
+)
 plots.show()
 
 

@@ -7,7 +7,6 @@ forces are checked against the method of joints and the mid-span deflection agai
 method.
 """
 
-
 # # Plane and space truss
 #
 # A truss is a framework of straight bars joined by pins. Its members carry only axial forces, no
@@ -51,9 +50,8 @@ method.
 # $\delta=\sum_i N_i^2L_i/(EAF)$; in the space truss it is the mean of the two loaded joints.
 
 import numpy as np
-
 from onesim.physics.solid_mechanics import FrameMember, SpatialFrame
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -64,29 +62,110 @@ theme.set()
 # joins the bars at shared joints.
 
 a, h, b, force, youngs_modulus, area = 3.0, 2.0, 1.0, 100e3, 200e9, 10e-4
-plane_joints = np.array([[0, 0, 0], [a, 0, 0], [2 * a, 0, 0], [a / 2, 0, h], [1.5 * a, 0, h]])
-plane_bars = {"bottom 0-1": (0, 1), "bottom 1-2": (1, 2), "top 3-4": (3, 4),
-              "diagonal 0-3": (0, 3), "diagonal 3-1": (3, 1), "diagonal 1-4": (1, 4), "diagonal 4-2": (4, 2)}
-space_joints = np.array([[0, -b, 0], [a, -b, 0], [2 * a, -b, 0], [a / 2, 0, h], [1.5 * a, 0, h],
-                         [0, b, 0], [a, b, 0], [2 * a, b, 0]])
-space_bars = {"bottom 0-1": (0, 1), "bottom 1-2": (1, 2), "bottom 5-6": (5, 6), "bottom 6-7": (6, 7), "top 3-4": (3, 4),
-              "diagonal 0-3": (0, 3), "diagonal 3-1": (3, 1), "diagonal 1-4": (1, 4), "diagonal 4-2": (4, 2),
-              "diagonal 5-3": (5, 3), "diagonal 3-6": (3, 6), "diagonal 6-4": (6, 4), "diagonal 4-7": (4, 7),
-              "tie 0-5": (0, 5), "tie 1-6": (1, 6), "tie 2-7": (2, 7), "brace 0-6": (0, 6), "brace 6-2": (6, 2)}
-plane = SpatialFrame(joints=plane_joints, members=tuple(
-    FrameMember(name=name, start=s, end=e, youngs_modulus=youngs_modulus, area=area) for name, (s, e) in plane_bars.items()))
-space = SpatialFrame(joints=space_joints, members=tuple(
-    FrameMember(name=name, start=s, end=e, youngs_modulus=youngs_modulus, area=area) for name, (s, e) in space_bars.items()))
+plane_joints = np.array(
+    [[0, 0, 0], [a, 0, 0], [2 * a, 0, 0], [a / 2, 0, h], [1.5 * a, 0, h]]
+)
+plane_bars = {
+    "bottom 0-1": (0, 1),
+    "bottom 1-2": (1, 2),
+    "top 3-4": (3, 4),
+    "diagonal 0-3": (0, 3),
+    "diagonal 3-1": (3, 1),
+    "diagonal 1-4": (1, 4),
+    "diagonal 4-2": (4, 2),
+}
+space_joints = np.array(
+    [
+        [0, -b, 0],
+        [a, -b, 0],
+        [2 * a, -b, 0],
+        [a / 2, 0, h],
+        [1.5 * a, 0, h],
+        [0, b, 0],
+        [a, b, 0],
+        [2 * a, b, 0],
+    ]
+)
+space_bars = {
+    "bottom 0-1": (0, 1),
+    "bottom 1-2": (1, 2),
+    "bottom 5-6": (5, 6),
+    "bottom 6-7": (6, 7),
+    "top 3-4": (3, 4),
+    "diagonal 0-3": (0, 3),
+    "diagonal 3-1": (3, 1),
+    "diagonal 1-4": (1, 4),
+    "diagonal 4-2": (4, 2),
+    "diagonal 5-3": (5, 3),
+    "diagonal 3-6": (3, 6),
+    "diagonal 6-4": (6, 4),
+    "diagonal 4-7": (4, 7),
+    "tie 0-5": (0, 5),
+    "tie 1-6": (1, 6),
+    "tie 2-7": (2, 7),
+    "brace 0-6": (0, 6),
+    "brace 6-2": (6, 2),
+}
+plane = SpatialFrame(
+    joints=plane_joints,
+    members=tuple(
+        FrameMember(name=name, start=s, end=e, youngs_modulus=youngs_modulus, area=area)
+        for name, (s, e) in plane_bars.items()
+    ),
+)
+space = SpatialFrame(
+    joints=space_joints,
+    members=tuple(
+        FrameMember(name=name, start=s, end=e, youngs_modulus=youngs_modulus, area=area)
+        for name, (s, e) in space_bars.items()
+    ),
+)
 
-drawing = {name: np.concatenate((joints[np.array(list(bars.values()))], np.full((len(bars), 1, 3), np.nan)), axis=1).reshape(-1, 3)
-           for name, joints, bars in (("plane", plane_joints, plane_bars), ("space", space_joints, space_bars))}
+drawing = {
+    name: np.concatenate(
+        (joints[np.array(list(bars.values()))], np.full((len(bars), 1, 3), np.nan)),
+        axis=1,
+    ).reshape(-1, 3)
+    for name, joints, bars in (
+        ("plane", plane_joints, plane_bars),
+        ("space", space_joints, space_bars),
+    )
+}
 fig = plots.figure(1, 3, size=(17, 4.5))
-plots.line(None, {"bars": (drawing["plane"][:, 0], drawing["plane"][:, 2])}, points={"joints": (plane_joints[:, 0], plane_joints[:, 2])},
-           legend=False, xlabel="x [m]", ylabel="z [m]", ylimits=(-0.5, 2.5), title="Plane truss, 7 bars", ax=fig[0])
-plots.line(None, {"bars": (drawing["space"][:, 0], drawing["space"][:, 1])}, points={"joints": (space_joints[:, 0], space_joints[:, 1])},
-           legend=False, xlabel="x [m]", ylabel="y [m]", ylimits=(-1.5, 1.5), title="Space truss, plan view, 18 bars", ax=fig[1])
-plots.line(None, {"bars": (drawing["space"][:, 1], drawing["space"][:, 2])}, points={"joints": (space_joints[:, 1], space_joints[:, 2])},
-           legend=False, xlabel="y [m]", ylabel="z [m]", xlimits=(-2, 2), ylimits=(-0.5, 2.5), title="Space truss, end view", ax=fig[2])
+plots.line(
+    None,
+    {"bars": (drawing["plane"][:, 0], drawing["plane"][:, 2])},
+    points={"joints": (plane_joints[:, 0], plane_joints[:, 2])},
+    legend=False,
+    xlabel="x [m]",
+    ylabel="z [m]",
+    ylimits=(-0.5, 2.5),
+    title="Plane truss, 7 bars",
+    ax=fig[0],
+)
+plots.line(
+    None,
+    {"bars": (drawing["space"][:, 0], drawing["space"][:, 1])},
+    points={"joints": (space_joints[:, 0], space_joints[:, 1])},
+    legend=False,
+    xlabel="x [m]",
+    ylabel="y [m]",
+    ylimits=(-1.5, 1.5),
+    title="Space truss, plan view, 18 bars",
+    ax=fig[1],
+)
+plots.line(
+    None,
+    {"bars": (drawing["space"][:, 1], drawing["space"][:, 2])},
+    points={"joints": (space_joints[:, 1], space_joints[:, 2])},
+    legend=False,
+    xlabel="y [m]",
+    ylabel="z [m]",
+    xlimits=(-2, 2),
+    ylimits=(-0.5, 2.5),
+    title="Space truss, end view",
+    ax=fig[2],
+)
 plots.show()
 
 # ## Model
@@ -95,12 +174,30 @@ plots.show()
 # rests on its four corner joints: joint 0 is fixed, joint 2 slides in $x$, and joints 5 and 7
 # slide in both horizontal directions.
 
-plane_result = plane.solve(supports=[(0, "x", 0), (0, "z", 0), (2, "z", 0)] + [(joint, "y", 0) for joint in range(5)],
-                           forces={1: (0, 0, -force)})
-space_result = space.solve(supports=[(0, "x", 0), (0, "y", 0), (0, "z", 0), (2, "y", 0), (2, "z", 0), (5, "z", 0), (7, "z", 0)],
-                           forces={1: (0, 0, -force / 2), 6: (0, 0, -force / 2)})
-axial = {name: {bar: result.members[bar].local_end_actions[1] for bar in bars}
-         for name, result, bars in (("plane", plane_result, plane_bars), ("space", space_result, space_bars))}
+plane_result = plane.solve(
+    supports=[(0, "x", 0), (0, "z", 0), (2, "z", 0)]
+    + [(joint, "y", 0) for joint in range(5)],
+    forces={1: (0, 0, -force)},
+)
+space_result = space.solve(
+    supports=[
+        (0, "x", 0),
+        (0, "y", 0),
+        (0, "z", 0),
+        (2, "y", 0),
+        (2, "z", 0),
+        (5, "z", 0),
+        (7, "z", 0),
+    ],
+    forces={1: (0, 0, -force / 2), 6: (0, 0, -force / 2)},
+)
+axial = {
+    name: {bar: result.members[bar].local_end_actions[1] for bar in bars}
+    for name, result, bars in (
+        ("plane", plane_result, plane_bars),
+        ("space", space_result, space_bars),
+    )
+}
 
 # ## Results
 #
@@ -109,31 +206,65 @@ axial = {name: {bar: result.members[bar].local_end_actions[1] for bar in bars}
 
 theta, tilt = np.arctan(2 * h / a), np.arctan(b / h)
 side_load, side_theta = force / (2 * np.cos(tilt)), np.arctan(2 * np.hypot(h, b) / a)
-joints_method = lambda load, angle: {"bottom": load / (2 * np.tan(angle)), "top": -load / np.tan(angle),
-                                     "diagonal": load / (2 * np.sin(angle))}
+joints_method = lambda load, angle: {
+    "bottom": load / (2 * np.tan(angle)),
+    "top": -load / np.tan(angle),
+    "diagonal": load / (2 * np.sin(angle)),
+}
 plane_reference = joints_method(force, theta)
 side_reference = joints_method(side_load, side_theta)
-reference = {"plane": {bar: plane_reference[bar.split()[0]] * (-1 if bar in ("diagonal 0-3", "diagonal 4-2") else 1)
-                       for bar in plane_bars},
-             "space": {**{bar: side_reference[bar.split()[0]] * (-1 if bar[-3:] in ("0-3", "4-2", "5-3", "4-7") else 1)
-                          for bar in space_bars if bar.split()[0] in side_reference},
-                       "top 3-4": 2 * side_reference["top"], "tie 0-5": force / 4 * np.tan(tilt),
-                       "tie 1-6": -force / 2 * np.tan(tilt), "tie 2-7": force / 4 * np.tan(tilt),
-                       "brace 0-6": 0.0, "brace 6-2": 0.0}}
-lengths = {name: {bar: np.linalg.norm(joints[e] - joints[s]) for bar, (s, e) in bars.items()}
-           for name, joints, bars in (("plane", plane_joints, plane_bars), ("space", space_joints, space_bars))}
-unit_load = {name: sum(reference[name][bar] ** 2 * lengths[name][bar] for bar in reference[name]) / (youngs_modulus * area * force)
-             for name in reference}
+reference = {
+    "plane": {
+        bar: plane_reference[bar.split()[0]]
+        * (-1 if bar in ("diagonal 0-3", "diagonal 4-2") else 1)
+        for bar in plane_bars
+    },
+    "space": {
+        **{
+            bar: side_reference[bar.split()[0]]
+            * (-1 if bar[-3:] in ("0-3", "4-2", "5-3", "4-7") else 1)
+            for bar in space_bars
+            if bar.split()[0] in side_reference
+        },
+        "top 3-4": 2 * side_reference["top"],
+        "tie 0-5": force / 4 * np.tan(tilt),
+        "tie 1-6": -force / 2 * np.tan(tilt),
+        "tie 2-7": force / 4 * np.tan(tilt),
+        "brace 0-6": 0.0,
+        "brace 6-2": 0.0,
+    },
+}
+lengths = {
+    name: {bar: np.linalg.norm(joints[e] - joints[s]) for bar, (s, e) in bars.items()}
+    for name, joints, bars in (
+        ("plane", plane_joints, plane_bars),
+        ("space", space_joints, space_bars),
+    )
+}
+unit_load = {
+    name: sum(reference[name][bar] ** 2 * lengths[name][bar] for bar in reference[name])
+    / (youngs_modulus * area * force)
+    for name in reference
+}
 
 for name in ("plane", "space"):
     print(f"{name} truss          simulation [kN]   method of joints [kN]")
     for bar in axial[name]:
-        print(f"  {bar:16s} {axial[name][bar] / 1e3:14.3f} {reference[name][bar] / 1e3:20.3f}")
-deflections = {"plane": -plane_result.displacement[1, 2], "space": -space_result.displacement[[1, 6], 2].mean()}
+        print(
+            f"  {bar:16s} {axial[name][bar] / 1e3:14.3f} {reference[name][bar] / 1e3:20.3f}"
+        )
+deflections = {
+    "plane": -plane_result.displacement[1, 2],
+    "space": -space_result.displacement[[1, 6], 2].mean(),
+}
 for name, value in deflections.items():
-    print(f"{name} truss deflection under the load: simulation {1e3 * value:.4f} mm, unit-load method "
-          f"{1e3 * unit_load[name]:.4f} mm, deviation {100 * (value / unit_load[name] - 1):+.1e} %")
-print(f"vertical reactions of the space truss: {space_result.reaction_force[[0, 2, 5, 7], 2] / 1e3} kN")
+    print(
+        f"{name} truss deflection under the load: simulation {1e3 * value:.4f} mm, unit-load method "
+        f"{1e3 * unit_load[name]:.4f} mm, deviation {100 * (value / unit_load[name] - 1):+.1e} %"
+    )
+print(
+    f"vertical reactions of the space truss: {space_result.reaction_force[[0, 2, 5, 7], 2] / 1e3} kN"
+)
 
 # ## Figure
 #
@@ -142,24 +273,62 @@ print(f"vertical reactions of the space truss: {space_result.reaction_force[[0, 
 # diagonals and the top chord in compression.
 
 scale = 100
-deformed = {name: np.concatenate(((joints + scale * result.displacement)[np.array(list(bars.values()))],
-                                  np.full((len(bars), 1, 3), np.nan)), axis=1).reshape(-1, 3)
-            for name, joints, bars, result in (("plane", plane_joints, plane_bars, plane_result),
-                                               ("space", space_joints, space_bars, space_result))}
+deformed = {
+    name: np.concatenate(
+        (
+            (joints + scale * result.displacement)[np.array(list(bars.values()))],
+            np.full((len(bars), 1, 3), np.nan),
+        ),
+        axis=1,
+    ).reshape(-1, 3)
+    for name, joints, bars, result in (
+        ("plane", plane_joints, plane_bars, plane_result),
+        ("space", space_joints, space_bars, space_result),
+    )
+}
 fig = plots.figure(2, 2, size=(16, 10))
-plots.line(None, {"deformed (×100)": (deformed["plane"][:, 0], deformed["plane"][:, 2])},
-           reference={"undeformed": (drawing["plane"][:, 0], drawing["plane"][:, 2])}, ylimits=(-1.2, 2.6),
-           legend="lower center", xlabel="x [m]", ylabel="z [m]", title="Plane truss", ax=fig[0])
-plots.line(None, {"deformed (×100)": (deformed["space"][:, 0], deformed["space"][:, 2])},
-           reference={"undeformed": (drawing["space"][:, 0], drawing["space"][:, 2])}, ylimits=(-1.2, 2.6),
-           legend="lower center", xlabel="x [m]", ylabel="z [m]", title="Space truss, side view", ax=fig[1])
-plots.bars(list(plane_bars), {"simulation": [axial["plane"][bar] / 1e3 for bar in plane_bars]},
-           reference={"method of joints": [reference["plane"][bar] / 1e3 for bar in plane_bars]},
-           ylabel="axial force [kN]", title="Plane truss: member forces", ax=fig[2])
+plots.line(
+    None,
+    {"deformed (×100)": (deformed["plane"][:, 0], deformed["plane"][:, 2])},
+    reference={"undeformed": (drawing["plane"][:, 0], drawing["plane"][:, 2])},
+    ylimits=(-1.2, 2.6),
+    legend="lower center",
+    xlabel="x [m]",
+    ylabel="z [m]",
+    title="Plane truss",
+    ax=fig[0],
+)
+plots.line(
+    None,
+    {"deformed (×100)": (deformed["space"][:, 0], deformed["space"][:, 2])},
+    reference={"undeformed": (drawing["space"][:, 0], drawing["space"][:, 2])},
+    ylimits=(-1.2, 2.6),
+    legend="lower center",
+    xlabel="x [m]",
+    ylabel="z [m]",
+    title="Space truss, side view",
+    ax=fig[1],
+)
+plots.bars(
+    list(plane_bars),
+    {"simulation": [axial["plane"][bar] / 1e3 for bar in plane_bars]},
+    reference={
+        "method of joints": [reference["plane"][bar] / 1e3 for bar in plane_bars]
+    },
+    ylabel="axial force [kN]",
+    title="Plane truss: member forces",
+    ax=fig[2],
+)
 ranked = sorted(space_bars, key=axial["space"].get)
-plots.bars(ranked, {"simulation": [axial["space"][bar] / 1e3 for bar in ranked]},
-           reference={"method of joints": [reference["space"][bar] / 1e3 for bar in ranked]},
-           horizontal=True, ylabel="axial force [kN]", title="Space truss: member forces", ax=fig[3])
+plots.bars(
+    ranked,
+    {"simulation": [axial["space"][bar] / 1e3 for bar in ranked]},
+    reference={"method of joints": [reference["space"][bar] / 1e3 for bar in ranked]},
+    horizontal=True,
+    ylabel="axial force [kN]",
+    title="Space truss: member forces",
+    ax=fig[3],
+)
 plots.show()
 
 # ## Going further

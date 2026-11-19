@@ -7,7 +7,6 @@ and rim, goes to rotating_pulley_stresses_blank.step. The example computes on th
 """
 
 import numpy as np
-
 from onesim.cad.d2 import Profile
 from onesim.cad.d3 import Cylinder, Prism
 
@@ -16,11 +15,23 @@ outer_radius, bore_radius, thickness = 125 * mm, 25 * mm, 10 * mm
 inner_edge, outer_edge, inner_fillet, outer_fillet = 48 * mm, 100 * mm, 11 * mm, 16 * mm
 inner_half_width, outer_half_width = 17.18 * mm, 30.96 * mm
 
-corners = [(inner_half_width, inner_edge), (outer_half_width, outer_edge), (-outer_half_width, outer_edge), (-inner_half_width, inner_edge)]
-cutout = Prism(profile=Profile.rounded_polygon(corners, (inner_fillet, outer_fillet, outer_fillet, inner_fillet)),
-               height=3 * thickness, origin=(0, 0, -thickness))
+corners = [
+    (inner_half_width, inner_edge),
+    (outer_half_width, outer_edge),
+    (-outer_half_width, outer_edge),
+    (-inner_half_width, inner_edge),
+]
+cutout = Prism(
+    profile=Profile.rounded_polygon(
+        corners, (inner_fillet, outer_fillet, outer_fillet, inner_fillet)
+    ),
+    height=3 * thickness,
+    origin=(0, 0, -thickness),
+)
 
-shaft = Cylinder(radius=bore_radius, length=3 * thickness, origin=(0, 0, -thickness)).named("shaft")
+shaft = Cylinder(
+    radius=bore_radius, length=3 * thickness, origin=(0, 0, -thickness)
+).named("shaft")
 blank = Cylinder(radius=outer_radius, length=thickness) - shaft
 pulley = blank
 for k in range(8):
@@ -29,6 +40,8 @@ for k in range(8):
 faces = blank.boundaries
 blank = blank.grouped(bore=faces["shaft.outer_wall"], rim=faces.outer_wall)
 faces = pulley.boundaries
-pulley = pulley.grouped(bore=faces["shaft.outer_wall"], rim=faces.outer_wall, cutouts=faces["window.side"])
+pulley = pulley.grouped(
+    bore=faces["shaft.outer_wall"], rim=faces.outer_wall, cutouts=faces["window.side"]
+)
 pulley.save("rotating_pulley_stresses.step")
 blank.save("rotating_pulley_stresses_blank.step")

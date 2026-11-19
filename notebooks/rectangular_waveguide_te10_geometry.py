@@ -9,5 +9,7 @@ from onesim.cad.d3 import Box
 
 guide = Box(length=0.100, width=0.050, height=0.080)
 faces = guide.boundaries
-guide = guide.grouped(port=faces.z_min, short=faces.z_max, walls=faces.all - faces.z_min - faces.z_max)
+guide = guide.grouped(
+    port=faces.z_min, short=faces.z_max, walls=faces.all - faces.z_min - faces.z_max
+)
 guide.save("rectangular_waveguide_te10.step")

@@ -5,7 +5,6 @@ The air cylinder around the coil is read from a STEP file. The 3D FEM solution i
 the ideal infinite-solenoid interior value.
 """
 
-
 # # Interior field of a long solenoid
 #
 # A single homogenised solenoid (mean radius $\approx 12.5$ mm, length $200$ mm, so
@@ -27,7 +26,6 @@ the ideal infinite-solenoid interior value.
 # let a little flux escape).
 
 import numpy as np
-
 from onesim.cad.d3 import AnnularCylinder
 from onesim.cad.exchange import load
 from onesim.materials import VacuumPermeability
@@ -35,9 +33,15 @@ from onesim.meshing import LocalRefinement, TetrahedralMesher
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Nedelec
 from onesim.numerics.linear import SparseDirect
-from onesim.physics.magnetostatics import CoulombGauge, MagneticInsulation, MagneticVectorPotential, Magnetostatics, SolenoidCurrent
+from onesim.physics.magnetostatics import (
+    CoulombGauge,
+    MagneticInsulation,
+    MagneticVectorPotential,
+    Magnetostatics,
+    SolenoidCurrent,
+)
 from onesim.simulation import Problem, Simulation
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -48,24 +52,56 @@ theme.set()
 air = load("long_solenoid_interior_field.step")
 centre = air.size[2] / 2
 coil_length, turns, current = 0.20, 400, 1.0
-coil = SolenoidCurrent(inner_radius=0.010, outer_radius=0.015, length=coil_length, center=(0.0, 0.0, centre),
-                       turns=turns, current=current, support_factory=AnnularCylinder)
-mesh = TetrahedralMesher(target_size=0.02, embedded_regions=(coil.support,),
-                         refinements=(LocalRefinement(region=coil.support, target_size=0.006),)).generate(air)
+coil = SolenoidCurrent(
+    inner_radius=0.010,
+    outer_radius=0.015,
+    length=coil_length,
+    center=(0.0, 0.0, centre),
+    turns=turns,
+    current=current,
+    support_factory=AnnularCylinder,
+)
+mesh = TetrahedralMesher(
+    target_size=0.02,
+    embedded_regions=(coil.support,),
+    refinements=(LocalRefinement(region=coil.support, target_size=0.006),),
+).generate(air)
 
 fig = plots.figure(1, 2, size=(11, 6))
 plots.geometry([air, coil.support], title="Air cylinder with the winding", ax=fig[0])
-plots.mesh(mesh, groups=("all",), legend=False, title=f"{mesh.cell_count} tetrahedra", ax=fig[1])
+plots.mesh(
+    mesh,
+    groups=("all",),
+    legend=False,
+    title=f"{mesh.cell_count} tetrahedra",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Model
 
-model = Magnetostatics(domain=air.volume, permeability=VacuumPermeability(),
-                       formulation=MagneticVectorPotential(gauge=CoulombGauge()), current_sources=(coil,))
-problem = Problem(name="Long solenoid interior field", geometry=air, physics=(model,),
-                  boundary_conditions=(MagneticInsulation(boundary=air.boundaries.all, physics=model),))
-numerics = Numerics(spatial=FiniteElement(element=Nedelec(order=1)), linear_solver=SparseDirect())
-flux_density = Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_stationary().field(model.magnetic_flux_density)
+model = Magnetostatics(
+    domain=air.volume,
+    permeability=VacuumPermeability(),
+    formulation=MagneticVectorPotential(gauge=CoulombGauge()),
+    current_sources=(coil,),
+)
+problem = Problem(
+    name="Long solenoid interior field",
+    geometry=air,
+    physics=(model,),
+    boundary_conditions=(
+        MagneticInsulation(boundary=air.boundaries.all, physics=model),
+    ),
+)
+numerics = Numerics(
+    spatial=FiniteElement(element=Nedelec(order=1)), linear_solver=SparseDirect()
+)
+flux_density = (
+    Simulation(problem=problem, mesh=mesh, numerics=numerics)
+    .solve_stationary()
+    .field(model.magnetic_flux_density)
+)
 
 # ## Centre field and axial uniformity
 #
@@ -74,17 +110,29 @@ flux_density = Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_s
 
 ideal = VacuumPermeability().evaluate() * turns / coil_length * current
 z = np.linspace(centre - coil_length / 4, centre + coil_length / 4, 21)
-axial = flux_density.evaluate(np.column_stack((np.zeros_like(z), np.zeros_like(z), z)))[:, 2]
+axial = flux_density.evaluate(np.column_stack((np.zeros_like(z), np.zeros_like(z), z)))[
+    :, 2
+]
 
-print(f"centre axial field: simulation {1e3 * axial[10]:.4f} mT, ideal mu0 n I {1e3 * ideal:.4f} mT, "
-      f"deviation {100 * (axial[10] / ideal - 1):+.2f} % (finite length lowers the field)")
-print(f"axial non-uniformity over the central half: {100 * (axial.max() - axial.min()) / axial.mean():.2f} %")
+print(
+    f"centre axial field: simulation {1e3 * axial[10]:.4f} mT, ideal mu0 n I {1e3 * ideal:.4f} mT, "
+    f"deviation {100 * (axial[10] / ideal - 1):+.2f} % (finite length lowers the field)"
+)
+print(
+    f"axial non-uniformity over the central half: {100 * (axial.max() - axial.min()) / axial.mean():.2f} %"
+)
 
 # ## Figure
 
-plots.line(1e3 * (z - centre), {"simulation": 1e3 * axial}, hlines={"ideal mu_0 n I": 1e3 * ideal}, markers=True,
-           xlabel="axial position from centre z [mm]", ylabel="axial flux density B_z [mT]",
-           title="Long solenoid: interior axial field")
+plots.line(
+    1e3 * (z - centre),
+    {"simulation": 1e3 * axial},
+    hlines={"ideal mu_0 n I": 1e3 * ideal},
+    markers=True,
+    xlabel="axial position from centre z [mm]",
+    ylabel="axial flux density B_z [mT]",
+    title="Long solenoid: interior axial field",
+)
 plots.show()
 
 # ## Going further

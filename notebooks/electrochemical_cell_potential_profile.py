@@ -7,7 +7,6 @@ steps at the electrodes and the ohmic drop in the electrolyte are checked agains
 closed-form voltage budget of the cell.
 """
 
-
 # # Potential profile across an electrochemical cell
 #
 # A battery or galvanic cell delivers its open-circuit voltage only when no current
@@ -51,12 +50,11 @@ closed-form voltage budget of the cell.
 # $0.76$ V above the zinc metal.
 
 import numpy as np
-from scipy.optimize import brentq
-
 from onesim.cad.d1 import Line
 from onesim.meshing import cartesian
 from onesim.physics.chemistry import CurrentElectrode, ElectrolyteCurrentDistribution
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
+from scipy.optimize import brentq
 
 theme.set()
 
@@ -73,7 +71,9 @@ exchange = {"zinc": 20.0, "copper": 5.0}
 thermal = 8.314462618 * temperature / 96485.33212
 line = Line(start=(0.0, 0.0, 0.0), end=(gap, 0.0, 0.0))
 mesh = cartesian(shape=(40,), extents=(gap,), geometry=line, periodic=False).build()
-print(f"electrolyte resistance L/κ = {gap / conductivity * 1e4:.1f} Ω cm², RT/F = {1e3 * thermal:.2f} mV")
+print(
+    f"electrolyte resistance L/κ = {gap / conductivity * 1e4:.1f} Ω cm², RT/F = {1e3 * thermal:.2f} mV"
+)
 
 # ## Three operating points and a polarisation curve
 #
@@ -81,13 +81,28 @@ print(f"electrolyte resistance L/κ = {gap / conductivity * 1e4:.1f} Ω cm², RT
 # (secondary distribution) and without (primary distribution); then a sweep of the cell
 # voltage from 0.2 V to 1.6 V.
 
-cells = {(voltage, kinetics): ElectrolyteCurrentDistribution(
-             conductivity=conductivity, temperature=temperature,
-             electrodes={"start": CurrentElectrode(potential=0.0, equilibrium_potential=zinc, electron_number=electrons,
-                                                   exchange_current_density=exchange["zinc"] if kinetics else None),
-                         "end": CurrentElectrode(potential=voltage, equilibrium_potential=copper, electron_number=electrons,
-                                                 exchange_current_density=exchange["copper"] if kinetics else None)}).solve(mesh)
-         for voltage in (*np.round(np.linspace(0.2, 1.6, 15), 2), 1.4) for kinetics in (True, False)}
+cells = {
+    (voltage, kinetics): ElectrolyteCurrentDistribution(
+        conductivity=conductivity,
+        temperature=temperature,
+        electrodes={
+            "start": CurrentElectrode(
+                potential=0.0,
+                equilibrium_potential=zinc,
+                electron_number=electrons,
+                exchange_current_density=exchange["zinc"] if kinetics else None,
+            ),
+            "end": CurrentElectrode(
+                potential=voltage,
+                equilibrium_potential=copper,
+                electron_number=electrons,
+                exchange_current_density=exchange["copper"] if kinetics else None,
+            ),
+        },
+    ).solve(mesh)
+    for voltage in (*np.round(np.linspace(0.2, 1.6, 15), 2), 1.4)
+    for kinetics in (True, False)
+}
 centres = (np.arange(40) + 0.5) * gap / 40
 
 # ## Comparison with the voltage budget
@@ -96,22 +111,39 @@ centres = (np.arange(40) + 0.5) * gap / 40
 # three operating points; the electrolyte potentials at the electrode surfaces come from
 # the solution.
 
-budget = lambda u: brentq(lambda i: i * gap / conductivity + 2 * thermal / electrons * (np.arcsinh(i / (2 * exchange["zinc"]))
-                                                                                       + np.arcsinh(i / (2 * exchange["copper"]))) - (open_circuit - u), -1e4, 1e4)
-print(" U [V]   kinetics   current [A/m²]   budget [A/m²]   η_Zn [mV]   η_Cu [mV]   ohmic drop [mV]   φ_l at Zn [V]")
+budget = lambda u: brentq(
+    lambda i: i * gap / conductivity
+    + 2
+    * thermal
+    / electrons
+    * (
+        np.arcsinh(i / (2 * exchange["zinc"]))
+        + np.arcsinh(i / (2 * exchange["copper"]))
+    )
+    - (open_circuit - u),
+    -1e4,
+    1e4,
+)
+print(
+    " U [V]   kinetics   current [A/m²]   budget [A/m²]   η_Zn [mV]   η_Cu [mV]   ohmic drop [mV]   φ_l at Zn [V]"
+)
 for voltage in (1.1, 0.8, 1.4):
     for kinetics in (True, False):
         result = cells[(voltage, kinetics)]
         current = result.electrode_currents["end"]
         surface = result.electrode_potentials
-        print(f"{voltage:5.2f} {'BV' if kinetics else 'none':>9s} {current:15.4f} {budget(voltage) if kinetics else conductivity * (open_circuit - voltage) / gap:15.4f} "
-              f"{1e3 * (0.0 - surface['start'] - zinc):11.2f} {1e3 * (voltage - surface['end'] - copper):11.2f} "
-              f"{1e3 * (surface['start'] - surface['end']):17.2f} {float(surface['start']):15.4f}")
+        print(
+            f"{voltage:5.2f} {'BV' if kinetics else 'none':>9s} {current:15.4f} {budget(voltage) if kinetics else conductivity * (open_circuit - voltage) / gap:15.4f} "
+            f"{1e3 * (0.0 - surface['start'] - zinc):11.2f} {1e3 * (voltage - surface['end'] - copper):11.2f} "
+            f"{1e3 * (surface['start'] - surface['end']):17.2f} {float(surface['start']):15.4f}"
+        )
 sweep = np.round(np.linspace(0.2, 1.6, 15), 2)
 computed = np.array([cells[(u, True)].electrode_currents["end"] for u in sweep])
-print(f"polarisation curve: largest deviation from the budget {np.abs(computed - [budget(u) for u in sweep]).max():.1e} A/m² "
-      f"(currents up to {np.abs(computed).max():.0f} A/m²); largest linearity defect of φ_l "
-      f"{max(np.abs(np.diff(r.potential, 2)).max() for r in cells.values()):.1e} V")
+print(
+    f"polarisation curve: largest deviation from the budget {np.abs(computed - [budget(u) for u in sweep]).max():.1e} A/m² "
+    f"(currents up to {np.abs(computed).max():.0f} A/m²); largest linearity defect of φ_l "
+    f"{max(np.abs(np.diff(r.potential, 2)).max() for r in cells.values()):.1e} V"
+)
 
 # ## Figure
 #
@@ -122,17 +154,56 @@ print(f"polarisation curve: largest deviation from the budget {np.abs(computed -
 
 states = {"open circuit, 1.10 V": 1.1, "discharge, 0.80 V": 0.8, "charge, 1.40 V": 1.4}
 fig = plots.figure(1, 2, size=(15, 5.5))
-plots.line(y={name: (1e3 * np.r_[-1.5e-3, 0.0, 0.0, centres, gap, gap, gap + 1.5e-3],
-                     np.r_[0.0, 0.0, cells[(u, True)].electrode_potentials["start"], cells[(u, True)].potential,
-                           cells[(u, True)].electrode_potentials["end"], u, u]) for name, u in states.items()},
-           vlines=[0.0, 1e3 * gap], xlabel="position x [mm] (zinc metal | electrolyte | copper metal)",
-           ylabel="potential [V] (zinc metal = 0)", title="Potential profile with Butler-Volmer kinetics", colors={"open circuit, 1.10 V": 6, "discharge, 0.80 V": 1, "charge, 1.40 V": 0}, legend="lower right", ax=fig[0])
-plots.line(points={"secondary (Butler-Volmer)": (computed, sweep),
-                   "primary (no kinetics)": (np.array([cells[(u, False)].electrode_currents["end"] for u in sweep]), sweep)},
-           reference={"secondary (Butler-Volmer)": (np.array([budget(u) for u in np.linspace(0.2, 1.6, 141)]), np.linspace(0.2, 1.6, 141)),
-                      "primary (no kinetics)": (conductivity * (open_circuit - np.linspace(0.2, 1.6, 141)) / gap, np.linspace(0.2, 1.6, 141))},
-           hlines={"open-circuit voltage": open_circuit}, vlines=[0.0], xlabel="current density i [A/m²] (discharge > 0)",
-           ylabel="cell voltage U [V]", title="Polarisation curve (dashed: voltage budget)", legend="upper right", ax=fig[1])
+plots.line(
+    y={
+        name: (
+            1e3 * np.r_[-1.5e-3, 0.0, 0.0, centres, gap, gap, gap + 1.5e-3],
+            np.r_[
+                0.0,
+                0.0,
+                cells[(u, True)].electrode_potentials["start"],
+                cells[(u, True)].potential,
+                cells[(u, True)].electrode_potentials["end"],
+                u,
+                u,
+            ],
+        )
+        for name, u in states.items()
+    },
+    vlines=[0.0, 1e3 * gap],
+    xlabel="position x [mm] (zinc metal | electrolyte | copper metal)",
+    ylabel="potential [V] (zinc metal = 0)",
+    title="Potential profile with Butler-Volmer kinetics",
+    colors={"open circuit, 1.10 V": 6, "discharge, 0.80 V": 1, "charge, 1.40 V": 0},
+    legend="lower right",
+    ax=fig[0],
+)
+plots.line(
+    points={
+        "secondary (Butler-Volmer)": (computed, sweep),
+        "primary (no kinetics)": (
+            np.array([cells[(u, False)].electrode_currents["end"] for u in sweep]),
+            sweep,
+        ),
+    },
+    reference={
+        "secondary (Butler-Volmer)": (
+            np.array([budget(u) for u in np.linspace(0.2, 1.6, 141)]),
+            np.linspace(0.2, 1.6, 141),
+        ),
+        "primary (no kinetics)": (
+            conductivity * (open_circuit - np.linspace(0.2, 1.6, 141)) / gap,
+            np.linspace(0.2, 1.6, 141),
+        ),
+    },
+    hlines={"open-circuit voltage": open_circuit},
+    vlines=[0.0],
+    xlabel="current density i [A/m²] (discharge > 0)",
+    ylabel="cell voltage U [V]",
+    title="Polarisation curve (dashed: voltage budget)",
+    legend="upper right",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Going further

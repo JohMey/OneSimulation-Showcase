@@ -5,7 +5,6 @@ The OneSimulation solution is checked against the known closed-form hyperbola of
 a second-order batch reaction.
 """
 
-
 # # Second-order reaction 2A -> P
 #
 # A single species $A$ is consumed by an irreversible second-order reaction in a
@@ -34,7 +33,6 @@ a second-order batch reaction.
 # computed transient with this closed form.
 
 import numpy as np
-
 from onesim.cad.geometry import LumpedDomain
 from onesim.meshing import LumpedMesh
 from onesim.numerics import Numerics
@@ -48,7 +46,7 @@ from onesim.physics.chemistry import (
 )
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -65,7 +63,9 @@ C_P0 = 0.0
 half_time = 1.0 / (2.0 * k * C_A0)
 end_time = 10.0 * half_time
 time_step = 0.02 * half_time
-print(f"k = {k:.3f} m^3/(mol s),  half-time 1/(2 k C_A0) = {half_time:.2f} s,  end time = {end_time:.2f} s")
+print(
+    f"k = {k:.3f} m^3/(mol s),  half-time 1/(2 k C_A0) = {half_time:.2f} s,  end time = {end_time:.2f} s"
+)
 
 
 # ## Model
@@ -128,8 +128,10 @@ exact_P = 0.5 * (C_A0 - exact_A)
 err_A = float(np.max(np.abs(num_A - exact_A)))
 err_P = float(np.max(np.abs(num_P - exact_P)))
 rel_error = max(err_A, err_P) / C_A0
-print(f"Maximum absolute error against the hyperbola: {max(err_A, err_P):.3e} mol/m^3"
-      f"  ({100 * rel_error:.4f} % of C_A0)")
+print(
+    f"Maximum absolute error against the hyperbola: {max(err_A, err_P):.3e} mol/m^3"
+    f"  ({100 * rel_error:.4f} % of C_A0)"
+)
 
 # Physical sanity: mass conserved as C_A + 2 C_P, A monotonically decreasing, P
 # monotonically increasing.
@@ -142,10 +144,13 @@ print(f"Maximum mass-balance error C_A+2 C_P-C_A0: {mass_error:.3e} mol/m^3")
 t_fine = np.linspace(0.0, end_time, 400)
 shown = slice(None, None, max(1, len(times) // 40))
 a_fine = C_A0 / (1.0 + 2.0 * k * C_A0 * t_fine)
-plots.line(points={"C_A": (times[shown], num_A[shown]), "C_P": (times[shown], num_P[shown])},
-           reference={"C_A": (t_fine, a_fine), "C_P": (t_fine, 0.5 * (C_A0 - a_fine))},
-           xlabel="time [s]", ylabel="concentration [mol/m^3]",
-           title="Second-order batch 2A -> P: OneSimulation (markers) and exact solution (dashed)")
+plots.line(
+    points={"C_A": (times[shown], num_A[shown]), "C_P": (times[shown], num_P[shown])},
+    reference={"C_A": (t_fine, a_fine), "C_P": (t_fine, 0.5 * (C_A0 - a_fine))},
+    xlabel="time [s]",
+    ylabel="concentration [mol/m^3]",
+    title="Second-order batch 2A -> P: OneSimulation (markers) and exact solution (dashed)",
+)
 plots.show()
 
 

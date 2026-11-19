@@ -7,18 +7,35 @@ both name the faces scatterer, outer, symmetry_xz and symmetry_yz.
 """
 
 import numpy as np
-
 from onesim.cad.d2 import Path, Profile, Segment
 from onesim.cad.d3 import Revolution
 
 radius = 0.1
-for name, outer in (("rigid_sphere_scattering", 0.4), ("rigid_sphere_scattering_large", 0.7)):
-    outline = Path((0.0, -outer), (
-        Segment((outer, 0.0), center=(0.0, 0.0), name="outer"), Segment((0.0, outer), center=(0.0, 0.0), name="outer"),
-        Segment((0.0, radius), name="axis"),
-        Segment((radius, 0.0), center=(0.0, 0.0), counterclockwise=False, name="scatterer"),
-        Segment((0.0, -radius), center=(0.0, 0.0), counterclockwise=False, name="scatterer"),
-        Segment((0.0, -outer), name="axis")))
+for name, outer in (
+    ("rigid_sphere_scattering", 0.4),
+    ("rigid_sphere_scattering_large", 0.7),
+):
+    outline = Path(
+        (0.0, -outer),
+        (
+            Segment((outer, 0.0), center=(0.0, 0.0), name="outer"),
+            Segment((0.0, outer), center=(0.0, 0.0), name="outer"),
+            Segment((0.0, radius), name="axis"),
+            Segment(
+                (radius, 0.0),
+                center=(0.0, 0.0),
+                counterclockwise=False,
+                name="scatterer",
+            ),
+            Segment(
+                (0.0, -radius),
+                center=(0.0, 0.0),
+                counterclockwise=False,
+                name="scatterer",
+            ),
+            Segment((0.0, -outer), name="axis"),
+        ),
+    )
     air = Revolution(profile=Profile(outline), angle=np.pi / 2)
     air = air.grouped(symmetry_xz=air.boundaries.start, symmetry_yz=air.boundaries.end)
     air.save(f"{name}.step")

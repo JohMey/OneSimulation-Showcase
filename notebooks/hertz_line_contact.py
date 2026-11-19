@@ -6,7 +6,6 @@ checked against the Hertz line-contact formulas: elliptical pressure distributio
 half-width and peak pressure for the transmitted force.
 """
 
-
 # # Hertz line contact: a rigid cylinder pressed into an elastic block
 #
 # A long rigid cylinder of radius $R$ is pressed into a linear-elastic block
@@ -32,12 +31,16 @@ half-width and peak pressure for the transmitted force.
 # contact trace enforce non-penetration weakly against the rigid cylinder profile.
 
 import numpy as np
-
 from onesim.cad.d2 import Circle
 from onesim.cad.exchange import load
 from onesim.meshing import cartesian
-from onesim.physics.solid_mechanics import MortarBody, MortarContact, SmallStrainSolid, rigid_gap
-from onesim.visualization import theme, plots
+from onesim.physics.solid_mechanics import (
+    MortarBody,
+    MortarContact,
+    SmallStrainSolid,
+    rigid_gap,
+)
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -51,8 +54,16 @@ faces = block.boundaries
 width, depth = block.size[:2]
 
 fig = plots.figure(1, 2, size=(13, 4.5))
-plots.geometry(solid, selection={"contact face": solid.boundaries.y_max, "clamped face": solid.boundaries.y_min},
-               labels=False, title="Elastic block", ax=fig[0])
+plots.geometry(
+    solid,
+    selection={
+        "contact face": solid.boundaries.y_max,
+        "clamped face": solid.boundaries.y_min,
+    },
+    labels=False,
+    title="Elastic block",
+    ax=fig[0],
+)
 plots.geometry(block, title="Cross-section with its named sides", ax=fig[1])
 plots.show()
 
@@ -64,17 +75,31 @@ plots.show()
 
 youngs_modulus, poisson_ratio, radius, indentation = 2600.0, 0.27, 8.0, 0.032
 contact_modulus = youngs_modulus / (1 - poisson_ratio**2)
-cylinder = rigid_gap(Circle(radius=radius, origin=(width / 2, depth + radius, 0.0)), (0.0, 1.0))
-steel = SmallStrainSolid(youngs_modulus=youngs_modulus, poisson_ratio=poisson_ratio, kinematics="plane_strain")
+cylinder = rigid_gap(
+    Circle(radius=radius, origin=(width / 2, depth + radius, 0.0)), (0.0, 1.0)
+)
+steel = SmallStrainSolid(
+    youngs_modulus=youngs_modulus,
+    poisson_ratio=poisson_ratio,
+    kinematics="plane_strain",
+)
 
 
 def solve(cells):
     """Contact pressure on a mesh with `cells` quadrilaterals across the block."""
-    mesh = cartesian(geometry=block, shape=(cells, cells // 3), extents=(width, depth)).build()
-    body = MortarBody(solid=steel, mesh=mesh, boundary=faces.y_max,
-                      displacements=((faces.y_min, "x", 0.0), (faces.y_min, "y", 0.0)),
-                      tractions=((faces.x_min, (0.0, 0.0)), (faces.x_max, (0.0, 0.0))))
-    return MortarContact(slave=body, normal=(0.0, -1.0), rigid_gap=cylinder).solve(times=(0.0,), normal_offset=-indentation)
+    mesh = cartesian(
+        geometry=block, shape=(cells, cells // 3), extents=(width, depth)
+    ).build()
+    body = MortarBody(
+        solid=steel,
+        mesh=mesh,
+        boundary=faces.y_max,
+        displacements=((faces.y_min, "x", 0.0), (faces.y_min, "y", 0.0)),
+        tractions=((faces.x_min, (0.0, 0.0)), (faces.x_max, (0.0, 0.0))),
+    )
+    return MortarContact(slave=body, normal=(0.0, -1.0), rigid_gap=cylinder).solve(
+        times=(0.0,), normal_offset=-indentation
+    )
 
 
 runs = {cells: solve(cells) for cells in (96, 192)}
@@ -93,19 +118,35 @@ for cells, result in runs.items():
     peak = 2 * force / (np.pi * half_width)
     hertz = peak * np.sqrt(np.maximum(0.0, 1 - (x / half_width) ** 2))
     profiles[cells] = (x, pressure, half_width, peak)
-    print(f"{cells} x {cells // 3} cells: force {force:.3f}, Hertz half-width {half_width:.4f}, peak pressure {peak:.3f}; "
-          f"peak {100 * (pressure.max() / peak - 1):+.1f} %, "
-          f"half-width {100 * (2 * np.sqrt(measure @ (pressure * x**2) / force) / half_width - 1):+.1f} %, "
-          f"profile (RMS) {100 * np.sqrt(measure @ (pressure - hertz) ** 2 / (measure @ hertz**2)):.1f} %")
+    print(
+        f"{cells} x {cells // 3} cells: force {force:.3f}, Hertz half-width {half_width:.4f}, peak pressure {peak:.3f}; "
+        f"peak {100 * (pressure.max() / peak - 1):+.1f} %, "
+        f"half-width {100 * (2 * np.sqrt(measure @ (pressure * x**2) / force) / half_width - 1):+.1f} %, "
+        f"profile (RMS) {100 * np.sqrt(measure @ (pressure - hertz) ** 2 / (measure @ hertz**2)):.1f} %"
+    )
 
 # ## Figure
 
 x, pressure, half_width, peak = profiles[192]
 ellipse = np.linspace(-1.3 * half_width, 1.3 * half_width, 400)
-plots.line(points={f"simulation, {cells} x {cells // 3} cells": (p[0][np.abs(p[0]) < 1.3 * half_width], p[1][np.abs(p[0]) < 1.3 * half_width])
-                   for cells, p in profiles.items()},
-           reference={"Hertz ellipse for the transmitted force": (ellipse, peak * np.sqrt(np.maximum(0.0, 1 - (ellipse / half_width) ** 2)))},
-           xlabel="position along the surface x", ylabel="contact pressure p", title="Contact pressure under the cylinder")
+plots.line(
+    points={
+        f"simulation, {cells} x {cells // 3} cells": (
+            p[0][np.abs(p[0]) < 1.3 * half_width],
+            p[1][np.abs(p[0]) < 1.3 * half_width],
+        )
+        for cells, p in profiles.items()
+    },
+    reference={
+        "Hertz ellipse for the transmitted force": (
+            ellipse,
+            peak * np.sqrt(np.maximum(0.0, 1 - (ellipse / half_width) ** 2)),
+        )
+    },
+    xlabel="position along the surface x",
+    ylabel="contact pressure p",
+    title="Contact pressure under the cylinder",
+)
 plots.show()
 
 # ## Going further

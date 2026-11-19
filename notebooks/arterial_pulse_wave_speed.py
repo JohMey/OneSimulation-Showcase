@@ -6,7 +6,6 @@ from the model's own elastic wall law, and the pulse's pressure-to-flow ratio
 against the characteristic impedance rho*c0/A0.
 """
 
-
 # # Arterial pulse wave: how fast a pressure pulse travels along an elastic vessel
 #
 # Blood vessels are compliant tubes: a local rise in pressure widens the vessel,
@@ -47,15 +46,13 @@ against the characteristic impedance rho*c0/A0.
 # perturbations, the characteristic impedance $Z_0=\rho c_0/A_0$; we check both.
 
 import numpy as np
-
 from onesim.physics.biophysics import (
     ArterialNetwork,
     ArterialPressure,
     ArterialSegment,
     WindkesselTerminal,
 )
-
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -80,23 +77,30 @@ amplitude = 1.0e-3
 cells = 400
 final_time = 0.05
 
-A0 = np.pi * r0 ** 2
-beta = np.sqrt(np.pi) * E * h / ((1.0 - nu ** 2) * np.sqrt(A0))
-c_formula = np.sqrt(E * h / (2.0 * rho * (1.0 - nu ** 2) * r0))
+A0 = np.pi * r0**2
+beta = np.sqrt(np.pi) * E * h / ((1.0 - nu**2) * np.sqrt(A0))
+c_formula = np.sqrt(E * h / (2.0 * rho * (1.0 - nu**2) * r0))
 c_tube_law = np.sqrt(beta / (2.0 * rho))
 Z0 = rho * c_formula / A0
 print(f"A0 = {A0*1e4:.3f} cm^2,  beta = {beta:.0f} Pa")
-print(f"Moens-Korteweg speed c0 = {c_formula:.4f} m/s,  tube-law speed sqrt(beta/2rho) = {c_tube_law:.4f} m/s,"
-      f"  c0*t = {c_formula*final_time:.3f} m")
+print(
+    f"Moens-Korteweg speed c0 = {c_formula:.4f} m/s,  tube-law speed sqrt(beta/2rho) = {c_tube_law:.4f} m/s,"
+    f"  c0*t = {c_formula*final_time:.3f} m"
+)
 
 
 def initial_area(x):
-    return A0 * (1.0 + amplitude * np.exp(-((x - x0) ** 2) / (2.0 * sigma ** 2)))
+    return A0 * (1.0 + amplitude * np.exp(-((x - x0) ** 2) / (2.0 * sigma**2)))
 
 
 vessel = ArterialSegment(
-    name="aorta", start="inlet", end="outlet",
-    length=L, cells=cells, reference_area=A0, wall_stiffness=beta,
+    name="aorta",
+    start="inlet",
+    end="outlet",
+    length=L,
+    cells=cells,
+    reference_area=A0,
+    wall_stiffness=beta,
 )
 network = ArterialNetwork(
     segments=(vessel,),
@@ -104,8 +108,12 @@ network = ArterialNetwork(
     terminals=(
         ArterialPressure(node="inlet", pressure=0.0),
         WindkesselTerminal(
-            node="outlet", proximal_resistance=Z0, distal_resistance=5.0 * Z0,
-            compliance=1.0e-9, reference_pressure=0.0, initial_pressure=0.0,
+            node="outlet",
+            proximal_resistance=Z0,
+            distal_resistance=5.0 * Z0,
+            compliance=1.0e-9,
+            reference_pressure=0.0,
+            initial_pressure=0.0,
         ),
     ),
 )
@@ -115,7 +123,9 @@ result = network.solve(
     initial_area={"aorta": initial_area},
     initial_flow={"aorta": lambda x: np.zeros_like(x)},
 )
-print(f"Integrated to t = {result.times[-1]:.4f} s with {len(result.stage_times)} explicit stages")
+print(
+    f"Integrated to t = {result.times[-1]:.4f} s with {len(result.stage_times)} explicit stages"
+)
 
 
 # ## Measure the pulse speed and the characteristic impedance
@@ -155,25 +165,42 @@ Z_right = pressure_final[peak_right] / flow_final[peak_right]
 Z_left = -pressure_final[peak_left] / flow_final[peak_left]
 Z_measured = 0.5 * (Z_right + Z_left)
 Z_error = abs(Z_measured - Z0) / Z0
-print(f"peak pressure of the forward pulse = {pressure_final[peak_right]:.2f} Pa,"
-      f"  peak flow = {flow_final[peak_right]*1e6:.3f} ml/s")
-print(f"characteristic impedance: measured {Z_measured:.4e}, rho*c0/A0 = {Z0:.4e} Pa·s/m^3"
-      f"  (relative error {100*Z_error:.2f} %)")
+print(
+    f"peak pressure of the forward pulse = {pressure_final[peak_right]:.2f} Pa,"
+    f"  peak flow = {flow_final[peak_right]*1e6:.3f} ml/s"
+)
+print(
+    f"characteristic impedance: measured {Z_measured:.4e}, rho*c0/A0 = {Z0:.4e} Pa·s/m^3"
+    f"  (relative error {100*Z_error:.2f} %)"
+)
 
 
 # ## Figure
 
 predicted = [x0 - c_formula * t_end, x0 + c_formula * t_end]
 fig = plots.figure(1, 2, size=(12, 4.8))
-plots.line(x, {f"computed, t = {t_end * 1e3:.0f} ms": delta_a * 1e3,
-               "initial area bump": (result.area["aorta"][0] / A0 - 1.0) * 1e3},
-           points={"predicted x0 ± c0 t": (predicted, np.interp(predicted, x, delta_a * 1e3))},
-           vlines={"measured pulse centroids": centroid_left, "": centroid_right},
-           xlabel="position along the vessel x [m]", ylabel="area perturbation dA/A0 [‰]",
-           title=f"Pulse speed: measured {speed_measured:.3f} m/s, Moens-Korteweg {c_formula:.3f} m/s", ax=fig[0])
-plots.line(x, {"pressure perturbation": pressure_final}, reference={"Z0 Q with Z0 = rho c0 / A0": Z0 * flow_final},
-           xlabel="position along the vessel x [m]", ylabel="pressure [Pa]",
-           title="Forward pulse: p = +Z0 Q, backward pulse: p = -Z0 Q", ax=fig[1])
+plots.line(
+    x,
+    {
+        f"computed, t = {t_end * 1e3:.0f} ms": delta_a * 1e3,
+        "initial area bump": (result.area["aorta"][0] / A0 - 1.0) * 1e3,
+    },
+    points={"predicted x0 ± c0 t": (predicted, np.interp(predicted, x, delta_a * 1e3))},
+    vlines={"measured pulse centroids": centroid_left, "": centroid_right},
+    xlabel="position along the vessel x [m]",
+    ylabel="area perturbation dA/A0 [‰]",
+    title=f"Pulse speed: measured {speed_measured:.3f} m/s, Moens-Korteweg {c_formula:.3f} m/s",
+    ax=fig[0],
+)
+plots.line(
+    x,
+    {"pressure perturbation": pressure_final},
+    reference={"Z0 Q with Z0 = rho c0 / A0": Z0 * flow_final},
+    xlabel="position along the vessel x [m]",
+    ylabel="pressure [Pa]",
+    title="Forward pulse: p = +Z0 Q, backward pulse: p = -Z0 Q",
+    ax=fig[1],
+)
 plots.show()
 
 

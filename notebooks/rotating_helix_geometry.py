@@ -9,7 +9,6 @@ Length, volume and end points of the coil are compared with the closed form of t
 fluid volume must stay the same at every angle.
 """
 
-
 # # Rotating helix geometry
 #
 # Helical bodies appear in springs, coils of heat exchangers, screw conveyors and ribbon mixers.
@@ -31,12 +30,11 @@ fluid volume must stay the same at every angle.
 # turns its end point by the same angle.
 
 import numpy as np
-
 from onesim.cad.d2 import Profile
 from onesim.cad.d3 import Cylinder, Helix, Sweep
 from onesim.meshing import TetrahedralMesher
 from onesim.meshing.quality import quality
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -51,10 +49,14 @@ helix = Helix(radius=radius, pitch=pitch, turns=turns, origin=(0.0, 0.0, lift))
 coil = Sweep(profile=Profile.circle(wire), path=helix)
 length = turns * np.hypot(2 * np.pi * radius, pitch)
 print(f"helix length {helix.length * 1e3:.4f} mm, closed form {length * 1e3:.4f} mm")
-print(f"coil volume {coil.measure * 1e6:.5f} cm3, pi a^2 L {np.pi * wire**2 * length * 1e6:.5f} cm3, "
-      f"deviation {coil.measure / (np.pi * wire**2 * length) - 1:+.1e}")
-print(f"end face centre {np.round(np.array(coil.topology.face(coil.boundary_groups()['end'][0]).center) * 1e3, 4)} mm, "
-      f"closed form {np.round(np.array([radius * np.cos(2 * np.pi * turns), radius * np.sin(2 * np.pi * turns), lift + turns * pitch]) * 1e3, 4)} mm")
+print(
+    f"coil volume {coil.measure * 1e6:.5f} cm3, pi a^2 L {np.pi * wire**2 * length * 1e6:.5f} cm3, "
+    f"deviation {coil.measure / (np.pi * wire**2 * length) - 1:+.1e}"
+)
+print(
+    f"end face centre {np.round(np.array(coil.topology.face(coil.boundary_groups()['end'][0]).center) * 1e3, 4)} mm, "
+    f"closed form {np.round(np.array([radius * np.cos(2 * np.pi * turns), radius * np.sin(2 * np.pi * turns), lift + turns * pitch]) * 1e3, 4)} mm"
+)
 
 # ## The coil turned inside the vessel
 #
@@ -65,14 +67,29 @@ angles = np.radians([0.0, 30.0, 60.0, 90.0])
 vessel = Cylinder(radius=vessel_radius, length=vessel_height)
 turned = [coil.rotated((0, 0, 1), angle) for angle in angles]
 fluids = [vessel - blade.named("coil") for blade in turned]
-meshes = [TetrahedralMesher(target_size=0.006, curvature_angle=0.5).generate(fluid) for fluid in fluids]
+meshes = [
+    TetrahedralMesher(target_size=0.006, curvature_angle=0.5).generate(fluid)
+    for fluid in fluids
+]
 
 view = plots.Camera(elevation=22, azimuth=-60)
 fig = plots.figure(1, 2, size=(16, 7))
-plots.geometry(coil, selection={"start": coil.boundaries.start, "end": coil.boundaries.end}, labels=False, camera=view,
-               title="Coil swept along a helix of three turns", ax=fig[0])
-plots.mesh(meshes[0], groups=("coil.side",), legend=False, camera=view,
-           title=f"Fluid mesh ({meshes[0].cell_count} tetrahedra): triangles on the coil", ax=fig[1])
+plots.geometry(
+    coil,
+    selection={"start": coil.boundaries.start, "end": coil.boundaries.end},
+    labels=False,
+    camera=view,
+    title="Coil swept along a helix of three turns",
+    ax=fig[0],
+)
+plots.mesh(
+    meshes[0],
+    groups=("coil.side",),
+    legend=False,
+    camera=view,
+    title=f"Fluid mesh ({meshes[0].cell_count} tetrahedra): triangles on the coil",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Results
@@ -81,11 +98,15 @@ plots.show()
 # the fluid volume of the CAD body and of its mesh.
 
 fluid_exact = np.pi * vessel_radius**2 * vessel_height - np.pi * wire**2 * length
-print("angle   coil volume [cm3]   end point angle   fluid CAD [cm3]   fluid mesh [cm3]   closed form   cells")
+print(
+    "angle   coil volume [cm3]   end point angle   fluid CAD [cm3]   fluid mesh [cm3]   closed form   cells"
+)
 for angle, blade, fluid, mesh in zip(angles, turned, fluids, meshes):
     end = np.array(blade.topology.face(blade.boundary_groups()["end"][0]).center)
-    print(f"{np.degrees(angle):5.0f} {blade.measure * 1e6:16.5f} {np.degrees(np.arctan2(end[1], end[0])):14.2f} deg"
-          f" {fluid.measure * 1e6:16.5f} {quality(mesh)['size'].sum() * 1e6:17.5f} {fluid_exact * 1e6:13.5f} {mesh.cell_count:7d}")
+    print(
+        f"{np.degrees(angle):5.0f} {blade.measure * 1e6:16.5f} {np.degrees(np.arctan2(end[1], end[0])):14.2f} deg"
+        f" {fluid.measure * 1e6:16.5f} {quality(mesh)['size'].sum() * 1e6:17.5f} {fluid_exact * 1e6:13.5f} {mesh.cell_count:7d}"
+    )
 
 # ## Figure
 #
@@ -94,12 +115,24 @@ for angle, blade, fluid, mesh in zip(angles, turned, fluids, meshes):
 
 fig = plots.figure(2, 3, size=(19, 12))
 for index, (angle, blade) in enumerate(zip(angles, turned)):
-    plots.render(blade, camera=view, material="steel", title=f"coil turned by {np.degrees(angle):.0f} deg", ax=fig[index])
+    plots.render(
+        blade,
+        camera=view,
+        material="steel",
+        title=f"coil turned by {np.degrees(angle):.0f} deg",
+        ax=fig[index],
+    )
 for index in (0, 3):
-    plots.mesh(meshes[index], cell_values=quality(meshes[index])["shape"], limits=(0, 1),
-               plane=((0.0, 0.0, vessel_height / 2), (0.0, 1.0, 0.0)), label="shape measure",
-               camera=plots.Camera(elevation=10, azimuth=90), title=f"fluid cut along the axis, {np.degrees(angles[index]):.0f} deg",
-               ax=fig[4 + index // 3])
+    plots.mesh(
+        meshes[index],
+        cell_values=quality(meshes[index])["shape"],
+        limits=(0, 1),
+        plane=((0.0, 0.0, vessel_height / 2), (0.0, 1.0, 0.0)),
+        label="shape measure",
+        camera=plots.Camera(elevation=10, azimuth=90),
+        title=f"fluid cut along the axis, {np.degrees(angles[index]):.0f} deg",
+        ax=fig[4 + index // 3],
+    )
 plots.show()
 
 # ## Going further

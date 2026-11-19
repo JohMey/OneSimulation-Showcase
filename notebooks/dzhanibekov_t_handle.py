@@ -8,7 +8,6 @@ stable. Energy and angular momentum are conserved, and the flip period is checke
 exact solution in Jacobi elliptic functions.
 """
 
-
 # # Dzhanibekov effect: the flipping T-handle
 #
 # In 1985 the cosmonaut Vladimir Dzhanibekov noticed that a wing nut spinning off its bolt in
@@ -38,8 +37,6 @@ exact solution in Jacobi elliptic functions.
 # $$T=4K(k)\sqrt{\frac{I_1I_2I_3}{(I_3-I_2)(M^2-2EI_1)}} .$$
 
 import numpy as np
-from scipy.special import ellipk
-
 from onesim.cad.exchange import load
 from onesim.cad.geometry import LumpedDomain
 from onesim.meshing import LumpedMesh
@@ -50,7 +47,8 @@ from onesim.physics.multibody import EulerTop
 from onesim.results.sampling import crossing_times
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
+from scipy.special import ellipk
 
 theme.set()
 
@@ -62,13 +60,24 @@ theme.set()
 handle = load("dzhanibekov_t_handle.step")
 density = 2700.0
 inertia = tuple(np.diag(handle.inertia) * density)
-print(f"mass {1e3 * density * handle.volumes[0].measure:.1f} g, centre of mass ({', '.join(f'{1e3 * c:.2f}' for c in handle.center_of_mass)}) mm")
-print("principal moments of inertia [kg mm²]: " + ", ".join(f"I_{axis} = {1e6 * value:.3f}" for axis, value in zip("xyz", inertia)))
+print(
+    f"mass {1e3 * density * handle.volumes[0].measure:.1f} g, centre of mass ({', '.join(f'{1e3 * c:.2f}' for c in handle.center_of_mass)}) mm"
+)
+print(
+    "principal moments of inertia [kg mm²]: "
+    + ", ".join(f"I_{axis} = {1e6 * value:.3f}" for axis, value in zip("xyz", inertia))
+)
 
 view = plots.Camera(elevation=30, azimuth=-55)
 fig = plots.figure(1, 2, size=(14, 5.5))
-plots.geometry(handle, selection={"crossbar": handle.boundaries.crossbar, "stem": handle.boundaries.stem}, labels=False, camera=view,
-               title="T-handle with its two bars", ax=fig[0])
+plots.geometry(
+    handle,
+    selection={"crossbar": handle.boundaries.crossbar, "stem": handle.boundaries.stem},
+    labels=False,
+    camera=view,
+    title="T-handle with its two bars",
+    ax=fig[0],
+)
 plots.render(handle, camera=view, title="Rendered part", ax=fig[1])
 plots.show()
 
@@ -82,13 +91,27 @@ plots.show()
 spin, disturbance = 2 * np.pi * 5.0, 0.01
 domain = LumpedDomain()
 top = EulerTop(domain=domain.system, inertia=inertia, torque=(0.0, 0.0, 0.0))
-starts = {"x (smallest)": (spin, 0.0, disturbance * spin), "y (intermediate)": (0.0, spin, disturbance * spin),
-          "z (largest)": (disturbance * spin, 0.0, spin)}
+starts = {
+    "x (smallest)": (spin, 0.0, disturbance * spin),
+    "y (intermediate)": (0.0, spin, disturbance * spin),
+    "z (largest)": (disturbance * spin, 0.0, spin),
+}
 numerics = Numerics(spatial=LumpedParameters(), time_integrator=ClassicalRungeKutta4())
-runs = {axis: Simulation(problem=Problem(name=f"Spin about {axis}", geometry=domain, physics=(top,),
-                                         initial_conditions=tuple(InitialValue(top.angular_velocity(c), w) for c, w in zip("xyz", omega))),
-                         mesh=LumpedMesh(domain), numerics=numerics).run(start_time=0.0, end_time=3.0, time_step=1e-3)
-        for axis, omega in starts.items()}
+runs = {
+    axis: Simulation(
+        problem=Problem(
+            name=f"Spin about {axis}",
+            geometry=domain,
+            physics=(top,),
+            initial_conditions=tuple(
+                InitialValue(top.angular_velocity(c), w) for c, w in zip("xyz", omega)
+            ),
+        ),
+        mesh=LumpedMesh(domain),
+        numerics=numerics,
+    ).run(start_time=0.0, end_time=3.0, time_step=1e-3)
+    for axis, omega in starts.items()
+}
 
 # ## Results
 #
@@ -96,22 +119,41 @@ runs = {axis: Simulation(problem=Problem(name=f"Spin about {axis}", geometry=dom
 # components, and the flip period of the intermediate-axis spin from the sign changes of
 # $\omega_y$ against the elliptic-function period.
 
-omega = {axis: np.array([run.field(top.angular_velocity(c)).time_series()[1] for c in "xyz"]) for axis, run in runs.items()}
+omega = {
+    axis: np.array([run.field(top.angular_velocity(c)).time_series()[1] for c in "xyz"])
+    for axis, run in runs.items()
+}
 times = runs["y (intermediate)"].field(top.angular_velocity("y")).time_series()[0]
-energy, momentum = (0.5 * np.dot(inertia, np.square(starts["y (intermediate)"])),
-                    np.linalg.norm(np.multiply(inertia, starts["y (intermediate)"])))
+energy, momentum = (
+    0.5 * np.dot(inertia, np.square(starts["y (intermediate)"])),
+    np.linalg.norm(np.multiply(inertia, starts["y (intermediate)"])),
+)
 i1, i2, i3 = inertia
-landau = 4 * ellipk((i2 - i1) * (2 * energy * i3 - momentum**2) / ((i3 - i2) * (momentum**2 - 2 * energy * i1))) \
+landau = (
+    4
+    * ellipk(
+        (i2 - i1)
+        * (2 * energy * i3 - momentum**2)
+        / ((i3 - i2) * (momentum**2 - 2 * energy * i1))
+    )
     * np.sqrt(i1 * i2 * i3 / ((i3 - i2) * (momentum**2 - 2 * energy * i1)))
+)
 flips = crossing_times(times, omega["y (intermediate)"][1], 0.0, direction="both")
 
 for axis, run in runs.items():
-    e, m = run.field(top.energy).time_series()[1], run.field(top.momentum_norm).time_series()[1]
+    e, m = (
+        run.field(top.energy).time_series()[1],
+        run.field(top.momentum_norm).time_series()[1],
+    )
     k = "xyz".index(axis[0])
-    print(f"spin about {axis:17s} relative drift: energy {np.ptp(e) / e[0]:.1e}, angular momentum {np.ptp(m) / m[0]:.1e}; "
-          f"spin component from {omega[axis][k].min() / spin:+.3f} to {omega[axis][k].max() / spin:+.3f} of the initial spin")
-print(f"intermediate axis: {len(flips)} flips in 3 s, flip period {2 * np.diff(flips).mean():.5f} s, "
-      f"elliptic-function period {landau:.5f} s, deviation {100 * (2 * np.diff(flips).mean() / landau - 1):+.3f} %")
+    print(
+        f"spin about {axis:17s} relative drift: energy {np.ptp(e) / e[0]:.1e}, angular momentum {np.ptp(m) / m[0]:.1e}; "
+        f"spin component from {omega[axis][k].min() / spin:+.3f} to {omega[axis][k].max() / spin:+.3f} of the initial spin"
+    )
+print(
+    f"intermediate axis: {len(flips)} flips in 3 s, flip period {2 * np.diff(flips).mean():.5f} s, "
+    f"elliptic-function period {landau:.5f} s, deviation {100 * (2 * np.diff(flips).mean() / landau - 1):+.3f} %"
+)
 
 # ## Figure
 #
@@ -120,15 +162,43 @@ print(f"intermediate axis: {len(flips)} flips in 3 s, flip period {2 * np.diff(f
 # it circles the stable axes and swings from pole to pole around the intermediate one.
 
 fig = plots.figure(1, 3, size=(18, 5))
-plots.line(times, {f"ω_{c}": omega["y (intermediate)"][k] / spin for k, c in enumerate("xyz")}, xlabel="time [s]",
-           ylabel="angular velocity / initial spin", title="Spin about the intermediate axis y", legend="lower right", ax=fig[0])
-plots.line(times, {f"spin about {axis}": omega[axis]["xyz".index(axis[0])] / spin for axis in runs}, ylimits=(-1.2, 1.8),
-           xlabel="time [s]", ylabel="spin component / initial spin", title="Stable and unstable axes", legend="upper right", ax=fig[1])
-plots.line(points={f"spin about {axis}": (np.multiply(inertia, omega[axis].T)[::5, 0] / np.linalg.norm(np.multiply(inertia, starts[axis])),
-                                          np.multiply(inertia, omega[axis].T)[::5, 1] / np.linalg.norm(np.multiply(inertia, starts[axis])))
-                   for axis in runs},
-           xlimits=(-1.1, 1.1), ylimits=(-1.1, 1.1), xlabel="M_x / |M|", ylabel="M_y / |M|",
-           title="Angular momentum seen from the body", legend="lower left", ax=fig[2])
+plots.line(
+    times,
+    {f"ω_{c}": omega["y (intermediate)"][k] / spin for k, c in enumerate("xyz")},
+    xlabel="time [s]",
+    ylabel="angular velocity / initial spin",
+    title="Spin about the intermediate axis y",
+    legend="lower right",
+    ax=fig[0],
+)
+plots.line(
+    times,
+    {f"spin about {axis}": omega[axis]["xyz".index(axis[0])] / spin for axis in runs},
+    ylimits=(-1.2, 1.8),
+    xlabel="time [s]",
+    ylabel="spin component / initial spin",
+    title="Stable and unstable axes",
+    legend="upper right",
+    ax=fig[1],
+)
+plots.line(
+    points={
+        f"spin about {axis}": (
+            np.multiply(inertia, omega[axis].T)[::5, 0]
+            / np.linalg.norm(np.multiply(inertia, starts[axis])),
+            np.multiply(inertia, omega[axis].T)[::5, 1]
+            / np.linalg.norm(np.multiply(inertia, starts[axis])),
+        )
+        for axis in runs
+    },
+    xlimits=(-1.1, 1.1),
+    ylimits=(-1.1, 1.1),
+    xlabel="M_x / |M|",
+    ylabel="M_y / |M|",
+    title="Angular momentum seen from the body",
+    legend="lower left",
+    ax=fig[2],
+)
 plots.show()
 
 # ## Going further

@@ -16,6 +16,10 @@ strip = Box(length=half_length, width=half_width, height=sum(layers.values()))
 strip.save("four_point_bending_layered_module.step")
 bottom = layers["baseplate"]
 for name in ("solder", "ceramic", "copper"):
-    Box(length=half_length, width=half_width, height=layers[name], origin=(0.0, 0.0, bottom)).save(
-        f"four_point_bending_layered_module_{name}.step")
+    Box(
+        length=half_length,
+        width=half_width,
+        height=layers[name],
+        origin=(0.0, 0.0, bottom),
+    ).save(f"four_point_bending_layered_module_{name}.step")
     bottom += layers[name]

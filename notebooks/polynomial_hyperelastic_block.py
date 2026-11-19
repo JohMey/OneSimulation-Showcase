@@ -7,7 +7,6 @@ once with two terms (Mooney-Rivlin) and once with five; the 3D finite-strain sol
 with the closed-form nominal stresses of the incompressible material in all six combinations.
 """
 
-
 # # Polynomial hyperelastic rubber in three load cases
 #
 # A hyperelastic material is defined completely by its strain energy density. For rubber the
@@ -45,12 +44,11 @@ with the closed-form nominal stresses of the incompressible material in all six 
 #   P_\mathrm{shear}=2\Big(\lambda-\frac1{\lambda^3}\Big)\big(W_1+W_2\big).$$
 
 import numpy as np
-
 from onesim.cad.exchange import load
 from onesim.materials.solids import IsochoricInvariantPolynomial, QuadraticVolumeLaw
 from onesim.meshing import CadHexahedralMesher
 from onesim.physics.solid_mechanics import FiniteStrainSolid
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -66,9 +64,25 @@ mesh = CadHexahedralMesher(cells=(3, 3, 3)).generate(block)
 
 view = plots.Camera(elevation=25, azimuth=-55)
 fig = plots.figure(1, 2, size=(12, 5.5))
-plots.geometry(block, selection={"rollers": faces.x_min | faces.y_min | faces.z_min, "pulled": faces.x_max | faces.y_max},
-               labels=False, camera=view, title="Rubber block", ax=fig[0])
-plots.mesh(mesh, groups=("all",), legend=False, camera=view, title=f"{mesh.cell_count} hexahedra", ax=fig[1])
+plots.geometry(
+    block,
+    selection={
+        "rollers": faces.x_min | faces.y_min | faces.z_min,
+        "pulled": faces.x_max | faces.y_max,
+    },
+    labels=False,
+    camera=view,
+    title="Rubber block",
+    ax=fig[0],
+)
+plots.mesh(
+    mesh,
+    groups=("all",),
+    legend=False,
+    camera=view,
+    title=f"{mesh.cell_count} hexahedra",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Model
@@ -76,18 +90,50 @@ plots.show()
 # The two materials are lists of polynomial terms; each of the six runs ramps its stretch in
 # twelve steps. The nominal stress is the reaction on `x_max` over the original face area.
 
-models = {"Mooney-Rivlin": ((1, 0, 0.16e6), (0, 1, 0.01e6)),
-          "five-term polynomial": ((1, 0, 0.16e6), (0, 1, 0.01e6), (2, 0, 2e3), (1, 1, 0.5e3), (0, 2, 0.1e3))}
-cases = {"uniaxial tension": (3.0, ()), "equibiaxial tension": (2.0, ((faces.y_max, "y", lambda t: t),)),
-         "pure shear": (2.5, ((faces.y_max, "y", 0.0),))}
-supports = ((faces.x_min, "x", 0.0), (faces.y_min, "y", 0.0), (faces.z_min, "z", 0.0), (faces.x_max, "x", lambda t: t))
+models = {
+    "Mooney-Rivlin": ((1, 0, 0.16e6), (0, 1, 0.01e6)),
+    "five-term polynomial": (
+        (1, 0, 0.16e6),
+        (0, 1, 0.01e6),
+        (2, 0, 2e3),
+        (1, 1, 0.5e3),
+        (0, 2, 0.1e3),
+    ),
+}
+cases = {
+    "uniaxial tension": (3.0, ()),
+    "equibiaxial tension": (2.0, ((faces.y_max, "y", lambda t: t),)),
+    "pure shear": (2.5, ((faces.y_max, "y", 0.0),)),
+}
+supports = (
+    (faces.x_min, "x", 0.0),
+    (faces.y_min, "y", 0.0),
+    (faces.z_min, "z", 0.0),
+    (faces.x_max, "x", lambda t: t),
+)
 stretch = {case: np.linspace(1.0, top, 13) for case, (top, _) in cases.items()}
-results = {(model, case): FiniteStrainSolid(shear_modulus=2 * (terms[0][2] + terms[1][2]), bulk_modulus=2e4 * (terms[0][2] + terms[1][2])).solve(
-    mesh=mesh, times=(stretch[case] - 1) * side, quadrature_order=3, displacements=supports + extra,
-    elastic_response=IsochoricInvariantPolynomial(terms), volume_law=QuadraticVolumeLaw(2e4 * (terms[0][2] + terms[1][2])))
-    for model, terms in models.items() for case, (top, extra) in cases.items()}
-nominal = {key: result.reactions[:, np.isclose(result.displacement_space.dof_coordinates[:, 0], side), 0].sum(axis=1) / side**2
-           for key, result in results.items()}
+results = {
+    (model, case): FiniteStrainSolid(
+        shear_modulus=2 * (terms[0][2] + terms[1][2]),
+        bulk_modulus=2e4 * (terms[0][2] + terms[1][2]),
+    ).solve(
+        mesh=mesh,
+        times=(stretch[case] - 1) * side,
+        quadrature_order=3,
+        displacements=supports + extra,
+        elastic_response=IsochoricInvariantPolynomial(terms),
+        volume_law=QuadraticVolumeLaw(2e4 * (terms[0][2] + terms[1][2])),
+    )
+    for model, terms in models.items()
+    for case, (top, extra) in cases.items()
+}
+nominal = {
+    key: result.reactions[
+        :, np.isclose(result.displacement_space.dof_coordinates[:, 0], side), 0
+    ].sum(axis=1)
+    / side**2
+    for key, result in results.items()
+}
 
 # ## Reference
 #
@@ -97,12 +143,18 @@ nominal = {key: result.reactions[:, np.isclose(result.displacement_space.dof_coo
 
 def reference(terms, case, l):
     """Nominal stress of the incompressible polynomial material."""
-    i1, i2 = {"uniaxial tension": (l**2 + 2 / l, 2 * l + l**-2), "equibiaxial tension": (2 * l**2 + l**-4, l**4 + 2 * l**-2),
-              "pure shear": (l**2 + 1 + l**-2, l**2 + 1 + l**-2)}[case]
+    i1, i2 = {
+        "uniaxial tension": (l**2 + 2 / l, 2 * l + l**-2),
+        "equibiaxial tension": (2 * l**2 + l**-4, l**4 + 2 * l**-2),
+        "pure shear": (l**2 + 1 + l**-2, l**2 + 1 + l**-2),
+    }[case]
     w1 = sum(c * i * (i1 - 3) ** max(i - 1, 0) * (i2 - 3) ** j for i, j, c in terms)
     w2 = sum(c * j * (i1 - 3) ** i * (i2 - 3) ** max(j - 1, 0) for i, j, c in terms)
-    return {"uniaxial tension": 2 * (l - l**-2) * (w1 + w2 / l), "equibiaxial tension": 2 * (l - l**-5) * (w1 + l**2 * w2),
-            "pure shear": 2 * (l - l**-3) * (w1 + w2)}[case]
+    return {
+        "uniaxial tension": 2 * (l - l**-2) * (w1 + w2 / l),
+        "equibiaxial tension": 2 * (l - l**-5) * (w1 + l**2 * w2),
+        "pure shear": 2 * (l - l**-3) * (w1 + w2),
+    }[case]
 
 
 # ## Comparison with the reference
@@ -111,11 +163,15 @@ def reference(terms, case, l):
 # stress at the largest stretch, and the volume change, which shows how close to incompressible
 # the rubber stays.
 
-print(f"{'model':22s} {'load case':20s} {'P at the end [MPa]':>19s} {'closed form':>12s} {'largest deviation':>18s} {'largest |J - 1|':>16s}")
+print(
+    f"{'model':22s} {'load case':20s} {'P at the end [MPa]':>19s} {'closed form':>12s} {'largest deviation':>18s} {'largest |J - 1|':>16s}"
+)
 for (model, case), values in nominal.items():
     exact = reference(models[model], case, stretch[case])
-    print(f"{model:22s} {case:20s} {values[-1] / 1e6:19.4f} {exact[-1] / 1e6:12.4f} {100 * np.abs(values - exact).max() / exact[-1]:17.3f} %"
-          f" {np.abs(results[model, case].jacobian - 1).max():16.1e}")
+    print(
+        f"{model:22s} {case:20s} {values[-1] / 1e6:19.4f} {exact[-1] / 1e6:12.4f} {100 * np.abs(values - exact).max() / exact[-1]:17.3f} %"
+        f" {np.abs(results[model, case].jacobian - 1).max():16.1e}"
+    )
 
 # ## Figure
 #
@@ -125,10 +181,18 @@ for (model, case), values in nominal.items():
 fine = {case: np.linspace(1.0, values[-1], 200) for case, values in stretch.items()}
 fig = plots.figure(1, 3, size=(18, 5.5))
 for k, case in enumerate(cases):
-    plots.line(points={model: (stretch[case], nominal[model, case] / 1e6) for model in models},
-               reference={model: (fine[case], reference(terms, case, fine[case]) / 1e6) for model, terms in models.items()},
-               xlabel="stretch λ", ylabel="nominal stress P [MPa]", title=case.capitalize(),
-               legend="upper left", ax=fig[k])
+    plots.line(
+        points={model: (stretch[case], nominal[model, case] / 1e6) for model in models},
+        reference={
+            model: (fine[case], reference(terms, case, fine[case]) / 1e6)
+            for model, terms in models.items()
+        },
+        xlabel="stretch λ",
+        ylabel="nominal stress P [MPa]",
+        title=case.capitalize(),
+        legend="upper left",
+        ax=fig[k],
+    )
 plots.show()
 
 # ## Going further

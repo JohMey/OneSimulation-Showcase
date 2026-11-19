@@ -9,5 +9,7 @@ from onesim.cad.d3 import Cylinder
 
 guide = Cylinder(radius=0.020, length=0.060)
 faces = guide.boundaries
-guide = guide.grouped(port=faces.bottom, short=faces.top, walls=faces.all - faces.bottom - faces.top)
+guide = guide.grouped(
+    port=faces.bottom, short=faces.top, walls=faces.all - faces.bottom - faces.top
+)
 guide.save("circular_waveguide_te11_cutoff.step")

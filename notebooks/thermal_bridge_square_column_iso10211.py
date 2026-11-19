@@ -6,7 +6,6 @@ to its cross-section. The temperatures at the 28 points of the standard are comp
 reference table and with the exact Fourier series, on three meshes.
 """
 
-
 # # Thermal bridge: half of a square column (EN ISO 10211, case 1)
 #
 # EN ISO 10211 (*Thermal bridges in building construction - Heat flows and surface temperatures -
@@ -41,7 +40,6 @@ reference table and with the exact Fourier series, on three meshes.
 # *Conduction of Heat in Solids*, 1959).
 
 import numpy as np
-
 from onesim.cad.exchange import load
 from onesim.materials import IsotropicSolid
 from onesim.meshing import TriangularMesher
@@ -50,7 +48,7 @@ from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import SparseDirect
 from onesim.physics.heat_transfer import FixedTemperature, HeatConduction, HeatFlux
 from onesim.simulation import Problem, Simulation
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -65,12 +63,33 @@ faces = column.boundaries
 region = column.section((0, 0, 1), origin=(0, 0, column.size[2] / 2))
 sides = region.boundaries
 sizes = [0.2, 0.1, 0.05]
-meshes = [TriangularMesher(target_size=size, grading=0.25, local_sizes={"y_max": size / 4}).generate(region) for size in sizes]
+meshes = [
+    TriangularMesher(
+        target_size=size, grading=0.25, local_sizes={"y_max": size / 4}
+    ).generate(region)
+    for size in sizes
+]
 
 fig = plots.figure(1, 2, size=(13, 6.5))
-plots.geometry(column, selection={"warm, 20 °C": faces.warm, "cold, 0 °C": faces.cold, "symmetry": faces.symmetry}, labels=False,
-               camera=plots.Camera(elevation=30, azimuth=-115), title="Half column with its named faces", ax=fig[0])
-plots.mesh(meshes[1], groups=("all",), legend=False, title=f"Middle mesh: {meshes[1].cell_count} triangles", ax=fig[1])
+plots.geometry(
+    column,
+    selection={
+        "warm, 20 °C": faces.warm,
+        "cold, 0 °C": faces.cold,
+        "symmetry": faces.symmetry,
+    },
+    labels=False,
+    camera=plots.Camera(elevation=30, azimuth=-115),
+    title="Half column with its named faces",
+    ax=fig[0],
+)
+plots.mesh(
+    meshes[1],
+    groups=("all",),
+    legend=False,
+    title=f"Middle mesh: {meshes[1].cell_count} triangles",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Model
@@ -79,34 +98,81 @@ plots.show()
 # the cold faces share the corner $(0,\,2)$; one prescribed temperature on all three faces gives
 # that node 0 °C, the value of the external face.
 
-material = IsotropicSolid(density=2000.0, specific_heat_capacity=1000.0, thermal_conductivity=1.0,
-                          youngs_modulus=1e10, poisson_ratio=0.2, thermal_expansion_coefficient=0.0)
+material = IsotropicSolid(
+    density=2000.0,
+    specific_heat_capacity=1000.0,
+    thermal_conductivity=1.0,
+    youngs_modulus=1e10,
+    poisson_ratio=0.2,
+    thermal_expansion_coefficient=0.0,
+)
 model = HeatConduction(domain=region.domain(), material=material, heating=0.0)
-problem = Problem(name="ISO 10211 case 1", geometry=region, physics=(model,), boundary_conditions=(
-    FixedTemperature(boundary=sides.y_max | sides.x_min | sides.y_min, physics=model,
-                     value=lambda x, y: np.where(np.isclose(y, 2.0) & (x > 1e-9), 20.0, 0.0)),
-    HeatFlux(boundary=sides.x_max, physics=model, value=0.0)))
-numerics = Numerics(spatial=FiniteElement(element=Lagrange(order=2)), linear_solver=SparseDirect())
-fields = [Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_stationary().field(model.temperature) for mesh in meshes]
+problem = Problem(
+    name="ISO 10211 case 1",
+    geometry=region,
+    physics=(model,),
+    boundary_conditions=(
+        FixedTemperature(
+            boundary=sides.y_max | sides.x_min | sides.y_min,
+            physics=model,
+            value=lambda x, y: np.where(np.isclose(y, 2.0) & (x > 1e-9), 20.0, 0.0),
+        ),
+        HeatFlux(boundary=sides.x_max, physics=model, value=0.0),
+    ),
+)
+numerics = Numerics(
+    spatial=FiniteElement(element=Lagrange(order=2)), linear_solver=SparseDirect()
+)
+fields = [
+    Simulation(problem=problem, mesh=mesh, numerics=numerics)
+    .solve_stationary()
+    .field(model.temperature)
+    for mesh in meshes
+]
 
 # ## Results
 #
 # The 28 temperatures of the finest mesh against the table of the standard (rows from the top) and
 # the largest deviation on each mesh.
 
-iso = np.array([[9.7, 13.4, 14.7, 15.1], [5.3, 8.6, 10.3, 10.8], [3.2, 5.6, 7.0, 7.5], [2.0, 3.6, 4.7, 5.0],
-                [1.3, 2.3, 3.0, 3.2], [0.7, 1.4, 1.8, 1.9], [0.3, 0.6, 0.8, 0.9]])
+iso = np.array(
+    [
+        [9.7, 13.4, 14.7, 15.1],
+        [5.3, 8.6, 10.3, 10.8],
+        [3.2, 5.6, 7.0, 7.5],
+        [2.0, 3.6, 4.7, 5.0],
+        [1.3, 2.3, 3.0, 3.2],
+        [0.7, 1.4, 1.8, 1.9],
+        [0.3, 0.6, 0.8, 0.9],
+    ]
+)
 X, Y = np.meshgrid([0.25, 0.5, 0.75, 1.0], [1.75, 1.5, 1.25, 1.0, 0.75, 0.5, 0.25])
 n = np.arange(1, 400, 2)[:, None]
-series = lambda x, y: np.sum(80 / (n * np.pi) * np.sin(n * np.pi * x / 2) * np.exp(n * np.pi * (y - 2) / 2)
-                             * (1 - np.exp(-n * np.pi * y)) / (1 - np.exp(-2 * n * np.pi)), axis=0)
-grid = [f.evaluate(np.column_stack((X.ravel(), Y.ravel()))).reshape(X.shape) for f in fields]
+series = lambda x, y: np.sum(
+    80
+    / (n * np.pi)
+    * np.sin(n * np.pi * x / 2)
+    * np.exp(n * np.pi * (y - 2) / 2)
+    * (1 - np.exp(-n * np.pi * y))
+    / (1 - np.exp(-2 * n * np.pi)),
+    axis=0,
+)
+grid = [
+    f.evaluate(np.column_stack((X.ravel(), Y.ravel()))).reshape(X.shape) for f in fields
+]
 print("y [m]   simulation at x = 0.25 / 0.5 / 0.75 / 1.0 m       ISO 10211 table")
 for row in range(7):
-    print(f"{Y[row, 0]:5.2f}  " + " ".join(f"{v:7.3f}" for v in grid[-1][row]) + "      " + " ".join(f"{v:5.1f}" for v in iso[row]))
+    print(
+        f"{Y[row, 0]:5.2f}  "
+        + " ".join(f"{v:7.3f}" for v in grid[-1][row])
+        + "      "
+        + " ".join(f"{v:5.1f}" for v in iso[row])
+    )
 for size, mesh, values in zip(sizes, meshes, grid):
-    print(f"mesh {size:.2f} m ({mesh.cell_count:5d} triangles): largest deviation from the table {np.abs(values - iso).max():.3f} K "
-          f"(0.1 K allowed), from the exact series {np.abs(values - series(X.ravel(), Y.ravel()).reshape(X.shape)).max():.1e} K")
+    print(
+        f"mesh {size:.2f} m ({mesh.cell_count:5d} triangles): largest deviation from the table {np.abs(values - iso).max():.3f} K "
+        f"(0.1 K allowed), from the exact series {np.abs(values - series(X.ravel(), Y.ravel()).reshape(X.shape)).max():.1e} K"
+    )
 
 # ## Figure
 #
@@ -115,13 +181,36 @@ for size, mesh, values in zip(sizes, meshes, grid):
 
 y = np.linspace(0.02, 1.98, 197)
 fig = plots.figure(1, 2, size=(15, 7))
-plots.surface(fields[-1], limits=(0, 20), contours=21, subdivisions=3, xlabel="x [m]", ylabel="y [m]", label="θ [°C]",
-              title="Temperature in the half column", ax=fig[0])
-plots.line(y={f"x = {x} m": (y, fields[-1].evaluate(np.column_stack((np.full_like(y, x), y))).ravel()) for x in X[0]},
-           reference={f"x = {x} m": (y, series(np.full_like(y, x), y)) for x in X[0]},
-           points={f"ISO 10211, x = {x} m": (Y[:, column_index], iso[:, column_index]) for column_index, x in enumerate(X[0])},
-           xlabel="height y [m]", ylabel="θ [°C]", title="Columns: simulation, series (dashed), ISO (markers)",
-           legend="upper left", ax=fig[1])
+plots.surface(
+    fields[-1],
+    limits=(0, 20),
+    contours=21,
+    subdivisions=3,
+    xlabel="x [m]",
+    ylabel="y [m]",
+    label="θ [°C]",
+    title="Temperature in the half column",
+    ax=fig[0],
+)
+plots.line(
+    y={
+        f"x = {x} m": (
+            y,
+            fields[-1].evaluate(np.column_stack((np.full_like(y, x), y))).ravel(),
+        )
+        for x in X[0]
+    },
+    reference={f"x = {x} m": (y, series(np.full_like(y, x), y)) for x in X[0]},
+    points={
+        f"ISO 10211, x = {x} m": (Y[:, column_index], iso[:, column_index])
+        for column_index, x in enumerate(X[0])
+    },
+    xlabel="height y [m]",
+    ylabel="θ [°C]",
+    title="Columns: simulation, series (dashed), ISO (markers)",
+    legend="upper left",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Going further

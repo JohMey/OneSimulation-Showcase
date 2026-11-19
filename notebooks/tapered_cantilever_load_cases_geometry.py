@@ -10,7 +10,9 @@ from onesim.cad.d2 import Profile
 from onesim.cad.d3 import Prism
 
 length, root, tip, thickness = 0.300, 0.060, 0.030, 0.005
-outline = Profile.polygon([(0.0, -root / 2), (length, -tip / 2), (length, tip / 2), (0.0, root / 2)],
-                          names=("bottom", "tip", "top", "root"))
+outline = Profile.polygon(
+    [(0.0, -root / 2), (length, -tip / 2), (length, tip / 2), (0.0, root / 2)],
+    names=("bottom", "tip", "top", "root"),
+)
 beam = Prism(profile=outline, height=thickness)
 beam.save("tapered_cantilever_load_cases.step")

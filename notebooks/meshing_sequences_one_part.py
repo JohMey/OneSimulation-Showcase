@@ -10,7 +10,6 @@ boundary layers on the eye walls, improvement of the worst cells) and rebuilds o
 that change. Every mesh is measured against the closed-form volume of the part.
 """
 
-
 # # Meshing sequences: several meshers on one part
 #
 # A mesh is rarely made in one call. It is a sequence of operations: a mesher fills the body, a
@@ -36,14 +35,21 @@ that change. Every mesh is measured against the closed-form volume of the part.
 # swept hexahedra and grid tetrahedra approximate the round eyes by straight edges.
 
 import numpy as np
-
 from onesim.cad.d2 import Profile
 from onesim.cad.d3 import Prism
-from onesim.meshing import (AutomaticMesher, BoundaryLayers, MeshRecipe, OctreeMesher, PolyhedralMesher, SweepMesher, TetrahedralMesher,
-                            layered_mesh)
+from onesim.meshing import (
+    AutomaticMesher,
+    BoundaryLayers,
+    MeshRecipe,
+    OctreeMesher,
+    PolyhedralMesher,
+    SweepMesher,
+    TetrahedralMesher,
+    layered_mesh,
+)
 from onesim.meshing.quality import optimized, quality
 from onesim.meshing.refinement import refined
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -54,11 +60,15 @@ theme.set()
 # `small_eye` of the prism.
 
 straight, width, thickness, big, small = 0.10, 0.05, 0.025, 0.012, 0.008
-outline = Profile.slot(straight, width).with_holes(Profile.circle(big, center=(-straight / 2, 0.0), name="big_eye"),
-                                                   Profile.circle(small, center=(straight / 2, 0.0), name="small_eye"))
+outline = Profile.slot(straight, width).with_holes(
+    Profile.circle(big, center=(-straight / 2, 0.0), name="big_eye"),
+    Profile.circle(small, center=(straight / 2, 0.0), name="small_eye"),
+)
 link = Prism(profile=outline, height=thickness)
 faces = link.boundaries
-exact = thickness * (straight * width + np.pi * width**2 / 4 - np.pi * big**2 - np.pi * small**2)
+exact = thickness * (
+    straight * width + np.pi * width**2 / 4 - np.pi * big**2 - np.pi * small**2
+)
 print(f"faces: {', '.join(face.id for face in link.faces)}")
 print(f"volume: CAD {link.measure * 1e6:.4f} cm3, closed form {exact * 1e6:.4f} cm3")
 
@@ -84,26 +94,59 @@ meshers = {
 }
 meshes = {name: mesher.generate(link) for name, mesher in meshers.items()}
 reports = {name: quality(mesh) for name, mesh in meshes.items()}
-print("mesher                         cells   kind          volume error   skewness mean / max   non-orthogonality max")
+print(
+    "mesher                         cells   kind          volume error   skewness mean / max   non-orthogonality max"
+)
 for name, mesh in meshes.items():
     report = reports[name]
-    print(f"{name:28s} {mesh.cell_count:7d}   {report.family:12s} {100 * (report['size'].sum() / exact - 1):+10.3f} %"
-          f" {report['skewness'].mean():12.2f} / {report['skewness'].max():4.2f} {np.degrees(report['non_orthogonality'].max()):18.1f} deg")
+    print(
+        f"{name:28s} {mesh.cell_count:7d}   {report.family:12s} {100 * (report['size'].sum() / exact - 1):+10.3f} %"
+        f" {report['skewness'].mean():12.2f} / {report['skewness'].max():4.2f} {np.degrees(report['non_orthogonality'].max()):18.1f} deg"
+    )
 print(f"the automatic mesher chose: {meshes['automatic choice'].method}")
 
 fig = plots.figure(1, 2, size=(16, 6))
-plots.geometry(link, selection={"large eye": faces.big_eye, "small eye": faces.small_eye, "sweep source": faces.bottom},
-               labels=False, camera=view, title="Connecting link and the faces the meshers use", ax=fig[0])
-plots.mesh(meshes["tetrahedra, Delaunay"], groups=("all",), legend=False, camera=view,
-           title=f"Delaunay tetrahedra: {meshes['tetrahedra, Delaunay'].cell_count} cells", ax=fig[1])
+plots.geometry(
+    link,
+    selection={
+        "large eye": faces.big_eye,
+        "small eye": faces.small_eye,
+        "sweep source": faces.bottom,
+    },
+    labels=False,
+    camera=view,
+    title="Connecting link and the faces the meshers use",
+    ax=fig[0],
+)
+plots.mesh(
+    meshes["tetrahedra, Delaunay"],
+    groups=("all",),
+    legend=False,
+    camera=view,
+    title=f"Delaunay tetrahedra: {meshes['tetrahedra, Delaunay'].cell_count} cells",
+    ax=fig[1],
+)
 plots.show()
 
 drawn = [name for name in meshes if name != "polyhedra"]
 fig = plots.figure(2, 3, size=(18, 10))
 for index, name in enumerate(drawn):
-    plots.mesh(meshes[name], groups=("all",), legend=False, camera=view, title=f"{name}: {meshes[name].cell_count} cells", ax=fig[index])
-plots.bars(list(meshes), [mesh.cell_count for mesh in meshes.values()], horizontal=True, ylabel="number of cells",
-           title="Cells of the six meshes", ax=fig[5])
+    plots.mesh(
+        meshes[name],
+        groups=("all",),
+        legend=False,
+        camera=view,
+        title=f"{name}: {meshes[name].cell_count} cells",
+        ax=fig[index],
+    )
+plots.bars(
+    list(meshes),
+    [mesh.cell_count for mesh in meshes.values()],
+    horizontal=True,
+    ylabel="number of cells",
+    title="Cells of the six meshes",
+    ax=fig[5],
+)
 plots.show()
 
 # ## A meshing sequence
@@ -112,14 +155,26 @@ plots.show()
 # cover both eye walls, where a bearing pin would press; the improvement swaps faces and edges of
 # every cell whose shape measure is below 0.5.
 
-near_eyes = lambda middles: np.minimum(np.hypot(middles[:, 0] + straight / 2, middles[:, 1]),
-                                       np.hypot(middles[:, 0] - straight / 2, middles[:, 1])) < 0.025
+near_eyes = (
+    lambda middles: np.minimum(
+        np.hypot(middles[:, 0] + straight / 2, middles[:, 1]),
+        np.hypot(middles[:, 0] - straight / 2, middles[:, 1]),
+    )
+    < 0.025
+)
 walls = faces.big_eye | faces.small_eye
-recipe = (MeshRecipe()
-          .add("volume", TetrahedralMesher(target_size=0.008), on="geometry")
-          .add("eyes", refined, on="volume", cells=near_eyes)
-          .add("layers", layered_mesh, on="eyes", layers=(BoundaryLayers(walls=walls, count=3, first_height=3e-4, growth=1.4),))
-          .add("improved", optimized, on="layers", threshold=0.5))
+recipe = (
+    MeshRecipe()
+    .add("volume", TetrahedralMesher(target_size=0.008), on="geometry")
+    .add("eyes", refined, on="volume", cells=near_eyes)
+    .add(
+        "layers",
+        layered_mesh,
+        on="eyes",
+        layers=(BoundaryLayers(walls=walls, count=3, first_height=3e-4, growth=1.4),),
+    )
+    .add("improved", optimized, on="layers", threshold=0.5)
+)
 built = recipe.build(geometry=link)
 print(built)
 
@@ -130,9 +185,13 @@ print(f"after the change of the layers: ran {rebuilt.ran}, kept {rebuilt.kept}")
 print("step        cells   min shape   volume error")
 for step in recipe.steps:
     report = quality(rebuilt[step])
-    print(f"{step:9s} {rebuilt[step].cell_count:7d} {report['shape'].min():10.3f} {100 * (report['size'].sum() / exact - 1):+12.4f} %")
-print(f"layer heights of the last mesh: {', '.join(f'{1e3 * item['mean']:.3f}' for item in rebuilt.mesh.layer_report['layer_heights'])} mm, "
-      f"stated {', '.join(f'{1e3 * height:.3f}' for height in five.layer_heights())} mm")
+    print(
+        f"{step:9s} {rebuilt[step].cell_count:7d} {report['shape'].min():10.3f} {100 * (report['size'].sum() / exact - 1):+12.4f} %"
+    )
+print(
+    f"layer heights of the last mesh: {', '.join(f'{1e3 * item['mean']:.3f}' for item in rebuilt.mesh.layer_report['layer_heights'])} mm, "
+    f"stated {', '.join(f'{1e3 * height:.3f}' for height in five.layer_heights())} mm"
+)
 
 # ## Figure
 #
@@ -144,8 +203,16 @@ middle = ((0.0, 0.0, thickness / 2), (0.0, 0.0, 1.0))
 top = plots.Camera(elevation=62, azimuth=-90)
 fig = plots.figure(2, 2, size=(16, 11))
 for index, step in enumerate(recipe.steps):
-    plots.mesh(rebuilt[step], cell_values=quality(rebuilt[step])["shape"], limits=(0, 1), plane=middle, label="shape measure",
-               camera=top, title=f"step '{step}': {rebuilt[step].cell_count} cells", ax=fig[index])
+    plots.mesh(
+        rebuilt[step],
+        cell_values=quality(rebuilt[step])["shape"],
+        limits=(0, 1),
+        plane=middle,
+        label="shape measure",
+        camera=top,
+        title=f"step '{step}': {rebuilt[step].cell_count} cells",
+        ax=fig[index],
+    )
 plots.show()
 
 # ## Going further

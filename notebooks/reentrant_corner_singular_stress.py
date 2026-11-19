@@ -7,7 +7,6 @@ peak stress at the sharp inner corner grows without bound, with the power of the
 Williams' corner analysis predicts, while the peak at a rounded corner converges.
 """
 
-
 # # Singular stress at a re-entrant corner
 #
 # At a sharp inner corner the material surrounds the corner point over an angle of $270°$. The
@@ -41,12 +40,11 @@ Williams' corner analysis predicts, while the peak at a rounded corner converges
 # $\lambda=0.5445$ for the $270°$ wedge is tabulated there.
 
 import numpy as np
-
 from onesim.cad.exchange import load
 from onesim.meshing import TriangularMesher
 from onesim.physics.solid_mechanics import SmallStrainSolid
-from onesim.results.derived import von_mises, voigt
-from onesim.visualization import theme, plots
+from onesim.results.derived import voigt, von_mises
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -56,30 +54,78 @@ theme.set()
 # has 5 mm cells, 0.2 mm along the two edges that meet at the corner (and along the fillet); every
 # refinement level splits each triangle into four.
 
-plates = {"sharp corner": load("reentrant_corner_singular_stress.step"), "2 mm fillet": load("reentrant_corner_singular_stress_fillet.step")}
+plates = {
+    "sharp corner": load("reentrant_corner_singular_stress.step"),
+    "2 mm fillet": load("reentrant_corner_singular_stress_fillet.step"),
+}
 faces = plates["sharp corner"].boundaries
 thickness = plates["sharp corner"].size[2]
-regions = {name: plate.section((0, 0, 1), origin=(0, 0, thickness / 2)) for name, plate in plates.items()}
+regions = {
+    name: plate.section((0, 0, 1), origin=(0, 0, thickness / 2))
+    for name, plate in plates.items()
+}
 levels = (0, 1, 2, 3)
-meshes = {name: [TriangularMesher(target_size=0.005, grading=0.25, refinements=level,
-                                  local_sizes={side: 0.0002 for side in region.boundary_groups() if side.startswith(("cut", "fillet"))})
-                 .generate(region) for level in levels] for name, region in regions.items()}
+meshes = {
+    name: [
+        TriangularMesher(
+            target_size=0.005,
+            grading=0.25,
+            refinements=level,
+            local_sizes={
+                side: 0.0002
+                for side in region.boundary_groups()
+                if side.startswith(("cut", "fillet"))
+            },
+        ).generate(region)
+        for level in levels
+    ]
+    for name, region in regions.items()
+}
 
 fig = plots.figure(1, 2, size=(14, 6))
-plots.geometry(plates["sharp corner"], selection={"fixed": faces.fixed, "loaded": faces.loaded, "corner": faces.corner}, labels=False,
-               camera=plots.Camera(elevation=50, azimuth=-60), title="L-shaped plate with its named faces", ax=fig[0])
-plots.mesh(meshes["sharp corner"][1], groups=("all",), legend=False,
-           title=f"Mid-plane mesh after one refinement: {meshes['sharp corner'][1].cell_count} triangles", ax=fig[1])
+plots.geometry(
+    plates["sharp corner"],
+    selection={"fixed": faces.fixed, "loaded": faces.loaded, "corner": faces.corner},
+    labels=False,
+    camera=plots.Camera(elevation=50, azimuth=-60),
+    title="L-shaped plate with its named faces",
+    ax=fig[0],
+)
+plots.mesh(
+    meshes["sharp corner"][1],
+    groups=("all",),
+    legend=False,
+    title=f"Mid-plane mesh after one refinement: {meshes['sharp corner'][1].cell_count} triangles",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Model
 #
 # Plane stress with quadratic triangles; the same model on all eight meshes.
 
-plate = SmallStrainSolid(youngs_modulus=70e9, poisson_ratio=0.33, kinematics="plane_stress", thickness=thickness)
-runs = {name: [plate.solve(mesh=mesh, times=(0.0,), order=2, tractions=((regions[name].boundaries.y_max, (-10e6, 0.0)),),
-                           displacements=((regions[name].boundaries.x_max, "x", 0.0), (regions[name].boundaries.x_max, "y", 0.0)))
-               for mesh in meshes[name]] for name in regions}
+plate = SmallStrainSolid(
+    youngs_modulus=70e9,
+    poisson_ratio=0.33,
+    kinematics="plane_stress",
+    thickness=thickness,
+)
+runs = {
+    name: [
+        plate.solve(
+            mesh=mesh,
+            times=(0.0,),
+            order=2,
+            tractions=((regions[name].boundaries.y_max, (-10e6, 0.0)),),
+            displacements=(
+                (regions[name].boundaries.x_max, "x", 0.0),
+                (regions[name].boundaries.x_max, "y", 0.0),
+            ),
+        )
+        for mesh in meshes[name]
+    ]
+    for name in regions
+}
 
 # ## Results
 #
@@ -89,22 +135,50 @@ runs = {name: [plate.solve(mesh=mesh, times=(0.0,), order=2, tractions=((regions
 # scale is the exponent $\lambda-1$.
 
 corner = np.array([0.050, 0.050])
-mises = {name: [von_mises(voigt(result.stress[0])) for result in results] for name, results in runs.items()}
-near = {name: [np.linalg.norm(result.quadrature_coordinates - corner, axis=1) < 0.005 for result in results] for name, results in runs.items()}
-peaks = {name: [stress[inside].max() / 1e6 for stress, inside in zip(mises[name], near[name])] for name in runs}
+mises = {
+    name: [von_mises(voigt(result.stress[0])) for result in results]
+    for name, results in runs.items()
+}
+near = {
+    name: [
+        np.linalg.norm(result.quadrature_coordinates - corner, axis=1) < 0.005
+        for result in results
+    ]
+    for name, results in runs.items()
+}
+peaks = {
+    name: [
+        stress[inside].max() / 1e6 for stress, inside in zip(mises[name], near[name])
+    ]
+    for name in runs
+}
 offset = runs["sharp corner"][-1].quadrature_coordinates - corner
 distance = np.linalg.norm(offset, axis=1)
-bisector = (np.abs(np.arctan2(-offset[:, 1], -offset[:, 0]) - np.pi / 4) < np.radians(4)) & (distance < 0.01)
-fitted = (bisector & (distance > 5e-5) & (distance < 1e-3))
-slope = np.polyfit(np.log(distance[fitted]), np.log(mises["sharp corner"][-1][fitted]), 1)[0]
+bisector = (
+    np.abs(np.arctan2(-offset[:, 1], -offset[:, 0]) - np.pi / 4) < np.radians(4)
+) & (distance < 0.01)
+fitted = bisector & (distance > 5e-5) & (distance < 1e-3)
+slope = np.polyfit(
+    np.log(distance[fitted]), np.log(mises["sharp corner"][-1][fitted]), 1
+)[0]
 
-print("refinement   triangles   peak at the sharp corner [MPa]   peak at the 2 mm fillet [MPa]")
+print(
+    "refinement   triangles   peak at the sharp corner [MPa]   peak at the 2 mm fillet [MPa]"
+)
 for level in levels:
-    print(f"{level:10d} {meshes['sharp corner'][level].cell_count:11d} {peaks['sharp corner'][level]:32.1f} {peaks['2 mm fillet'][level]:31.1f}")
-print(f"growth of the sharp-corner peak per refinement: {', '.join(f'{b / a:.3f}' for a, b in zip(peaks['sharp corner'], peaks['sharp corner'][1:]))}"
-      f" (Williams: 2^0.4555 = {2**0.4555:.3f})")
-print(f"change of the fillet peak on the last refinement: {100 * (peaks['2 mm fillet'][-1] / peaks['2 mm fillet'][-2] - 1):+.2f} %")
-print(f"exponent along the bisector between 0.05 and 1 mm: {slope:.4f}, Williams λ - 1 = -0.4555, deviation {100 * (slope / -0.4555 - 1):+.1f} %")
+    print(
+        f"{level:10d} {meshes['sharp corner'][level].cell_count:11d} {peaks['sharp corner'][level]:32.1f} {peaks['2 mm fillet'][level]:31.1f}"
+    )
+print(
+    f"growth of the sharp-corner peak per refinement: {', '.join(f'{b / a:.3f}' for a, b in zip(peaks['sharp corner'], peaks['sharp corner'][1:]))}"
+    f" (Williams: 2^0.4555 = {2**0.4555:.3f})"
+)
+print(
+    f"change of the fillet peak on the last refinement: {100 * (peaks['2 mm fillet'][-1] / peaks['2 mm fillet'][-2] - 1):+.2f} %"
+)
+print(
+    f"exponent along the bisector between 0.05 and 1 mm: {slope:.4f}, Williams λ - 1 = -0.4555, deviation {100 * (slope / -0.4555 - 1):+.1f} %"
+)
 
 # ## Figure
 #
@@ -112,19 +186,57 @@ print(f"exponent along the bisector between 0.05 and 1 mm: {slope:.4f}, Williams
 # bisector against the Williams power law, and the peak stress over the refinement: the sharp
 # corner climbs without end, the fillet settles.
 
-cells = {name: mises[name][-1].reshape(meshes[name][-1].cell_count, -1).max(axis=1) / 1e6 for name in runs}
+cells = {
+    name: mises[name][-1].reshape(meshes[name][-1].cell_count, -1).max(axis=1) / 1e6
+    for name in runs
+}
 fig = plots.figure(1, 3, size=(19, 5.5))
-plots.mesh(meshes["sharp corner"][-1], cell_values=cells["sharp corner"], edges=False, limits=(0, 300), label="von Mises stress [MPa]",
-           title="Sharp corner, finest mesh", ax=fig[0])
-plots.line(points={"simulation, sharp corner": (1e3 * distance[bisector], mises["sharp corner"][-1][bisector] / 1e6)},
-           reference={"Williams, r^-0.4555": (np.geomspace(0.01, 10, 50),
-                                              np.exp(np.mean(np.log(mises["sharp corner"][-1][fitted] / 1e6) + 0.4555 * np.log(1e3 * distance[fitted])))
-                                              * np.geomspace(0.01, 10, 50) ** -0.4555)},
-           scale="loglog", xlabel="distance from the corner along the bisector [mm]", ylabel="von Mises stress [MPa]",
-           title="Power law along the bisector", legend="lower left", ax=fig[1])
-plots.line([meshes["sharp corner"][level].cell_count for level in levels], peaks, markers=True, scale="logx",
-           xlabel="triangles", ylabel="peak von Mises stress near the corner [MPa]", title="Diverging and converging peaks",
-           legend="upper left", ax=fig[2])
+plots.mesh(
+    meshes["sharp corner"][-1],
+    cell_values=cells["sharp corner"],
+    edges=False,
+    limits=(0, 300),
+    label="von Mises stress [MPa]",
+    title="Sharp corner, finest mesh",
+    ax=fig[0],
+)
+plots.line(
+    points={
+        "simulation, sharp corner": (
+            1e3 * distance[bisector],
+            mises["sharp corner"][-1][bisector] / 1e6,
+        )
+    },
+    reference={
+        "Williams, r^-0.4555": (
+            np.geomspace(0.01, 10, 50),
+            np.exp(
+                np.mean(
+                    np.log(mises["sharp corner"][-1][fitted] / 1e6)
+                    + 0.4555 * np.log(1e3 * distance[fitted])
+                )
+            )
+            * np.geomspace(0.01, 10, 50) ** -0.4555,
+        )
+    },
+    scale="loglog",
+    xlabel="distance from the corner along the bisector [mm]",
+    ylabel="von Mises stress [MPa]",
+    title="Power law along the bisector",
+    legend="lower left",
+    ax=fig[1],
+)
+plots.line(
+    [meshes["sharp corner"][level].cell_count for level in levels],
+    peaks,
+    markers=True,
+    scale="logx",
+    xlabel="triangles",
+    ylabel="peak von Mises stress near the corner [MPa]",
+    title="Diverging and converging peaks",
+    legend="upper left",
+    ax=fig[2],
+)
 plots.show()
 
 # ## Going further

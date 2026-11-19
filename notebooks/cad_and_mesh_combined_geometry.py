@@ -6,11 +6,14 @@ set sampled on a grid of 2 mm, built with the CAD objects of OneSimulation).
 """
 
 import numpy as np
-
 from onesim.cad.d3 import isosurface
 
 grid = np.linspace(-0.022, 0.022, 23)
 x, y, z = np.meshgrid(grid, grid, grid, indexing="ij")
-knob = isosurface(1.0 - np.sqrt((x / 0.02) ** 2 + (y / 0.02) ** 2 + (z / 0.012) ** 2), grid[1] - grid[0], level=0.0,
-                  origin=(grid[0], grid[0], grid[0]))
+knob = isosurface(
+    1.0 - np.sqrt((x / 0.02) ** 2 + (y / 0.02) ** 2 + (z / 0.012) ** 2),
+    grid[1] - grid[0],
+    level=0.0,
+    origin=(grid[0], grid[0], grid[0]),
+)
 knob.save("cad_and_mesh_combined.stl")

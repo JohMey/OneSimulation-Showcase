@@ -5,7 +5,6 @@ The OneSimulation solution is checked against the exact closed-form steady
 solution of the advection-diffusion-reaction equation.
 """
 
-
 # # Reactive transport in a 1D reactor
 #
 # A dissolved species flows through a thin tubular reactor at a constant speed
@@ -32,7 +31,6 @@ solution of the advection-diffusion-reaction equation.
 # computed steady profile with this closed form.
 
 import numpy as np
-
 from onesim.cad.d1 import Line
 from onesim.meshing import StructuredLineMesher
 from onesim.numerics import Numerics
@@ -41,10 +39,9 @@ from onesim.numerics.linear import SparseDirect
 from onesim.numerics.nonlinear import Newton
 from onesim.numerics.time import BDF, BackwardEuler
 from onesim.physics.chemistry import SpeciesTransport, TransportSpecies
-from onesim.simulation import Problem, Simulation
+from onesim.simulation import PrescribedValueBoundary, Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
-from onesim.simulation import PrescribedValueBoundary
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -118,12 +115,15 @@ result = Simulation(
     problem=problem,
     mesh=mesh,
     numerics=Numerics(
-        spatial=FiniteElement(element=Lagrange(2), quadrature_order=5,
-                              boundary_enforcement=Nitsche()),
+        spatial=FiniteElement(
+            element=Lagrange(2), quadrature_order=5, boundary_enforcement=Nitsche()
+        ),
         linear_solver=SparseDirect(),
         nonlinear_solver=Newton(
-            linear_solver=SparseDirect(), jacobian="analytic",
-            absolute_tolerance=1e-12, relative_tolerance=1e-11,
+            linear_solver=SparseDirect(),
+            jacobian="analytic",
+            absolute_tolerance=1e-12,
+            relative_tolerance=1e-11,
         ),
         time_integrator=BDF(order=2, startup=BackwardEuler()),
     ),
@@ -140,14 +140,20 @@ points = np.asarray(field.space.dof_coordinates)
 x = points[:, 0]
 order = np.argsort(x)
 x = x[order]
-c_num = np.asarray(field.evaluate(points, time=float(result.times[-1]))).reshape(-1)[order]
+c_num = np.asarray(field.evaluate(points, time=float(result.times[-1]))).reshape(-1)[
+    order
+]
 
 c_ref = reference(x)
 max_abs_error = float(np.max(np.abs(c_num - c_ref)))
 rel_error = max_abs_error / C0
-print(f"maximum deviation from the closed form: {max_abs_error:.3e} mol/m^3  ({100*rel_error:.3f} % of C0)")
+print(
+    f"maximum deviation from the closed form: {max_abs_error:.3e} mol/m^3  ({100*rel_error:.3f} % of C0)"
+)
 
-previous = np.asarray(field.evaluate(points, time=float(result.times[-2]))).reshape(-1)[order]
+previous = np.asarray(field.evaluate(points, time=float(result.times[-2]))).reshape(-1)[
+    order
+]
 drift = float(np.max(np.abs(c_num - previous)))
 print(f"change over the last stored interval: {drift:.3e} mol/m^3")
 
@@ -155,9 +161,13 @@ print(f"change over the last stored interval: {drift:.3e} mol/m^3")
 # ## Figure
 
 xs = np.linspace(0.0, L, 400)
-plots.line(points={"OneSimulation": (x[::5], c_num[::5])}, reference={"closed form": (xs, reference(xs))},
-           xlabel="position x [m]", ylabel="concentration [mol/m^3]",
-           title=f"Steady reactive transport (Da = {Da:.1f}, Pe = {Pe:.0f})")
+plots.line(
+    points={"OneSimulation": (x[::5], c_num[::5])},
+    reference={"closed form": (xs, reference(xs))},
+    xlabel="position x [m]",
+    ylabel="concentration [mol/m^3]",
+    title=f"Steady reactive transport (Da = {Da:.1f}, Pe = {Pe:.0f})",
+)
 plots.show()
 
 

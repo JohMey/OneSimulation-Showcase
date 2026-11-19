@@ -11,10 +11,23 @@ pacing_electrode_pair_resistance_4mm.step, ..._16mm.step.
 from onesim.cad.d3 import Box, Sphere
 
 electrode, tissue = 1.0e-3, 0.1
-quarter = Box(length=tissue, width=tissue, height=tissue, origin=(0.0, 0.0, -tissue)).named("cut")
+quarter = Box(
+    length=tissue, width=tissue, height=tissue, origin=(0.0, 0.0, -tissue)
+).named("cut")
 for distance in (0.004, 0.008, 0.016):
-    region = (Sphere(radius=tissue).named("far") & quarter) - Sphere(radius=electrode, origin=(distance / 2, 0.0, 0.0)).named("tip")
+    region = (Sphere(radius=tissue).named("far") & quarter) - Sphere(
+        radius=electrode, origin=(distance / 2, 0.0, 0.0)
+    ).named("tip")
     faces = region.boundaries
-    region = region.grouped(electrode=region.select(faces=lambda face: face.id.startswith("tip")), midplane=faces["cut.x_min"],
-                            symmetry=faces["cut.y_min"], surface=faces["cut.z_max"], outer=region.select(faces=lambda face: face.id.startswith("far")))
-    region.save("pacing_electrode_pair_resistance.step" if distance == 0.008 else f"pacing_electrode_pair_resistance_{round(1e3 * distance)}mm.step")
+    region = region.grouped(
+        electrode=region.select(faces=lambda face: face.id.startswith("tip")),
+        midplane=faces["cut.x_min"],
+        symmetry=faces["cut.y_min"],
+        surface=faces["cut.z_max"],
+        outer=region.select(faces=lambda face: face.id.startswith("far")),
+    )
+    region.save(
+        "pacing_electrode_pair_resistance.step"
+        if distance == 0.008
+        else f"pacing_electrode_pair_resistance_{round(1e3 * distance)}mm.step"
+    )

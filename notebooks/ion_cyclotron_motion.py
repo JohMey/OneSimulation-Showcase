@@ -6,7 +6,6 @@ is added. The trajectories integrated by OneSimulation with three time integrato
 against the closed-form Larmor radius, cyclotron frequency, drift velocity and orbit.
 """
 
-
 # # Ion cyclotron motion
 #
 # A charged particle of mass $m$ and charge $q$ in uniform fields obeys the Lorentz force law
@@ -40,8 +39,6 @@ against the closed-form Larmor radius, cyclotron frequency, drift velocity and o
 # $v_E$ is the drift velocity written as a complex number.
 
 import numpy as np
-from scipy.constants import e, m_p
-
 from onesim.cad.geometry import LumpedDomain
 from onesim.meshing import LumpedMesh
 from onesim.numerics import Numerics
@@ -53,7 +50,8 @@ from onesim.physics.plasma import ChargedParticle
 from onesim.results import oscillation_fit
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
+from scipy.constants import e, m_p
 
 theme.set()
 
@@ -64,7 +62,9 @@ theme.set()
 B, v_perp, v_par, E = 0.1, 1.0e5, 2.0e4, 2.0e3
 omega = e * B / m_p
 period, larmor, drift = 2 * np.pi / omega, m_p * v_perp / (e * B), E / B
-print(f"cyclotron frequency {omega / (2 * np.pi) / 1e6:.4f} MHz, Larmor radius {1e3 * larmor:.4f} mm, E x B drift {drift / 1e3:.1f} km/s")
+print(
+    f"cyclotron frequency {omega / (2 * np.pi) / 1e6:.4f} MHz, Larmor radius {1e3 * larmor:.4f} mm, E x B drift {drift / 1e3:.1f} km/s"
+)
 
 # ## Model
 #
@@ -75,59 +75,170 @@ print(f"cyclotron frequency {omega / (2 * np.pi) / 1e6:.4f} MHz, Larmor radius {
 
 domain = LumpedDomain()
 fields = {"B only": (0.0, 0.0, 0.0), "E x B": (E, 0.0, 0.0)}
-particles = {name: ChargedParticle(domain=domain.system, mass=m_p, charge=e, electric=electric, magnetic=(0.0, 0.0, B))
-             for name, electric in fields.items()}
+particles = {
+    name: ChargedParticle(
+        domain=domain.system,
+        mass=m_p,
+        charge=e,
+        electric=electric,
+        magnetic=(0.0, 0.0, B),
+    )
+    for name, electric in fields.items()
+}
 start = (0.0, larmor, 0.0, v_perp, 0.0, v_par)
-problems = {name: Problem(name=f"Proton, {name}", geometry=domain, physics=(model,), initial_conditions=tuple(
-    InitialValue(ref, value) for ref, value in zip((model.x, model.y, model.z, model.velocity_x, model.velocity_y, model.velocity_z), start)))
-    for name, model in particles.items()}
+problems = {
+    name: Problem(
+        name=f"Proton, {name}",
+        geometry=domain,
+        physics=(model,),
+        initial_conditions=tuple(
+            InitialValue(ref, value)
+            for ref, value in zip(
+                (
+                    model.x,
+                    model.y,
+                    model.z,
+                    model.velocity_x,
+                    model.velocity_y,
+                    model.velocity_z,
+                ),
+                start,
+            )
+        ),
+    )
+    for name, model in particles.items()
+}
 newton = Newton(linear_solver=SparseDirect(), jacobian="analytic")
-integrators = {"classical Runge-Kutta": Numerics(spatial=LumpedParameters(), time_integrator=ClassicalRungeKutta4()),
-               "backward Euler": Numerics(spatial=LumpedParameters(), time_integrator=BackwardEuler(), nonlinear_solver=newton),
-               "BDF2": Numerics(spatial=LumpedParameters(), time_integrator=BDF(order=2), nonlinear_solver=newton)}
-runs = {(name, method): Simulation(problem=problems[name], mesh=LumpedMesh(domain), numerics=numerics).run(
-    start_time=0.0, end_time=10 * period, time_step=period / 40) for name in problems for method, numerics in integrators.items()}
-orbits = {key: np.array([result.field(ref).time_series()[1] for ref in (particles[key[0]].x, particles[key[0]].y, particles[key[0]].z,
-                                                                          particles[key[0]].velocity_x, particles[key[0]].velocity_y)])
-          for key, result in runs.items()}
-times = runs["B only", "classical Runge-Kutta"].field(particles["B only"].x).time_series()[0]
+integrators = {
+    "classical Runge-Kutta": Numerics(
+        spatial=LumpedParameters(), time_integrator=ClassicalRungeKutta4()
+    ),
+    "backward Euler": Numerics(
+        spatial=LumpedParameters(),
+        time_integrator=BackwardEuler(),
+        nonlinear_solver=newton,
+    ),
+    "BDF2": Numerics(
+        spatial=LumpedParameters(),
+        time_integrator=BDF(order=2),
+        nonlinear_solver=newton,
+    ),
+}
+runs = {
+    (name, method): Simulation(
+        problem=problems[name], mesh=LumpedMesh(domain), numerics=numerics
+    ).run(start_time=0.0, end_time=10 * period, time_step=period / 40)
+    for name in problems
+    for method, numerics in integrators.items()
+}
+orbits = {
+    key: np.array(
+        [
+            result.field(ref).time_series()[1]
+            for ref in (
+                particles[key[0]].x,
+                particles[key[0]].y,
+                particles[key[0]].z,
+                particles[key[0]].velocity_x,
+                particles[key[0]].velocity_y,
+            )
+        ]
+    )
+    for key, result in runs.items()
+}
+times = (
+    runs["B only", "classical Runge-Kutta"]
+    .field(particles["B only"].x)
+    .time_series()[0]
+)
 
 # ## Comparison with the closed forms
 #
 # The frequency is fitted to the rotating transverse velocity; the guiding centre is the mean
 # position over the first and over the last period; the radius is the mean distance from it.
 
-exact = lambda t, drift_velocity: 1j * larmor + drift_velocity * t + 1j * (v_perp - drift_velocity) * (np.exp(-1j * omega * t) - 1) / omega
-print("B only: integrator       frequency [MHz]   Larmor radius [mm]   |v_perp| after 10 periods   largest orbit error [mm]")
+exact = (
+    lambda t, drift_velocity: 1j * larmor
+    + drift_velocity * t
+    + 1j * (v_perp - drift_velocity) * (np.exp(-1j * omega * t) - 1) / omega
+)
+print(
+    "B only: integrator       frequency [MHz]   Larmor radius [mm]   |v_perp| after 10 periods   largest orbit error [mm]"
+)
 for method in integrators:
     x, y, z, vx, vy = orbits["B only", method]
     centre = np.mean(x[:40] + 1j * y[:40])
-    print(f"  {method:22s} {abs(oscillation_fit(times, vx + 1j * vy).frequency) / (2 * np.pi) / 1e6:15.5f} "
-          f"{1e3 * np.mean(np.abs(x[:40] + 1j * y[:40] - centre)):20.4f} {np.hypot(vx[-1], vy[-1]) / v_perp:27.5f} "
-          f"{1e3 * np.abs(x + 1j * y - exact(times, 0)).max():25.3f}")
-print(f"  {'closed form':22s} {omega / (2 * np.pi) / 1e6:15.5f} {1e3 * larmor:20.4f} {1.0:27.5f}")
-print("E x B:  integrator       drift of the guiding centre [km/s]   largest orbit error [mm]")
+    print(
+        f"  {method:22s} {abs(oscillation_fit(times, vx + 1j * vy).frequency) / (2 * np.pi) / 1e6:15.5f} "
+        f"{1e3 * np.mean(np.abs(x[:40] + 1j * y[:40] - centre)):20.4f} {np.hypot(vx[-1], vy[-1]) / v_perp:27.5f} "
+        f"{1e3 * np.abs(x + 1j * y - exact(times, 0)).max():25.3f}"
+    )
+print(
+    f"  {'closed form':22s} {omega / (2 * np.pi) / 1e6:15.5f} {1e3 * larmor:20.4f} {1.0:27.5f}"
+)
+print(
+    "E x B:  integrator       drift of the guiding centre [km/s]   largest orbit error [mm]"
+)
 for method in integrators:
     x, y = orbits["E x B", method][:2]
     first, last = (np.mean(x[sl] + 1j * y[sl]) for sl in (slice(0, 40), slice(-41, -1)))
-    print(f"  {method:22s} {abs(last - first) / (9 * period) / 1e3:28.3f} {1e3 * np.abs(x + 1j * y - exact(times, -1j * drift)).max():26.3f}")
+    print(
+        f"  {method:22s} {abs(last - first) / (9 * period) / 1e3:28.3f} {1e3 * np.abs(x + 1j * y - exact(times, -1j * drift)).max():26.3f}"
+    )
 print(f"  {'closed form E/B':22s} {drift / 1e3:28.3f}")
 x, y, z = orbits["B only", "classical Runge-Kutta"][:3]
-print(f"pitch of the helix: {1e3 * (z[40] - z[0]):.4f} mm per turn, closed form v_par 2 pi / omega_c = {1e3 * v_par * period:.4f} mm")
+print(
+    f"pitch of the helix: {1e3 * (z[40] - z[0]):.4f} mm per turn, closed form v_par 2 pi / omega_c = {1e3 * v_par * period:.4f} mm"
+)
 
 # ## Figure
 
 fine = np.linspace(0, 10 * period, 4000)
 circle, cycloid = exact(fine, 0), exact(fine, -1j * drift)
 fig = plots.figure(1, 3, size=(18, 5.2))
-plots.line(points={method: (1e3 * orbits["B only", method][0][::3], 1e3 * orbits["B only", method][1][::3]) for method in integrators},
-           reference={"exact circle": (1e3 * circle.real, 1e3 * circle.imag)}, xlabel="x [mm]", ylabel="y [mm]",
-           title="Gyration across B, 10 periods", legend="center", ax=fig[0])
-plots.line(1e6 * times, {method: np.hypot(*orbits["B only", method][3:5]) / v_perp for method in integrators}, hlines={"exact": 1.0},
-           ylimits=(0, 1.1), xlabel="time [µs]", ylabel="|v_perp| / v_perp(0)", title="Kinetic energy across B", legend="lower left", ax=fig[1])
-plots.line(points={"classical Runge-Kutta": (1e3 * orbits["E x B", "classical Runge-Kutta"][0][:121], 1e3 * orbits["E x B", "classical Runge-Kutta"][1][:121])},
-           reference={"exact orbit": (1e3 * cycloid.real[:1201], 1e3 * cycloid.imag[:1201])}, xlabel="x [mm]", ylabel="y [mm]",
-           title="E x B drift with E along x, 3 periods", legend="lower left", ax=fig[2])
+plots.line(
+    points={
+        method: (
+            1e3 * orbits["B only", method][0][::3],
+            1e3 * orbits["B only", method][1][::3],
+        )
+        for method in integrators
+    },
+    reference={"exact circle": (1e3 * circle.real, 1e3 * circle.imag)},
+    xlabel="x [mm]",
+    ylabel="y [mm]",
+    title="Gyration across B, 10 periods",
+    legend="center",
+    ax=fig[0],
+)
+plots.line(
+    1e6 * times,
+    {
+        method: np.hypot(*orbits["B only", method][3:5]) / v_perp
+        for method in integrators
+    },
+    hlines={"exact": 1.0},
+    ylimits=(0, 1.1),
+    xlabel="time [µs]",
+    ylabel="|v_perp| / v_perp(0)",
+    title="Kinetic energy across B",
+    legend="lower left",
+    ax=fig[1],
+)
+plots.line(
+    points={
+        "classical Runge-Kutta": (
+            1e3 * orbits["E x B", "classical Runge-Kutta"][0][:121],
+            1e3 * orbits["E x B", "classical Runge-Kutta"][1][:121],
+        )
+    },
+    reference={"exact orbit": (1e3 * cycloid.real[:1201], 1e3 * cycloid.imag[:1201])},
+    xlabel="x [mm]",
+    ylabel="y [mm]",
+    title="E x B drift with E along x, 3 periods",
+    legend="lower left",
+    ax=fig[2],
+)
 plots.show()
 
 # ## Going further

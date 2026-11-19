@@ -6,7 +6,6 @@ STEP file and cut to its meridian plane; the axisymmetric transient solution is 
 NAFEMS target at 190 s and with the exact product solution over the whole heating history.
 """
 
-
 # # Axisymmetric transient heating of a cylinder
 #
 # A solid steel cylinder, 0.3 m in radius and 0.4 m high, is at 0 °C. At $t=0$ its whole surface
@@ -40,8 +39,6 @@ NAFEMS target at 190 s and with the exact product solution over the whole heatin
 # where $\lambda_n$ are the roots of $J_0$ and $\alpha=k/(\rho c_p)$.
 
 import numpy as np
-from scipy.special import j0, j1, jn_zeros
-
 from onesim.cad.exchange import load
 from onesim.materials import IsotropicSolid
 from onesim.meshing import TriangularMesher
@@ -52,7 +49,8 @@ from onesim.numerics.time import BDF, BackwardEuler
 from onesim.physics.heat_transfer import FixedTemperature, HeatConduction, HeatFlux
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
+from scipy.special import j0, j1, jn_zeros
 
 theme.set()
 
@@ -68,13 +66,28 @@ faces = cylinder.boundaries
 plane = cylinder.section((0, 1, 0))
 sides = plane.boundaries
 radius, height = plane.size[:2]
-mesh = TriangularMesher(target_size=0.02, grading=0.25,
-                        local_sizes={"bottom": 0.007, "outer": 0.007, "top": 0.007}).generate(plane)
+mesh = TriangularMesher(
+    target_size=0.02,
+    grading=0.25,
+    local_sizes={"bottom": 0.007, "outer": 0.007, "top": 0.007},
+).generate(plane)
 
 fig = plots.figure(1, 2, size=(14, 6))
-plots.geometry(cylinder, selection={"heated to 1000 °C": faces.bottom | faces.outer | faces.top}, labels=False,
-               camera=plots.Camera(elevation=25, azimuth=-150), title="Half cylinder with its heated faces", ax=fig[0])
-plots.mesh(mesh, groups=("all",), legend=False, title=f"Meridian plane: {mesh.cell_count} triangles", ax=fig[1])
+plots.geometry(
+    cylinder,
+    selection={"heated to 1000 °C": faces.bottom | faces.outer | faces.top},
+    labels=False,
+    camera=plots.Camera(elevation=25, azimuth=-150),
+    title="Half cylinder with its heated faces",
+    ax=fig[0],
+)
+plots.mesh(
+    mesh,
+    groups=("all",),
+    legend=False,
+    title=f"Meridian plane: {mesh.cell_count} triangles",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Model
@@ -82,36 +95,76 @@ plots.show()
 # Quadratic axisymmetric elements (`RevolvedH1SpaceFactory`) and the second-order BDF integrator
 # with 100 steps of 1.9 s; the first step is a backward Euler step.
 
-steel = IsotropicSolid(density=7850.0, specific_heat_capacity=460.0, thermal_conductivity=52.0,
-                       youngs_modulus=2.1e11, poisson_ratio=0.3, thermal_expansion_coefficient=1.2e-5)
+steel = IsotropicSolid(
+    density=7850.0,
+    specific_heat_capacity=460.0,
+    thermal_conductivity=52.0,
+    youngs_modulus=2.1e11,
+    poisson_ratio=0.3,
+    thermal_expansion_coefficient=1.2e-5,
+)
 model = HeatConduction(domain=plane.domain(), material=steel, heating=0.0)
-problem = Problem(name="Axisymmetric transient heating", geometry=plane, physics=(model,), boundary_conditions=(
-    FixedTemperature(boundary=sides.bottom | sides.outer | sides.top, physics=model, value=1000.0),
-    HeatFlux(boundary=sides.start, physics=model, value=0.0)),
-    initial_conditions=(InitialValue(model.temperature, 0.0),))
-numerics = Numerics(spatial=FiniteElement(element=Lagrange(order=2), provider=RevolvedH1SpaceFactory()), linear_solver=SparseDirect(),
-                    time_integrator=BDF(order=2, startup=BackwardEuler()))
-temperature = Simulation(problem=problem, mesh=mesh, numerics=numerics).run(start_time=0.0, end_time=190.0, time_step=1.9).field(model.temperature)
+problem = Problem(
+    name="Axisymmetric transient heating",
+    geometry=plane,
+    physics=(model,),
+    boundary_conditions=(
+        FixedTemperature(
+            boundary=sides.bottom | sides.outer | sides.top, physics=model, value=1000.0
+        ),
+        HeatFlux(boundary=sides.start, physics=model, value=0.0),
+    ),
+    initial_conditions=(InitialValue(model.temperature, 0.0),),
+)
+numerics = Numerics(
+    spatial=FiniteElement(element=Lagrange(order=2), provider=RevolvedH1SpaceFactory()),
+    linear_solver=SparseDirect(),
+    time_integrator=BDF(order=2, startup=BackwardEuler()),
+)
+temperature = (
+    Simulation(problem=problem, mesh=mesh, numerics=numerics)
+    .run(start_time=0.0, end_time=190.0, time_step=1.9)
+    .field(model.temperature)
+)
 
 # ## Results
 #
 # The temperature at the benchmark point against the NAFEMS value and the exact product solution,
 # at several times.
 
-diffusivity = steel.thermal_conductivity / (steel.density * steel.specific_heat_capacity)
+diffusivity = steel.thermal_conductivity / (
+    steel.density * steel.specific_heat_capacity
+)
 roots, odd = jn_zeros(0, 200), np.arange(1, 800, 2)
-exact = lambda r, z, t: 1000.0 * (1 - np.sum(2 * j0(np.outer(r, roots) / radius) / (roots * j1(roots))
-                                             * np.exp(-roots**2 * diffusivity * t / radius**2), axis=1)
-                                  * np.sum(4 / (odd * np.pi) * np.sin(np.outer(z, odd) * np.pi / height)
-                                           * np.exp(-(odd * np.pi / height) ** 2 * diffusivity * t), axis=1))
+exact = lambda r, z, t: 1000.0 * (
+    1
+    - np.sum(
+        2
+        * j0(np.outer(r, roots) / radius)
+        / (roots * j1(roots))
+        * np.exp(-(roots**2) * diffusivity * t / radius**2),
+        axis=1,
+    )
+    * np.sum(
+        4
+        / (odd * np.pi)
+        * np.sin(np.outer(z, odd) * np.pi / height)
+        * np.exp(-((odd * np.pi / height) ** 2) * diffusivity * t),
+        axis=1,
+    )
+)
 times, history = temperature.time_series([[0.1, 0.3]])
 history = history.ravel()
 print("time [s]   simulation [°C]   exact [°C]   deviation [K]")
 for index in (10, 25, 50, 75, 100):
-    print(f"{times[index]:8.1f} {history[index]:17.3f} {exact([0.1], [0.3], times[index])[0]:12.3f} "
-          f"{history[index] - exact([0.1], [0.3], times[index])[0]:+14.3f}")
-print(f"at 190 s: simulation {history[-1]:.2f} °C, NAFEMS 186.5 °C ({history[-1] - 186.5:+.2f} K), "
-      f"exact {exact([0.1], [0.3], 190.0)[0]:.2f} °C")
+    print(
+        f"{times[index]:8.1f} {history[index]:17.3f} {exact([0.1], [0.3], times[index])[0]:12.3f} "
+        f"{history[index] - exact([0.1], [0.3], times[index])[0]:+14.3f}"
+    )
+print(
+    f"at 190 s: simulation {history[-1]:.2f} °C, NAFEMS 186.5 °C ({history[-1] - 186.5:+.2f} K), "
+    f"exact {exact([0.1], [0.3], 190.0)[0]:.2f} °C"
+)
 
 # ## Figure
 #
@@ -120,14 +173,53 @@ print(f"at 190 s: simulation {history[-1]:.2f} °C, NAFEMS 186.5 °C ({history[-
 
 r = np.linspace(0, radius, 121)
 fig = plots.figure(1, 3, size=(19, 6))
-plots.surface(temperature, time=190.0, limits=(0, 1000), contours=11, subdivisions=3, xlabel="radius r [m]", ylabel="height z [m]",
-              label="T [°C]", title="Temperature after 190 s", ax=fig[0])
-plots.line(points={"simulation": (times[::4], history[::4])}, reference={"exact product solution": (times[1:], exact([0.1], [0.3], times[1:, None]).ravel())},
-           hlines={"NAFEMS 186.5 °C at 190 s": 186.5}, xlabel="time [s]", ylabel="T at r = 0.1 m, z = 0.3 m [°C]",
-           title="Heating of the benchmark point", legend="upper left", ax=fig[1])
-plots.line(y={f"t = {t:.0f} s": (r, temperature.evaluate(np.column_stack((r, np.full_like(r, 0.3))), time=t).ravel()) for t in (38.0, 95.0, 190.0)},
-           reference={f"t = {t:.0f} s": (r, exact(r, np.full_like(r, 0.3), t)) for t in (38.0, 95.0, 190.0)},
-           xlabel="radius r [m]", ylabel="T [°C]", title="Along z = 0.3 m (exact solution underneath)", legend="upper left", ax=fig[2])
+plots.surface(
+    temperature,
+    time=190.0,
+    limits=(0, 1000),
+    contours=11,
+    subdivisions=3,
+    xlabel="radius r [m]",
+    ylabel="height z [m]",
+    label="T [°C]",
+    title="Temperature after 190 s",
+    ax=fig[0],
+)
+plots.line(
+    points={"simulation": (times[::4], history[::4])},
+    reference={
+        "exact product solution": (
+            times[1:],
+            exact([0.1], [0.3], times[1:, None]).ravel(),
+        )
+    },
+    hlines={"NAFEMS 186.5 °C at 190 s": 186.5},
+    xlabel="time [s]",
+    ylabel="T at r = 0.1 m, z = 0.3 m [°C]",
+    title="Heating of the benchmark point",
+    legend="upper left",
+    ax=fig[1],
+)
+plots.line(
+    y={
+        f"t = {t:.0f} s": (
+            r,
+            temperature.evaluate(
+                np.column_stack((r, np.full_like(r, 0.3))), time=t
+            ).ravel(),
+        )
+        for t in (38.0, 95.0, 190.0)
+    },
+    reference={
+        f"t = {t:.0f} s": (r, exact(r, np.full_like(r, 0.3), t))
+        for t in (38.0, 95.0, 190.0)
+    },
+    xlabel="radius r [m]",
+    ylabel="T [°C]",
+    title="Along z = 0.3 m (exact solution underneath)",
+    legend="upper left",
+    ax=fig[2],
+)
 plots.show()
 
 # ## Going further

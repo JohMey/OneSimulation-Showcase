@@ -6,7 +6,6 @@ solver propagates the free ring-down and the spectrum of a probe signal is
 checked against the closed-form resonance frequencies f_mnp.
 """
 
-
 # # Resonances of a rectangular PEC cavity
 #
 # A closed, air-filled box of size $a\times b\times d$ bounded on all six faces
@@ -32,13 +31,13 @@ checked against the closed-form resonance frequencies f_mnp.
 # conserves the electromagnetic energy during the ring-down.
 
 from math import pi, sqrt
-import numpy as np
-from scipy.signal import find_peaks
 
+import numpy as np
 from onesim.materials import VACUUM_PERMEABILITY, VACUUM_PERMITTIVITY
 from onesim.numerics.discretization import StaggeredLocation
 from onesim.physics.electromagnetics import DEFAULT_ELECTROMAGNETICS_PROVIDER_REGISTRY
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
+from scipy.signal import find_peaks
 
 theme.set()
 
@@ -62,14 +61,18 @@ def f_mnp(m, n, p):
 
 modes = sorted(
     (f_mnp(m, n, p), f"{m}{n}{p}")
-    for m in range(3) for n in range(2) for p in range(4)
+    for m in range(3)
+    for n in range(2)
+    for p in range(4)
     if sum(index > 0 for index in (m, n, p)) >= 2
 )
 reference = modes[:3]
 for f_ref, label in reference:
     print(f"f_{label} = {f_ref / 1e9:.4f} GHz")
 
-node_axes = tuple(np.linspace(0.0, extent, count + 1) for extent, count in zip((a, b, d), cells))
+node_axes = tuple(
+    np.linspace(0.0, extent, count + 1) for extent, count in zip((a, b, d), cells)
+)
 time_step = 4e-12
 pulse_duration = 0.5e-9
 sample_interval = 20e-12
@@ -79,9 +82,12 @@ samples = 2000
 def yee_solver(final_time):
     return DEFAULT_ELECTROMAGNETICS_PROVIDER_REGISTRY.create(
         "electromagnetics.maxwell_time_domain",
-        node_axes=node_axes, periodic=(False, False, False),
-        permittivity=VACUUM_PERMITTIVITY, permeability=VACUUM_PERMEABILITY,
-        final_time=final_time, time_step=time_step,
+        node_axes=node_axes,
+        periodic=(False, False, False),
+        permittivity=VACUUM_PERMITTIVITY,
+        permeability=VACUUM_PERMEABILITY,
+        final_time=final_time,
+        time_step=time_step,
     )
 
 
@@ -98,8 +104,15 @@ source_x, source_z = 0.3 * a, 0.3 * d
 
 
 def current_density_y(time, points):
-    envelope = -(time - pulse_centre) / pulse_width * np.exp(-0.5 * ((time - pulse_centre) / pulse_width) ** 2)
-    blob = np.exp(-((points[..., 0] - source_x) ** 2 + (points[..., 2] - source_z) ** 2) / 0.004**2)
+    envelope = (
+        -(time - pulse_centre)
+        / pulse_width
+        * np.exp(-0.5 * ((time - pulse_centre) / pulse_width) ** 2)
+    )
+    blob = np.exp(
+        -((points[..., 0] - source_x) ** 2 + (points[..., 2] - source_z) ** 2)
+        / 0.004**2
+    )
     return envelope * blob
 
 
@@ -109,20 +122,31 @@ print(f"Pulse: {state.step_count} steps, injected energy {state.source_work:.3e}
 
 segment = yee_solver(sample_interval)
 ey_axes = segment.grid.axes(StaggeredLocation("edge", 1))
-probe = tuple(int(np.argmin(np.abs(axis - target))) for axis, target in zip(ey_axes, (0.65 * a, 0.5 * b, 0.7 * d)))
-print("Probe at x = {:.1f} mm, y = {:.2f} mm, z = {:.1f} mm".format(*(1e3 * axis[index] for axis, index in zip(ey_axes, probe))))
+probe = tuple(
+    int(np.argmin(np.abs(axis - target)))
+    for axis, target in zip(ey_axes, (0.65 * a, 0.5 * b, 0.7 * d))
+)
+print(
+    "Probe at x = {:.1f} mm, y = {:.2f} mm, z = {:.1f} mm".format(
+        *(1e3 * axis[index] for axis, index in zip(ey_axes, probe))
+    )
+)
 
 electric, magnetic, charge = state.electric, state.magnetic, state.charge_density
 signal = np.empty(samples)
 energy_start = None
 for i in range(samples):
-    state = segment.run(initial_electric=electric, initial_magnetic=magnetic, initial_charge=charge)
+    state = segment.run(
+        initial_electric=electric, initial_magnetic=magnetic, initial_charge=charge
+    )
     electric, magnetic, charge = state.electric, state.magnetic, state.charge_density
     signal[i] = electric[1][probe]
     energy_start = state.initial_energy if energy_start is None else energy_start
 energy_drift = abs(state.final_energy / energy_start - 1.0)
 times = pulse_duration + sample_interval * np.arange(1, samples + 1)
-print(f"Ring-down: {samples} samples over {sample_interval * samples * 1e9:.0f} ns, relative energy drift {energy_drift:.1e}")
+print(
+    f"Ring-down: {samples} samples over {sample_interval * samples * 1e9:.0f} ns, relative energy drift {energy_drift:.1e}"
+)
 
 
 # ## Comparison with the closed-form resonances
@@ -142,19 +166,35 @@ print("Spectral peaks below 7 GHz:", ", ".join(f"{f / 1e9:.4f} GHz" for f in f_p
 errors = []
 for (f_ref, label), f_num in zip(reference, f_peaks):
     errors.append(abs(f_num / f_ref - 1.0))
-    print(f"TE{label}: computed {f_num / 1e9:.4f} GHz, reference {f_ref / 1e9:.4f} GHz, deviation {100 * errors[-1]:.2f} %")
+    print(
+        f"TE{label}: computed {f_num / 1e9:.4f} GHz, reference {f_ref / 1e9:.4f} GHz, deviation {100 * errors[-1]:.2f} %"
+    )
 
 
 # ## Figure
 
 show = frequencies < 9e9
 fig = plots.figure(1, 2, size=(12, 4.8))
-plots.line(times * 1e9, signal / np.max(np.abs(signal)), xlimits=(0, 8), xlabel="time [ns]",
-           ylabel="E_y at the probe / max", title="Ring-down of the cavity after the current pulse", ax=fig[0])
-plots.line(frequencies[show] / 1e9, {"OneSimulation probe spectrum": spectrum[show]},
-           vlines={f"closed form {label}": f_ref / 1e9 for f_ref, label in modes[:6]}, xlimits=(2, 9), ylimits=(0, 1.1),
-           xlabel="frequency [GHz]", ylabel="|FFT| / max", title="Resonance spectrum and closed-form mode frequencies",
-           ax=fig[1])
+plots.line(
+    times * 1e9,
+    signal / np.max(np.abs(signal)),
+    xlimits=(0, 8),
+    xlabel="time [ns]",
+    ylabel="E_y at the probe / max",
+    title="Ring-down of the cavity after the current pulse",
+    ax=fig[0],
+)
+plots.line(
+    frequencies[show] / 1e9,
+    {"OneSimulation probe spectrum": spectrum[show]},
+    vlines={f"closed form {label}": f_ref / 1e9 for f_ref, label in modes[:6]},
+    xlimits=(2, 9),
+    ylimits=(0, 1.1),
+    xlabel="frequency [GHz]",
+    ylabel="|FFT| / max",
+    title="Resonance spectrum and closed-form mode frequencies",
+    ax=fig[1],
+)
 plots.show()
 
 

@@ -8,7 +8,6 @@ scattered wave of the bare cylinder is compared with the exact series, and that 
 cylinder with the series for the tiny cylinder the cloak makes it look like.
 """
 
-
 # # Acoustic cloak around a rigid cylinder
 #
 # A rigid cylinder of radius $a=0.1$ m scatters a plane sound wave strongly when it is several
@@ -44,16 +43,22 @@ cylinder with the series for the tiny cylinder the cloak makes it look like.
 # Outside the cloak its scattered wave must be that of the virtual cylinder of radius $a'$.
 
 import numpy as np
-from scipy.sparse.linalg import spsolve
-from scipy.special import hankel2, jvp, h2vp
-
 from onesim.cad.exchange import load
 from onesim.meshing import TriangularMesher
 from onesim.numerics.fem import FiniteElement, Lagrange
-from onesim.physics.acoustics import (AcousticHarmonicPressure, ComplexPressurePencil, ConstantPressureForms,
-                                      PressureAdmittanceBoundary, PressureTraceSamples, SampledPressureAdmittanceForms,
-                                      SampledPressureVolumeForms, pressure_space_volume_samples)
-from onesim.visualization import theme, plots
+from onesim.physics.acoustics import (
+    AcousticHarmonicPressure,
+    ComplexPressurePencil,
+    ConstantPressureForms,
+    PressureAdmittanceBoundary,
+    PressureTraceSamples,
+    SampledPressureAdmittanceForms,
+    SampledPressureVolumeForms,
+    pressure_space_volume_samples,
+)
+from onesim.visualization import plots, theme
+from scipy.sparse.linalg import spsolve
+from scipy.special import h2vp, hankel2, jvp
 
 theme.set()
 
@@ -73,13 +78,34 @@ virtual = cloak * (obstacle - inner) / (cloak - inner)
 air, shell = load("acoustic_cloak.step"), load("acoustic_cloak_shell.step")
 plane = air.section((0, 0, 1), origin=(0, 0, 0.005))
 outer = plane.size[0] / 2
-size = lambda r: np.where(r < obstacle, 0.0125, np.where(r < cloak, 0.0025 + 0.035 * (r - obstacle), np.minimum(0.0125, 0.006 + 0.1 * (r - cloak))))
-mesh = TriangularMesher(target_size=0.0125, size_field=lambda p: size(np.hypot(p[:, 0], p[:, 1]))).generate(plane)
+size = lambda r: np.where(
+    r < obstacle,
+    0.0125,
+    np.where(
+        r < cloak,
+        0.0025 + 0.035 * (r - obstacle),
+        np.minimum(0.0125, 0.006 + 0.1 * (r - cloak)),
+    ),
+)
+mesh = TriangularMesher(
+    target_size=0.0125, size_field=lambda p: size(np.hypot(p[:, 0], p[:, 1]))
+).generate(plane)
 
 view = plots.Camera(elevation=60, azimuth=-60)
 fig = plots.figure(1, 2, size=(15, 7))
-plots.geometry([air.named("air"), shell.named("cloak")], camera=view, title="Air and cloak (STEP)", ax=fig[0])
-plots.mesh(mesh, groups=("all",), legend=False, title=f"{mesh.cell_count} quadratic triangles", ax=fig[1])
+plots.geometry(
+    [air.named("air"), shell.named("cloak")],
+    camera=view,
+    title="Air and cloak (STEP)",
+    ax=fig[0],
+)
+plots.mesh(
+    mesh,
+    groups=("all",),
+    legend=False,
+    title=f"{mesh.cell_count} quadratic triangles",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Model
@@ -94,28 +120,70 @@ plots.show()
 
 space = FiniteElement(element=Lagrange(order=2)).bind_space(mesh)
 radial = lambda points: points / np.linalg.norm(points, axis=1)[:, None]
-stretch = lambda points, on: np.where(on & (np.linalg.norm(points, axis=1) < cloak), (np.linalg.norm(points, axis=1) - inner) / np.linalg.norm(points, axis=1), 1.0)
-inverse_density = lambda points, on: (stretch(points, on)[:, None, None] * np.einsum("qi,qj->qij", radial(points), radial(points))
-                                      + 1 / stretch(points, on)[:, None, None] * (np.eye(2) - np.einsum("qi,qj->qij", radial(points), radial(points)))) / rho0
-compressibility = lambda points, on: np.where(on & (np.linalg.norm(points, axis=1) < cloak),
-                                              (cloak / (cloak - inner)) ** 2 * stretch(points, on), 1.0) / (rho0 * c0**2)
-rim = [PressureTraceSamples(space.cell_dofs[owner], points, weights, basis)
-       for owner, points, weights, _, basis, _ in map(space.trace_data, mesh.facets(plane.boundaries.outer_wall))]
-trace = SampledPressureAdmittanceForms(size=space.dof_count, samples=lambda: iter(rim), admittance=lambda omega, sample: 1.0)(0.0)
+stretch = lambda points, on: np.where(
+    on & (np.linalg.norm(points, axis=1) < cloak),
+    (np.linalg.norm(points, axis=1) - inner) / np.linalg.norm(points, axis=1),
+    1.0,
+)
+inverse_density = (
+    lambda points, on: (
+        stretch(points, on)[:, None, None]
+        * np.einsum("qi,qj->qij", radial(points), radial(points))
+        + 1
+        / stretch(points, on)[:, None, None]
+        * (np.eye(2) - np.einsum("qi,qj->qij", radial(points), radial(points)))
+    )
+    / rho0
+)
+compressibility = lambda points, on: np.where(
+    on & (np.linalg.norm(points, axis=1) < cloak),
+    (cloak / (cloak - inner)) ** 2 * stretch(points, on),
+    1.0,
+) / (rho0 * c0**2)
+rim = [
+    PressureTraceSamples(space.cell_dofs[owner], points, weights, basis)
+    for owner, points, weights, _, basis, _ in map(
+        space.trace_data, mesh.facets(plane.boundaries.outer_wall)
+    )
+]
+trace = SampledPressureAdmittanceForms(
+    size=space.dof_count,
+    samples=lambda: iter(rim),
+    admittance=lambda omega, sample: 1.0,
+)(0.0)
 admittance = -1j * hankel2(1, k * outer) / hankel2(0, k * outer) / impedance
 nodes = space.dof_coordinates
 incident = amplitude * np.exp(-1j * k * nodes[:, 0])
-load_vector = trace @ ((-1j * k * nodes[:, 0] / outer * incident) / rho0 + 1j * omega * admittance * incident)
+load_vector = trace @ (
+    (-1j * k * nodes[:, 0] / outer * incident) / rho0
+    + 1j * omega * admittance * incident
+)
 solutions = {}
 for name, on in (("bare cylinder", False), ("cloaked cylinder", True)):
-    volume = ConstantPressureForms(*SampledPressureVolumeForms(
-        size=space.dof_count, samples=lambda: pressure_space_volume_samples(space),
-        inverse_density=lambda omega, sample: inverse_density(sample.points, on),
-        compressibility=lambda omega, sample: compressibility(sample.points, on))(0.0))
-    solutions[name] = AcousticHarmonicPressure(
-        operator=ComplexPressurePencil(volume, boundary=PressureAdmittanceBoundary(lambda omega: admittance * trace)),
-        load=lambda omega: load_vector, angular_frequencies=[omega], linear_solver=spsolve).run().pressure[0]
-print(f"{space.dof_count} pressure unknowns, {mesh.cell_count} triangles; virtual cylinder radius {1e3 * virtual:.2f} mm")
+    volume = ConstantPressureForms(
+        *SampledPressureVolumeForms(
+            size=space.dof_count,
+            samples=lambda: pressure_space_volume_samples(space),
+            inverse_density=lambda omega, sample: inverse_density(sample.points, on),
+            compressibility=lambda omega, sample: compressibility(sample.points, on),
+        )(0.0)
+    )
+    solutions[name] = (
+        AcousticHarmonicPressure(
+            operator=ComplexPressurePencil(
+                volume,
+                boundary=PressureAdmittanceBoundary(lambda omega: admittance * trace),
+            ),
+            load=lambda omega: load_vector,
+            angular_frequencies=[omega],
+            linear_solver=spsolve,
+        )
+        .run()
+        .pressure[0]
+    )
+print(
+    f"{space.dof_count} pressure unknowns, {mesh.cell_count} triangles; virtual cylinder radius {1e3 * virtual:.2f} mm"
+)
 
 # ## Results
 #
@@ -123,18 +191,36 @@ print(f"{space.dof_count} pressure unknowns, {mesh.cell_count} triangles; virtua
 # for the bare cylinder and for the virtual cylinder.
 
 orders = np.arange(80)
-series = lambda radius, r, theta: -amplitude * (np.where(orders == 0, 1, 2) * (-1j) ** orders * jvp(orders, k * radius)
-                                                / h2vp(orders, k * radius)) @ (hankel2(orders[:, None], k * r) * np.cos(orders[:, None] * theta))
+series = (
+    lambda radius, r, theta: -amplitude
+    * (
+        np.where(orders == 0, 1, 2)
+        * (-1j) ** orders
+        * jvp(orders, k * radius)
+        / h2vp(orders, k * radius)
+    )
+    @ (hankel2(orders[:, None], k * r) * np.cos(orders[:, None] * theta))
+)
 theta = np.linspace(0.0, 2 * np.pi, 721)
 ring = 0.35 * np.column_stack((np.cos(theta), np.sin(theta)))
-scattered = {name: np.asarray(space.evaluate(p, ring)) - amplitude * np.exp(-1j * k * ring[:, 0]) for name, p in solutions.items()}
-exact = {"bare cylinder": series(obstacle, 0.35, theta), "cloaked cylinder": series(virtual, 0.35, theta)}
+scattered = {
+    name: np.asarray(space.evaluate(p, ring)) - amplitude * np.exp(-1j * k * ring[:, 0])
+    for name, p in solutions.items()
+}
+exact = {
+    "bare cylinder": series(obstacle, 0.35, theta),
+    "cloaked cylinder": series(virtual, 0.35, theta),
+}
 for name in solutions:
-    print(f"{name}: max |p_s| at 0.35 m {np.abs(scattered[name]).max():.4f} p0 (series {np.abs(exact[name]).max():.4f} p0), "
-          f"largest deviation {np.abs(scattered[name] - exact[name]).max():.4f} p0, "
-          f"RMS of |p_s| {np.sqrt(np.mean(np.abs(scattered[name]) ** 2)):.4f} p0 (series {np.sqrt(np.mean(np.abs(exact[name]) ** 2)):.4f} p0)")
-print(f"the cloak lowers the scattered power by {10 * np.log10(np.mean(np.abs(scattered['bare cylinder']) ** 2) / np.mean(np.abs(scattered['cloaked cylinder']) ** 2)):.1f} dB "
-      f"(series: {10 * np.log10(np.mean(np.abs(exact['bare cylinder']) ** 2) / np.mean(np.abs(exact['cloaked cylinder']) ** 2)):.1f} dB)")
+    print(
+        f"{name}: max |p_s| at 0.35 m {np.abs(scattered[name]).max():.4f} p0 (series {np.abs(exact[name]).max():.4f} p0), "
+        f"largest deviation {np.abs(scattered[name] - exact[name]).max():.4f} p0, "
+        f"RMS of |p_s| {np.sqrt(np.mean(np.abs(scattered[name]) ** 2)):.4f} p0 (series {np.sqrt(np.mean(np.abs(exact[name]) ** 2)):.4f} p0)"
+    )
+print(
+    f"the cloak lowers the scattered power by {10 * np.log10(np.mean(np.abs(scattered['bare cylinder']) ** 2) / np.mean(np.abs(scattered['cloaked cylinder']) ** 2)):.1f} dB "
+    f"(series: {10 * np.log10(np.mean(np.abs(exact['bare cylinder']) ** 2) / np.mean(np.abs(exact['cloaked cylinder']) ** 2)):.1f} dB)"
+)
 
 # ## Figure
 #
@@ -145,12 +231,29 @@ print(f"the cloak lowers the scattered power by {10 * np.log10(np.mean(np.abs(sc
 x, y = np.asarray(mesh.coordinates).T
 fig = plots.figure(1, 3, size=(22, 7))
 for panel, name in zip((fig[0], fig[1]), solutions):
-    plots.heatmap(x, y, solutions[name][:len(x)].real, triangles=np.asarray(mesh.cells), colormap="diverging", limits=(-2, 2),
-                  label="pressure / p0", title=f"{name}, ka = {k * obstacle:.2f}", ax=panel)
-plots.line(np.degrees(theta), {name: np.abs(value) for name, value in scattered.items()},
-           reference={name: np.abs(exact[name]) for name in solutions}, scale="logy", ylimits=(1e-4, 3),
-           xlabel="angle from the direction of travel [deg]", ylabel="|p - p_i| / p0 at r = 0.35 m",
-           title="Scattered wave (dashed: series, real and virtual cylinder)", legend="lower center", ax=fig[2])
+    plots.heatmap(
+        x,
+        y,
+        solutions[name][: len(x)].real,
+        triangles=np.asarray(mesh.cells),
+        colormap="diverging",
+        limits=(-2, 2),
+        label="pressure / p0",
+        title=f"{name}, ka = {k * obstacle:.2f}",
+        ax=panel,
+    )
+plots.line(
+    np.degrees(theta),
+    {name: np.abs(value) for name, value in scattered.items()},
+    reference={name: np.abs(exact[name]) for name in solutions},
+    scale="logy",
+    ylimits=(1e-4, 3),
+    xlabel="angle from the direction of travel [deg]",
+    ylabel="|p - p_i| / p0 at r = 0.35 m",
+    title="Scattered wave (dashed: series, real and virtual cylinder)",
+    legend="lower center",
+    ax=fig[2],
+)
 plots.show()
 
 # ## Going further

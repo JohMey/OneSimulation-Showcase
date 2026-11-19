@@ -13,8 +13,12 @@ lug = Box(length=0.030, width=sheet, height=0.045, origin=(0.100, half_gap, -0.0
 tab = Box(length=0.040, width=0.045, height=sheet, origin=(0.0, 0.0, height - sheet))
 
 bracket = UnionFromObjects(objects=[arm, lug, tab])
-bracket = bracket.hole(0.012, at=(0.115, half_gap + sheet, -0.015), direction=(0.0, -1.0, 0.0))
-bracket = bracket.hole(0.009, at=(0.010, 0.035, height)).hole(0.009, at=(0.030, 0.035, height))
+bracket = bracket.hole(
+    0.012, at=(0.115, half_gap + sheet, -0.015), direction=(0.0, -1.0, 0.0)
+)
+bracket = bracket.hole(0.009, at=(0.010, 0.035, height)).hole(
+    0.009, at=(0.030, 0.035, height)
+)
 
 faces = bracket.boundaries
 bracket = bracket.grouped(

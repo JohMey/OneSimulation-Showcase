@@ -4,7 +4,6 @@ Requires the installed, activated OneSimulation runtime.
 The OneSimulation solution is checked against the closed-form two-node solution.
 """
 
-
 # # Heat exchange between two thermal masses
 #
 # Two compact bodies with heat capacities $C_1$ and $C_2$ are connected by a
@@ -30,7 +29,6 @@ The OneSimulation solution is checked against the closed-form two-node solution.
 # Both statements are checked at every stored time.
 
 import numpy as np
-
 from onesim.cad.geometry import LumpedDomain
 from onesim.meshing import LumpedMesh
 from onesim.numerics import Numerics
@@ -43,7 +41,7 @@ from onesim.results.storage import MemoryOutputSink, Output
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.field_connections import FieldCoupling
 from onesim.simulation.initial_conditions import InitialValue
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -68,7 +66,9 @@ mean_temperature = (
 ) / (heat_capacity_1 + heat_capacity_2)
 end_time = 4.0 * time_constant
 time_step = 0.02 * time_constant
-print(f"time constant 1/(G(1/C1+1/C2)) = {time_constant:.1f} s,  final temperature = {mean_temperature:.2f} K")
+print(
+    f"time constant 1/(G(1/C1+1/C2)) = {time_constant:.1f} s,  final temperature = {mean_temperature:.2f} K"
+)
 
 domain = LumpedDomain()
 body_1 = ThermalCapacitance(
@@ -94,8 +94,16 @@ problem = Problem(
         InitialValue(body_2.temperature, initial_temperature_2),
     ),
     couplings=(
-        FieldCoupling(source=body_2.temperature, target=body_1.ambient, transfer=GlobalValueTransfer()),
-        FieldCoupling(source=body_1.temperature, target=body_2.ambient, transfer=GlobalValueTransfer()),
+        FieldCoupling(
+            source=body_2.temperature,
+            target=body_1.ambient,
+            transfer=GlobalValueTransfer(),
+        ),
+        FieldCoupling(
+            source=body_1.temperature,
+            target=body_2.ambient,
+            transfer=GlobalValueTransfer(),
+        ),
     ),
 )
 numerics = Numerics(spatial=LumpedParameters())
@@ -136,11 +144,13 @@ temperatures_2 = sink.time_series(body_2.temperature)[1]
 # of real blocks.
 
 difference = temperatures_1 - temperatures_2
-reference_difference = (initial_temperature_1 - initial_temperature_2) * np.exp(-decay_rate * times)
-max_difference_error = float(np.max(np.abs(difference - reference_difference)))
-weighted_mean = (heat_capacity_1 * temperatures_1 + heat_capacity_2 * temperatures_2) / (
-    heat_capacity_1 + heat_capacity_2
+reference_difference = (initial_temperature_1 - initial_temperature_2) * np.exp(
+    -decay_rate * times
 )
+max_difference_error = float(np.max(np.abs(difference - reference_difference)))
+weighted_mean = (
+    heat_capacity_1 * temperatures_1 + heat_capacity_2 * temperatures_2
+) / (heat_capacity_1 + heat_capacity_2)
 max_mean_drift = float(np.max(np.abs(weighted_mean - mean_temperature)))
 print(f"Maximum error of the temperature difference: {max_difference_error:.3e} K")
 print(f"Maximum drift of the capacity-weighted mean:  {max_mean_drift:.3e} K")
@@ -148,23 +158,48 @@ print(f"Maximum drift of the capacity-weighted mean:  {max_mean_drift:.3e} K")
 # Each temperature individually follows from the two invariants.
 # Recover the decay rate from the log-slope of the difference.
 fitted_rate = -np.polyfit(times, np.log(difference), 1)[0]
-print(f"Decay rate: fitted {fitted_rate:.6f} 1/s, exact G(1/C1+1/C2) = {decay_rate:.6f} 1/s")
+print(
+    f"Decay rate: fitted {fitted_rate:.6f} 1/s, exact G(1/C1+1/C2) = {decay_rate:.6f} 1/s"
+)
 
 
 # ## Figure
 
 dense_t = np.linspace(0.0, end_time, 400)
-dense_diff = (initial_temperature_1 - initial_temperature_2) * np.exp(-decay_rate * dense_t)
+dense_diff = (initial_temperature_1 - initial_temperature_2) * np.exp(
+    -decay_rate * dense_t
+)
 total_capacity = heat_capacity_1 + heat_capacity_2
 fig = plots.figure(2, 1, size=(8, 7))
-plots.line(points={"body 1": (times[::4], temperatures_1[::4]), "body 2": (times[::4], temperatures_2[::4])},
-           reference={"body 1": (dense_t, mean_temperature + heat_capacity_2 / total_capacity * dense_diff),
-                      "body 2": (dense_t, mean_temperature - heat_capacity_1 / total_capacity * dense_diff)},
-           hlines={"capacity-weighted mean": mean_temperature}, ylabel="temperature [K]",
-           title="Two thermal masses: OneSimulation (markers) and closed form (dashed)", legend="center right", ax=fig[0])
-plots.line(points={"OneSimulation T_1 - T_2": (times[::4], difference[::4])},
-           reference={"exponential decay": (dense_t, dense_diff)}, scale="logy",
-           xlabel="time [s]", ylabel="temperature difference [K]", ax=fig[1])
+plots.line(
+    points={
+        "body 1": (times[::4], temperatures_1[::4]),
+        "body 2": (times[::4], temperatures_2[::4]),
+    },
+    reference={
+        "body 1": (
+            dense_t,
+            mean_temperature + heat_capacity_2 / total_capacity * dense_diff,
+        ),
+        "body 2": (
+            dense_t,
+            mean_temperature - heat_capacity_1 / total_capacity * dense_diff,
+        ),
+    },
+    hlines={"capacity-weighted mean": mean_temperature},
+    ylabel="temperature [K]",
+    title="Two thermal masses: OneSimulation (markers) and closed form (dashed)",
+    legend="center right",
+    ax=fig[0],
+)
+plots.line(
+    points={"OneSimulation T_1 - T_2": (times[::4], difference[::4])},
+    reference={"exponential decay": (dense_t, dense_diff)},
+    scale="logy",
+    xlabel="time [s]",
+    ylabel="temperature difference [K]",
+    ax=fig[1],
+)
 plots.show()
 
 

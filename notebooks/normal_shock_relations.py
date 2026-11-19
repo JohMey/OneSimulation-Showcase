@@ -5,7 +5,6 @@ The OneSimulation solution is checked against the exact Rankine-Hugoniot jump
 relations for a normal shock of a given shock Mach number.
 """
 
-
 # # A moving normal shock and the Rankine-Hugoniot relations
 #
 # A normal shock travels at constant speed $S$ into quiescent gas. In the frame
@@ -25,20 +24,24 @@ relations for a normal shock of a given shock Mach number.
 # speed must match $S$.
 
 import numpy as np
-
 from onesim.cad.d1 import Line
 from onesim.meshing import StructuredLineMesher
 from onesim.numerics import Numerics
 from onesim.numerics.fdm import (
-    FiniteDifference, GlobalLaxFriedrichsSplit, WENO5Flux, WENOFluxDifference,
+    FiniteDifference,
+    GlobalLaxFriedrichsSplit,
+    WENO5Flux,
+    WENOFluxDifference,
 )
 from onesim.numerics.time import ClassicalRungeKutta4, TimeStepLimits
 from onesim.physics.hydrodynamics import (
-    CompressibleEuler, IdealGasEquationOfState, TransmissiveBoundary,
+    CompressibleEuler,
+    IdealGasEquationOfState,
+    TransmissiveBoundary,
 )
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -62,7 +65,9 @@ p2 = p1 * pressure_ratio
 rho2 = rho1 * density_ratio
 u2 = (2 * a1 / (gamma + 1)) * (M1 - 1.0 / M1)
 print(f"a1 = {a1:.4f},  shock speed S = {S:.4f}")
-print(f"exact ratios:  p2/p1 = {pressure_ratio:.4f},  rho2/rho1 = {density_ratio:.4f},  u2 = {u2:.4f}")
+print(
+    f"exact ratios:  p2/p1 = {pressure_ratio:.4f},  rho2/rho1 = {density_ratio:.4f},  u2 = {u2:.4f}"
+)
 
 x0 = 0.30
 end_time = 0.15
@@ -78,12 +83,15 @@ POINTS = 2000
 # $E=p/(\gamma-1)+\tfrac12\rho u^2$. Both ends are transmissive so the plateaus
 # stay undisturbed while the shock travels. A CFL limit guards the time step.
 
+
 def total_energy(pressure, density, velocity):
     return pressure / (gamma - 1) + 0.5 * density * velocity**2
 
+
 geometry = Line(start=(0.0, 0.0, 0.0), end=(1.0, 0.0, 0.0))
 gas = CompressibleEuler(
-    domain=geometry.line, equation_of_state=IdealGasEquationOfState(gamma=gamma),
+    domain=geometry.line,
+    equation_of_state=IdealGasEquationOfState(gamma=gamma),
 )
 problem = Problem(
     name="Moving normal shock",
@@ -105,9 +113,12 @@ problem = Problem(
 )
 mesh = StructuredLineMesher(cells=POINTS).generate(geometry)
 numerics = Numerics(
-    spatial=FiniteDifference(gradient=WENOFluxDifference(
-        flux_splitting=GlobalLaxFriedrichsSplit(), reconstruction=WENO5Flux(),
-    )),
+    spatial=FiniteDifference(
+        gradient=WENOFluxDifference(
+            flux_splitting=GlobalLaxFriedrichsSplit(),
+            reconstruction=WENO5Flux(),
+        )
+    ),
     time_integrator=ClassicalRungeKutta4(),
     step_limits=TimeStepLimits(cfl_limit=0.4, stability_safety_factor=0.4),
 )
@@ -153,13 +164,29 @@ print(f"  shock speed: {measured_speed:.4f}  vs  {S:.4f}")
 
 # ## Figure
 
-exact = {"density": np.where(x < front, rho2, rho1), "pressure": np.where(x < front, p2, p1),
-         "velocity": np.where(x < front, u2, u1)}
+exact = {
+    "density": np.where(x < front, rho2, rho1),
+    "pressure": np.where(x < front, p2, p1),
+    "velocity": np.where(x < front, u2, u1),
+}
 numeric = {"density": rho, "pressure": pressure, "velocity": velocity}
-fig = plots.figure(1, 3, size=(13, 4.2), title=f"Moving normal shock, M1 = {M1:g}: Rankine-Hugoniot jumps reproduced")
+fig = plots.figure(
+    1,
+    3,
+    size=(13, 4.2),
+    title=f"Moving normal shock, M1 = {M1:g}: Rankine-Hugoniot jumps reproduced",
+)
 for panel, name in zip(fig, exact):
-    plots.line(x, {"OneSimulation": numeric[name]}, reference={"exact shock state": exact[name]},
-               xlimits=(0, 1), xlabel="position x", ylabel=name, title=name.capitalize(), ax=panel)
+    plots.line(
+        x,
+        {"OneSimulation": numeric[name]},
+        reference={"exact shock state": exact[name]},
+        xlimits=(0, 1),
+        xlabel="position x",
+        ylabel=name,
+        title=name.capitalize(),
+        ax=panel,
+    )
 plots.show()
 
 

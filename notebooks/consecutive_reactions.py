@@ -4,7 +4,6 @@ Requires the installed, activated OneSimulation runtime.
 The OneSimulation solution is checked against the known closed-form series solution.
 """
 
-
 # # Consecutive reactions A -> B -> C
 #
 # A species $A$ reacts to an intermediate $B$, which in turn reacts to a final
@@ -31,7 +30,6 @@ The OneSimulation solution is checked against the known closed-form series solut
 # $t_{\max}=\dfrac{\ln(k_2/k_1)}{k_2-k_1}$. We compare the transient and the peak.
 
 import numpy as np
-
 from onesim.cad.geometry import LumpedDomain
 from onesim.meshing import LumpedMesh
 from onesim.numerics import Numerics
@@ -45,7 +43,7 @@ from onesim.physics.chemistry import (
 )
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -62,7 +60,9 @@ C_A0 = 1.0
 t_peak = np.log(k2 / k1) / (k2 - k1)
 end_time = 6.0 / min(k1, k2)
 time_step = 0.02 / max(k1, k2)
-print(f"k1 = {k1:.3f} 1/s,  k2 = {k2:.3f} 1/s,  intermediate peak at t = {t_peak:.3f} s")
+print(
+    f"k1 = {k1:.3f} 1/s,  k2 = {k2:.3f} 1/s,  intermediate peak at t = {t_peak:.3f} s"
+)
 
 
 # ## Model
@@ -133,13 +133,17 @@ err = max(
     float(np.max(np.abs(num_C - exact_C))),
 )
 rel_error = err / C_A0
-print(f"Maximum absolute error against the series: {err:.3e} mol/m^3"
-      f"  ({100 * rel_error:.4f} % of C_A0)")
+print(
+    f"Maximum absolute error against the series: {err:.3e} mol/m^3"
+    f"  ({100 * rel_error:.4f} % of C_A0)"
+)
 
 B_peak_exact = C_A0 * (k1 / k2) ** (k2 / (k2 - k1))
 i_peak = int(np.argmax(num_B))
-print(f"intermediate peak: numeric C_B_max = {num_B[i_peak]:.5f} at t = {times[i_peak]:.3f} s,"
-      f"  analytic C_B_max = {B_peak_exact:.5f} at t = {t_peak:.3f} s")
+print(
+    f"intermediate peak: numeric C_B_max = {num_B[i_peak]:.5f} at t = {times[i_peak]:.3f} s,"
+    f"  analytic C_B_max = {B_peak_exact:.5f} at t = {t_peak:.3f} s"
+)
 
 mass_error = float(np.max(np.abs(num_A + num_B + num_C - C_A0)))
 print(f"Maximum mass-balance error C_A+C_B+C_C-C_A0: {mass_error:.3e} mol/m^3")
@@ -151,10 +155,22 @@ t_fine = np.linspace(0.0, end_time, 400)
 shown = slice(None, None, max(1, len(times) // 40))
 fine_A = C_A0 * np.exp(-k1 * t_fine)
 fine_B = C_A0 * k1 / (k2 - k1) * (np.exp(-k1 * t_fine) - np.exp(-k2 * t_fine))
-plots.line(points={"C_A": (times[shown], num_A[shown]), "C_B": (times[shown], num_B[shown]), "C_C": (times[shown], num_C[shown])},
-           reference={"C_A": (t_fine, fine_A), "C_B": (t_fine, fine_B), "C_C": (t_fine, C_A0 - fine_A - fine_B)},
-           vlines={"peak of C_B": t_peak}, xlabel="time [s]", ylabel="concentration [mol/m^3]",
-           title="Consecutive reactions: OneSimulation (markers) and exact solution (dashed)")
+plots.line(
+    points={
+        "C_A": (times[shown], num_A[shown]),
+        "C_B": (times[shown], num_B[shown]),
+        "C_C": (times[shown], num_C[shown]),
+    },
+    reference={
+        "C_A": (t_fine, fine_A),
+        "C_B": (t_fine, fine_B),
+        "C_C": (t_fine, C_A0 - fine_A - fine_B),
+    },
+    vlines={"peak of C_B": t_peak},
+    xlabel="time [s]",
+    ylabel="concentration [mol/m^3]",
+    title="Consecutive reactions: OneSimulation (markers) and exact solution (dashed)",
+)
 plots.show()
 
 

@@ -6,7 +6,6 @@ solution of horizontal absorption: the self-similar water-content profile and th
 square-root-of-time law of the cumulative infiltration.
 """
 
-
 # # Horizontal infiltration into an unsaturated soil column
 #
 # A long horizontal column of soil is initially at a uniform (fairly dry) water
@@ -45,13 +44,14 @@ square-root-of-time law of the cumulative infiltration.
 # the finite-volume solver.
 
 import numpy as np
-from scipy.integrate import solve_bvp
-
 from onesim.meshing import TensorCollocationMesh
 from onesim.numerics.time import ForwardEulerTimeIntegrator
 from onesim.physics.hydrodynamics import Richards1DProvider
-from onesim.physics.hydrodynamics.porous.numerics.equations.multiphysics.richards import RichardsColumnFiniteVolume
-from onesim.visualization import theme, plots
+from onesim.physics.hydrodynamics.porous.numerics.equations.multiphysics.richards import (
+    RichardsColumnFiniteVolume,
+)
+from onesim.visualization import plots, theme
+from scipy.integrate import solve_bvp
 
 theme.set()
 
@@ -64,13 +64,28 @@ theme.set()
 
 length, cells, inlet_head, initial_head = 0.5, 400, -0.10, -1.00
 x = (np.arange(cells) + 0.5) * length / cells
-column = TensorCollocationMesh(axes=(x,), coordinate_system="cartesian", periodic=(False,))
-soil = Richards1DProvider(mesh=column, spatial=RichardsColumnFiniteVolume(), time_integrator=ForwardEulerTimeIntegrator(),
-                          residual_water_content=0.08, saturated_water_content=0.43, van_genuchten_alpha=3.6,
-                          van_genuchten_n=1.56, saturated_hydraulic_conductivity=1.0e-5, gravity=0.0,
-                          initial_pressure_head=initial_head, bottom_pressure_head=inlet_head, top_pressure_head=None,
-                          final_time=60.0, time_step=0.02)
-inlet, initial = float(soil.water_content(inlet_head)), float(soil.water_content(initial_head))
+column = TensorCollocationMesh(
+    axes=(x,), coordinate_system="cartesian", periodic=(False,)
+)
+soil = Richards1DProvider(
+    mesh=column,
+    spatial=RichardsColumnFiniteVolume(),
+    time_integrator=ForwardEulerTimeIntegrator(),
+    residual_water_content=0.08,
+    saturated_water_content=0.43,
+    van_genuchten_alpha=3.6,
+    van_genuchten_n=1.56,
+    saturated_hydraulic_conductivity=1.0e-5,
+    gravity=0.0,
+    initial_pressure_head=initial_head,
+    bottom_pressure_head=inlet_head,
+    top_pressure_head=None,
+    final_time=60.0,
+    time_step=0.02,
+)
+inlet, initial = float(soil.water_content(inlet_head)), float(
+    soil.water_content(initial_head)
+)
 print(f"water content: {inlet:.4f} at the inlet, {initial:.4f} initially")
 
 # ## Simulation
@@ -88,7 +103,9 @@ for minute in range(1, 61):
     if minute in (10, 20, 40, 60):
         profiles[60.0 * minute] = segment.water_content
 times, infiltration = np.array(times), np.array(infiltration)
-print(f"cumulative infiltration after one hour: {1e3 * infiltration[-1]:.2f} mm, largest mass-balance residual {residual:.1e} m")
+print(
+    f"cumulative infiltration after one hour: {1e3 * infiltration[-1]:.2f} mm, largest mass-balance residual {residual:.1e} m"
+)
 
 # ## Similarity solution
 #
@@ -98,13 +115,26 @@ print(f"cumulative infiltration after one hour: {1e3 * infiltration[-1]:.2f} mm,
 # and the water capacity of the same soil law.
 
 far = 6.5e-3
-diffusivity = lambda theta: (soil.hydraulic_conductivity(soil.pressure_head(np.clip(theta, initial, inlet)))
-                             / soil.water_capacity(soil.pressure_head(np.clip(theta, initial, inlet))))
+diffusivity = lambda theta: (
+    soil.hydraulic_conductivity(soil.pressure_head(np.clip(theta, initial, inlet)))
+    / soil.water_capacity(soil.pressure_head(np.clip(theta, initial, inlet)))
+)
 phi = np.linspace(0.0, far, 600)
-similarity = solve_bvp(lambda p, y: np.vstack((y[1] / diffusivity(y[0]), -0.5 * p * y[1] / diffusivity(y[0]))),
-                       lambda left, right: np.array([left[0] - inlet, right[0] - initial]), phi,
-                       np.vstack((initial + (inlet - initial) * np.exp(-((phi / 2e-3) ** 2)), np.full_like(phi, -1e-4))),
-                       tol=1e-9, max_nodes=200000)
+similarity = solve_bvp(
+    lambda p, y: np.vstack(
+        (y[1] / diffusivity(y[0]), -0.5 * p * y[1] / diffusivity(y[0]))
+    ),
+    lambda left, right: np.array([left[0] - inlet, right[0] - initial]),
+    phi,
+    np.vstack(
+        (
+            initial + (inlet - initial) * np.exp(-((phi / 2e-3) ** 2)),
+            np.full_like(phi, -1e-4),
+        )
+    ),
+    tol=1e-9,
+    max_nodes=200000,
+)
 profile = lambda p: similarity.sol(np.minimum(p, far))[0]
 sorptivity = -2.0 * similarity.sol(0.0)[1]
 print(f"sorptivity from the similarity solution: {sorptivity:.4e} m/√s")
@@ -117,14 +147,22 @@ print(f"sorptivity from the similarity solution: {sorptivity:.4e} m/√s")
 print("time [min]   largest profile deviation   rms deviation   (fractions of θ0 - θi)")
 for t, theta in profiles.items():
     deviation = np.abs(theta - profile(x / np.sqrt(t))) / (inlet - initial)
-    print(f"{t / 60:10.0f} {100 * deviation.max():24.2f} % {100 * np.sqrt(np.mean(deviation**2)):13.2f} %")
+    print(
+        f"{t / 60:10.0f} {100 * deviation.max():24.2f} % {100 * np.sqrt(np.mean(deviation**2)):13.2f} %"
+    )
 common = np.linspace(0.0, 3.9e-3, 200)
-collapsed = np.array([np.interp(common, x / np.sqrt(t), theta) for t, theta in profiles.items()])
+collapsed = np.array(
+    [np.interp(common, x / np.sqrt(t), theta) for t, theta in profiles.items()]
+)
 late = times >= 600.0
-print(f"spread of the four profiles at equal φ: {100 * np.ptp(collapsed, axis=0).max() / (inlet - initial):.2f} % of θ0 - θi")
-print(f"cumulative infiltration from 10 min on: I / (S √t) - 1 within "
-      f"{100 * np.abs(infiltration[late] / (sorptivity * np.sqrt(times[late])) - 1).max():.2f} %, "
-      f"fitted exponent {np.polyfit(np.log(times[late]), np.log(infiltration[late]), 1)[0]:.4f} (similarity: 0.5)")
+print(
+    f"spread of the four profiles at equal φ: {100 * np.ptp(collapsed, axis=0).max() / (inlet - initial):.2f} % of θ0 - θi"
+)
+print(
+    f"cumulative infiltration from 10 min on: I / (S √t) - 1 within "
+    f"{100 * np.abs(infiltration[late] / (sorptivity * np.sqrt(times[late])) - 1).max():.2f} %, "
+    f"fitted exponent {np.polyfit(np.log(times[late]), np.log(infiltration[late]), 1)[0]:.4f} (similarity: 0.5)"
+)
 
 # ## Figure
 #
@@ -133,18 +171,42 @@ print(f"cumulative infiltration from 10 min on: I / (S √t) - 1 within "
 
 fine = np.linspace(0.0, 0.32, 800)
 fig = plots.figure(1, 3, size=(16, 4.8))
-plots.line(points={f"{t / 60:.0f} min": (1e2 * x[::5], theta[::5]) for t, theta in profiles.items()},
-           reference={f"{t / 60:.0f} min": (1e2 * fine, profile(fine / np.sqrt(t))) for t in profiles},
-           xlimits=(0.0, 32.0), xlabel="position x [cm]", ylabel="water content θ",
-           title="Wetting profiles: simulation (markers), similarity (dashed)", legend="upper right", ax=fig[0])
-plots.line(points={f"{t / 60:.0f} min": (1e3 * x[::5] / np.sqrt(t), theta[::5]) for t, theta in profiles.items()},
-           reference={"Θ(φ), similarity solution": (1e3 * phi, profile(phi))}, xlimits=(0.0, 1e3 * far),
-           xlabel="φ = x / √t [mm/√s]", ylabel="water content θ", title="All profiles on one curve", legend="upper right",
-           ax=fig[1])
-plots.line(points={"simulation": (np.sqrt(times[::3]), 1e3 * infiltration[::3])},
-           reference={"S √t": (np.sqrt(times), 1e3 * sorptivity * np.sqrt(times))},
-           xlabel="√t [√s]", ylabel="cumulative infiltration I [mm]", title="Sorptivity law I = S √t", legend="upper left",
-           ax=fig[2])
+plots.line(
+    points={
+        f"{t / 60:.0f} min": (1e2 * x[::5], theta[::5]) for t, theta in profiles.items()
+    },
+    reference={
+        f"{t / 60:.0f} min": (1e2 * fine, profile(fine / np.sqrt(t))) for t in profiles
+    },
+    xlimits=(0.0, 32.0),
+    xlabel="position x [cm]",
+    ylabel="water content θ",
+    title="Wetting profiles: simulation (markers), similarity (dashed)",
+    legend="upper right",
+    ax=fig[0],
+)
+plots.line(
+    points={
+        f"{t / 60:.0f} min": (1e3 * x[::5] / np.sqrt(t), theta[::5])
+        for t, theta in profiles.items()
+    },
+    reference={"Θ(φ), similarity solution": (1e3 * phi, profile(phi))},
+    xlimits=(0.0, 1e3 * far),
+    xlabel="φ = x / √t [mm/√s]",
+    ylabel="water content θ",
+    title="All profiles on one curve",
+    legend="upper right",
+    ax=fig[1],
+)
+plots.line(
+    points={"simulation": (np.sqrt(times[::3]), 1e3 * infiltration[::3])},
+    reference={"S √t": (np.sqrt(times), 1e3 * sorptivity * np.sqrt(times))},
+    xlabel="√t [√s]",
+    ylabel="cumulative infiltration I [mm]",
+    title="Sorptivity law I = S √t",
+    legend="upper left",
+    ax=fig[2],
+)
 plots.show()
 
 # ## Going further

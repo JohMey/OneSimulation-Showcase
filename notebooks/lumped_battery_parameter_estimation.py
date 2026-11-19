@@ -9,7 +9,6 @@ simulation. The data are synthetic, generated from known parameters with noise, 
 recovered values can be checked.
 """
 
-
 # # Estimating a lumped battery model from a load cycle
 #
 # A lumped battery model needs no knowledge of the electrode design or materials. It
@@ -41,7 +40,6 @@ recovered values can be checked.
 # Systems, Vol. I: Battery Modeling*, Artech House 2015).
 
 import numpy as np
-
 from onesim.cad.geometry import LumpedDomain
 from onesim.meshing import LumpedMesh
 from onesim.numerics import Numerics
@@ -51,7 +49,7 @@ from onesim.physics.chemistry import BatteryChemistry, LumpedBattery
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
 from onesim.simulation.studies import SimulationStudyService, StudyParameter
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -65,12 +63,24 @@ theme.set()
 
 ambient, start, noise_voltage, noise_temperature = 298.15, 0.95, 2e-3, 0.05
 open_circuit = lambda s: 3.0 + 1.1 * s - 0.35 * s**2 + 0.05 * np.log(s / (1.0 - s))
-pattern = np.array([(0, 1.25), (120, 5.0), (180, 2.5), (300, -2.5), (330, 0.0), (390, 3.75), (510, 0.0)])
+pattern = np.array(
+    [
+        (0, 1.25),
+        (120, 5.0),
+        (180, 2.5),
+        (300, -2.5),
+        (330, 0.0),
+        (390, 3.75),
+        (510, 0.0),
+    ]
+)
 load = lambda t: pattern[np.searchsorted(pattern[:, 0], t % 600.0, side="right") - 1, 1]
 times = np.arange(0.0, 3601.0, 10.0)
 cell = LumpedDomain()
-print(f"charge drawn in one hour {np.mean([load(t) for t in np.arange(0.0, 3600.0)]):.3f} Ah, "
-      f"rms current {np.sqrt(np.mean([load(t) ** 2 for t in np.arange(0.0, 3600.0)])):.2f} A")
+print(
+    f"charge drawn in one hour {np.mean([load(t) for t in np.arange(0.0, 3600.0)]):.3f} Ah, "
+    f"rms current {np.sqrt(np.mean([load(t) ** 2 for t in np.arange(0.0, 3600.0)])):.2f} A"
+)
 
 # ## Model
 #
@@ -78,22 +88,58 @@ print(f"charge drawn in one hour {np.mean([load(t) for t in np.arange(0.0, 3600.
 # resistance in mΩ, heat capacity in J/K, conductance in W/K); the study runs it with steps
 # of 2 s and reads voltage and temperature at the sampling times.
 
-cycle = lambda values: (model := LumpedBattery(
-    domain=cell.system, charge_capacity=3600.0 * values["capacity"], current=load, thermal_capacity=values["heat_capacity"],
-    heat_transfer=values["conductance"], ambient_temperature=ambient,
-    chemistry=BatteryChemistry("lumped cell", open_circuit_voltage=lambda s, T: open_circuit(s),
-                               internal_resistance=lambda s, T: 1e-3 * values["resistance"])),
-    Simulation(problem=Problem(name="Load cycle", geometry=cell, physics=(model,),
-                               initial_conditions=(InitialValue(model.state_of_charge, start), InitialValue(model.temperature, ambient))),
-               mesh=LumpedMesh(cell), numerics=Numerics(spatial=LumpedParameters(), time_integrator=ClassicalRungeKutta4())))
+cycle = lambda values: (
+    model := LumpedBattery(
+        domain=cell.system,
+        charge_capacity=3600.0 * values["capacity"],
+        current=load,
+        thermal_capacity=values["heat_capacity"],
+        heat_transfer=values["conductance"],
+        ambient_temperature=ambient,
+        chemistry=BatteryChemistry(
+            "lumped cell",
+            open_circuit_voltage=lambda s, T: open_circuit(s),
+            internal_resistance=lambda s, T: 1e-3 * values["resistance"],
+        ),
+    ),
+    Simulation(
+        problem=Problem(
+            name="Load cycle",
+            geometry=cell,
+            physics=(model,),
+            initial_conditions=(
+                InitialValue(model.state_of_charge, start),
+                InitialValue(model.temperature, ambient),
+            ),
+        ),
+        mesh=LumpedMesh(cell),
+        numerics=Numerics(
+            spatial=LumpedParameters(), time_integrator=ClassicalRungeKutta4()
+        ),
+    ),
+)
 names = ("capacity", "resistance", "heat_capacity", "conductance")
 study = SimulationStudyService(
-    (StudyParameter("capacity", 1.5, 4.0), StudyParameter("resistance", 10.0, 100.0),
-     StudyParameter("heat_capacity", 10.0, 150.0), StudyParameter("conductance", 0.02, 0.5)),
+    (
+        StudyParameter("capacity", 1.5, 4.0),
+        StudyParameter("resistance", 10.0, 100.0),
+        StudyParameter("heat_capacity", 10.0, 150.0),
+        StudyParameter("conductance", 0.02, 0.5),
+    ),
     cycle,
-    lambda run: {f"{quantity}_{i}": value for quantity, field in (("voltage", run[0].terminal_voltage), ("temperature", run[0].temperature))
-                 for i, value in enumerate(np.interp(times, *run[1].field(field).time_series()))},
-    solve=lambda built: (built[0], built[1].run(start_time=0.0, end_time=3600.0, time_step=2.0)))
+    lambda run: {
+        f"{quantity}_{i}": value
+        for quantity, field in (
+            ("voltage", run[0].terminal_voltage),
+            ("temperature", run[0].temperature),
+        )
+        for i, value in enumerate(np.interp(times, *run[1].field(field).time_series()))
+    },
+    solve=lambda built: (
+        built[0],
+        built[1].run(start_time=0.0, end_time=3600.0, time_step=2.0),
+    ),
+)
 
 # ## Synthetic measurements
 #
@@ -102,45 +148,90 @@ study = SimulationStudyService(
 true = {"capacity": 2.5, "resistance": 40.0, "heat_capacity": 45.0, "conductance": 0.12}
 clean = study.sweep(combinations=[true]).runs[0].measurements
 rng = np.random.default_rng(2026)
-voltage = np.array([clean[f"voltage_{i}"] for i in range(times.size)]) + rng.normal(0.0, noise_voltage, times.size)
-temperature = np.array([clean[f"temperature_{i}"] for i in range(times.size)]) + rng.normal(0.0, noise_temperature, times.size)
+voltage = np.array([clean[f"voltage_{i}"] for i in range(times.size)]) + rng.normal(
+    0.0, noise_voltage, times.size
+)
+temperature = np.array(
+    [clean[f"temperature_{i}"] for i in range(times.size)]
+) + rng.normal(0.0, noise_temperature, times.size)
 
 # ## Least-squares fit
 #
 # Residuals of voltage and temperature, each divided by its noise level; Levenberg-Marquardt
 # from a start far from the truth: 2.0 Ah, 70 mΩ, 90 J/K, 0.25 W/K.
 
-initial = {"capacity": 2.0, "resistance": 70.0, "heat_capacity": 90.0, "conductance": 0.25}
-fit = study.fit(residuals=lambda m: np.r_[[(m[f"voltage_{i}"] - voltage[i]) / noise_voltage for i in range(times.size)],
-                                          [(m[f"temperature_{i}"] - temperature[i]) / noise_temperature for i in range(times.size)]],
-                start=initial, method="levenberg_marquardt", maximum_runs=150)
+initial = {
+    "capacity": 2.0,
+    "resistance": 70.0,
+    "heat_capacity": 90.0,
+    "conductance": 0.25,
+}
+fit = study.fit(
+    residuals=lambda m: np.r_[
+        [(m[f"voltage_{i}"] - voltage[i]) / noise_voltage for i in range(times.size)],
+        [
+            (m[f"temperature_{i}"] - temperature[i]) / noise_temperature
+            for i in range(times.size)
+        ],
+    ],
+    start=initial,
+    method="levenberg_marquardt",
+    maximum_runs=150,
+)
 
 # ## Comparison with the true values
 
-print(f"{fit.run_count} battery simulations (including the data run), converged: {fit.converged}, rank {fit.rank} of {len(names)}, "
-      f"χ² = {fit.residuals @ fit.residuals:.1f} for {fit.degrees_of_freedom} degrees of freedom")
+print(
+    f"{fit.run_count} battery simulations (including the data run), converged: {fit.converged}, rank {fit.rank} of {len(names)}, "
+    f"χ² = {fit.residuals @ fit.residuals:.1f} for {fit.degrees_of_freedom} degrees of freedom"
+)
 print("parameter        estimate ± standard error     true      deviation")
 for name, unit in zip(names, ("Ah", "mΩ", "J/K", "W/K")):
-    print(f"{name:14s} {fit.parameters[name]:10.4f} ± {fit.standard_errors[name]:.4f} {unit:3s} {true[name]:9.3f}   "
-          f"{(fit.parameters[name] - true[name]) / fit.standard_errors[name]:+6.2f} σ")
-print(f"correlation capacity-resistance {fit.covariance[0, 1] / np.sqrt(fit.covariance[0, 0] * fit.covariance[1, 1]):+.2f}, "
-      f"heat capacity-conductance {fit.covariance[2, 3] / np.sqrt(fit.covariance[2, 2] * fit.covariance[3, 3]):+.2f}")
-print(f"rms residuals: voltage {1e3 * noise_voltage * np.sqrt(np.mean(fit.residuals[:times.size] ** 2)):.2f} mV (noise 2 mV), "
-      f"temperature {noise_temperature * np.sqrt(np.mean(fit.residuals[times.size:] ** 2)):.3f} K (noise 0.05 K)")
+    print(
+        f"{name:14s} {fit.parameters[name]:10.4f} ± {fit.standard_errors[name]:.4f} {unit:3s} {true[name]:9.3f}   "
+        f"{(fit.parameters[name] - true[name]) / fit.standard_errors[name]:+6.2f} σ"
+    )
+print(
+    f"correlation capacity-resistance {fit.covariance[0, 1] / np.sqrt(fit.covariance[0, 0] * fit.covariance[1, 1]):+.2f}, "
+    f"heat capacity-conductance {fit.covariance[2, 3] / np.sqrt(fit.covariance[2, 2] * fit.covariance[3, 3]):+.2f}"
+)
+print(
+    f"rms residuals: voltage {1e3 * noise_voltage * np.sqrt(np.mean(fit.residuals[:times.size] ** 2)):.2f} mV (noise 2 mV), "
+    f"temperature {noise_temperature * np.sqrt(np.mean(fit.residuals[times.size:] ** 2)):.3f} K (noise 0.05 K)"
+)
 
 # ## Figure
 #
 # Terminal voltage and temperature: data, fitted model and the model at the start values.
 
-final, first = (study.sweep(combinations=[dict(values)]).runs[0].measurements for values in (fit.parameters, initial))
+final, first = (
+    study.sweep(combinations=[dict(values)]).runs[0].measurements
+    for values in (fit.parameters, initial)
+)
 series = lambda m, quantity: np.array([m[f"{quantity}_{i}"] for i in range(times.size)])
 fig = plots.figure(1, 2, size=(15, 5))
-plots.line(times / 60, {"fitted model": series(final, "voltage")}, points={"data": (times[::3] / 60, voltage[::3])},
-           reference={"start values": series(first, "voltage")}, xlabel="time [min]", ylabel="terminal voltage [V]",
-           title="Terminal voltage over the load cycle", legend="lower left", ax=fig[0])
-plots.line(times / 60, {"fitted model": series(final, "temperature") - 273.15}, points={"data": (times[::3] / 60, temperature[::3] - 273.15)},
-           reference={"start values": series(first, "temperature") - 273.15}, xlabel="time [min]", ylabel="cell temperature [°C]",
-           title="Cell temperature", legend="lower right", ax=fig[1])
+plots.line(
+    times / 60,
+    {"fitted model": series(final, "voltage")},
+    points={"data": (times[::3] / 60, voltage[::3])},
+    reference={"start values": series(first, "voltage")},
+    xlabel="time [min]",
+    ylabel="terminal voltage [V]",
+    title="Terminal voltage over the load cycle",
+    legend="lower left",
+    ax=fig[0],
+)
+plots.line(
+    times / 60,
+    {"fitted model": series(final, "temperature") - 273.15},
+    points={"data": (times[::3] / 60, temperature[::3] - 273.15)},
+    reference={"start values": series(first, "temperature") - 273.15},
+    xlabel="time [min]",
+    ylabel="cell temperature [°C]",
+    title="Cell temperature",
+    legend="lower right",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Going further

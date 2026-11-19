@@ -7,7 +7,6 @@ failure, the elastic stiffness and the dilatancy of the sample are compared with
 Mohr-Coulomb solution, and the Mohr circles at failure are drawn against the failure envelope.
 """
 
-
 # # Drained triaxial test on a soil sample
 #
 # The triaxial test is the most common laboratory test for the strength of soils. A cylindrical
@@ -50,11 +49,10 @@ Mohr-Coulomb solution, and the Mohr circles at failure are drawn against the fai
 # $-\mathrm d\varepsilon_v/\mathrm d\varepsilon_a=2\sin\psi/(1-\sin\psi)$ (volumetric strain counted positive in compression).
 
 import numpy as np
-
 from onesim.cad.exchange import load
 from onesim.meshing import TriangularMesher
 from onesim.physics.geotechnics import FrictionalSolid, MohrCoulombRock
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -70,9 +68,24 @@ faces = meridian.boundaries
 mesh = TriangularMesher(target_size=0.006).generate(meridian)
 
 fig = plots.figure(1, 2, size=(11, 6))
-plots.geometry(sample, selection={"platens": sample.boundaries.top | sample.boundaries.bottom, "membrane": sample.boundaries.outer_wall},
-               labels=False, camera=plots.Camera(elevation=22, azimuth=-60), title="Half of the soil sample", ax=fig[0])
-plots.mesh(mesh, groups=("all",), legend=False, title=f"Meridian: {mesh.cell_count} triangles", ax=fig[1])
+plots.geometry(
+    sample,
+    selection={
+        "platens": sample.boundaries.top | sample.boundaries.bottom,
+        "membrane": sample.boundaries.outer_wall,
+    },
+    labels=False,
+    camera=plots.Camera(elevation=22, azimuth=-60),
+    title="Half of the soil sample",
+    ax=fig[0],
+)
+plots.mesh(
+    mesh,
+    groups=("all",),
+    legend=False,
+    title=f"Meridian: {mesh.cell_count} triangles",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Model
@@ -80,35 +93,84 @@ plots.show()
 # The first step applies the cell pressure on all sides (the top platen moves by the elastic
 # isotropic compression), then the top platen moves down in 20 steps to 5 % axial strain.
 
-youngs_modulus, poisson_ratio, cohesion, friction, dilatancy = 20e6, 0.3, 5e3, np.radians(30), np.radians(5)
-soil = FrictionalSolid(material=MohrCoulombRock(youngs_modulus=youngs_modulus, poisson_ratio=poisson_ratio, cohesion=cohesion,
-                                                friction_angle=friction, dilation_angle=dilatancy), kinematics="axisymmetric")
+youngs_modulus, poisson_ratio, cohesion, friction, dilatancy = (
+    20e6,
+    0.3,
+    5e3,
+    np.radians(30),
+    np.radians(5),
+)
+soil = FrictionalSolid(
+    material=MohrCoulombRock(
+        youngs_modulus=youngs_modulus,
+        poisson_ratio=poisson_ratio,
+        cohesion=cohesion,
+        friction_angle=friction,
+        dilation_angle=dilatancy,
+    ),
+    kinematics="axisymmetric",
+)
 pressures = (50e3, 100e3, 200e3)
 compression = np.linspace(0.0, 0.05, 21)
-results = {cell: soil.solve(mesh=mesh, times=compression * height, normal_tractions=((faces.outer_wall, -cell),),
-                            displacements=((faces["axis.x_min"], "r", 0.0), (faces.bottom, "z", 0.0),
-                                           (faces.top, "z", (lambda start: lambda t: start - t)(-cell * (1 - 2 * poisson_ratio) / youngs_modulus * height))))
-           for cell in pressures}
+results = {
+    cell: soil.solve(
+        mesh=mesh,
+        times=compression * height,
+        normal_tractions=((faces.outer_wall, -cell),),
+        displacements=(
+            (faces["axis.x_min"], "r", 0.0),
+            (faces.bottom, "z", 0.0),
+            (
+                faces.top,
+                "z",
+                (lambda start: lambda t: start - t)(
+                    -cell * (1 - 2 * poisson_ratio) / youngs_modulus * height
+                ),
+            ),
+        ),
+    )
+    for cell in pressures
+}
 top = np.isclose(results[pressures[0]].coordinates[:, 1], height)
-rim = np.isclose(results[pressures[0]].coordinates[:, 0], radius) & np.isclose(results[pressures[0]].coordinates[:, 1], height)
-deviator = {cell: -result.reactions[:, top, 1].sum(axis=1) / (np.pi * radius**2) - cell for cell, result in results.items()}
-volume = {cell: compression - 2 * (result.displacement[:, rim, 0][:, 0] - result.displacement[0, rim, 0][0]) / radius
-          for cell, result in results.items()}
+rim = np.isclose(results[pressures[0]].coordinates[:, 0], radius) & np.isclose(
+    results[pressures[0]].coordinates[:, 1], height
+)
+deviator = {
+    cell: -result.reactions[:, top, 1].sum(axis=1) / (np.pi * radius**2) - cell
+    for cell, result in results.items()
+}
+volume = {
+    cell: compression
+    - 2
+    * (result.displacement[:, rim, 0][:, 0] - result.displacement[0, rim, 0][0])
+    / radius
+    for cell, result in results.items()
+}
 
 # ## Comparison with the reference
 #
 # Failure deviator, elastic stiffness and dilatancy rate for the three cell pressures.
 
-failure = lambda cell: 2 * (cohesion * np.cos(friction) + cell * np.sin(friction)) / (1 - np.sin(friction))
+failure = (
+    lambda cell: 2
+    * (cohesion * np.cos(friction) + cell * np.sin(friction))
+    / (1 - np.sin(friction))
+)
 rate = 2 * np.sin(dilatancy) / (1 - np.sin(dilatancy))
-print(f"{'cell pressure':>13s} {'q_f [kPa]':>10s} {'closed form':>12s} {'deviation':>10s} {'E from q-ε [MPa]':>17s}"
-      f" {'-dε_v/dε_a':>11s} {'closed form':>12s}")
+print(
+    f"{'cell pressure':>13s} {'q_f [kPa]':>10s} {'closed form':>12s} {'deviation':>10s} {'E from q-ε [MPa]':>17s}"
+    f" {'-dε_v/dε_a':>11s} {'closed form':>12s}"
+)
 for cell in pressures:
     q, v = deviator[cell], volume[cell]
-    print(f"{cell / 1e3:9.0f} kPa {q[-1] / 1e3:10.3f} {failure(cell) / 1e3:12.3f} {100 * (q[-1] / failure(cell) - 1):+9.1e} %"
-          f" {q[1] / compression[1] / 1e6:17.4f} {(v[-2] - v[-1]) / (compression[-1] - compression[-2]):11.4f} {rate:12.4f}")
-print("stress spread over the quadrature points at the end (uniform sample): "
-      f"{max(np.ptp(result.stress[-1, :, 1, 1]) for result in results.values()):.1e} Pa")
+    print(
+        f"{cell / 1e3:9.0f} kPa {q[-1] / 1e3:10.3f} {failure(cell) / 1e3:12.3f} {100 * (q[-1] / failure(cell) - 1):+9.1e} %"
+        f" {q[1] / compression[1] / 1e6:17.4f} {(v[-2] - v[-1]) / (compression[-1] - compression[-2]):11.4f} {rate:12.4f}"
+    )
+print(
+    "stress spread over the quadrature points at the end (uniform sample): "
+    f"{max(np.ptp(result.stress[-1, :, 1, 1]) for result in results.values()):.1e} Pa"
+)
 
 # ## Figure
 #
@@ -121,24 +183,91 @@ angle = np.linspace(0, np.pi, 181)
 mean = np.linspace(0, 350e3, 50)
 slope = 6 * np.sin(friction) / (3 - np.sin(friction))
 fig = plots.figure(2, 2, size=(14, 11))
-plots.line(points={f"σ3 = {cell / 1e3:.0f} kPa": (100 * compression, deviator[cell] / 1e3) for cell in pressures},
-           reference={f"σ3 = {cell / 1e3:.0f} kPa": (100 * strain, np.minimum(youngs_modulus * strain, failure(cell)) / 1e3) for cell in pressures},
-           xlabel="axial strain ε_a [%]", ylabel="deviator q = σ_a - σ3 [kPa]", title="Deviator: simulation (markers), closed form (dashed)",
-           legend="lower right", ax=fig[0])
-plots.line(points={f"σ3 = {cell / 1e3:.0f} kPa": (100 * compression, 100 * volume[cell]) for cell in pressures},
-           reference={f"σ3 = {cell / 1e3:.0f} kPa": (100 * strain, 100 * np.where(strain < failure(cell) / youngs_modulus,
-                      (1 - 2 * poisson_ratio) * strain, (1 - 2 * poisson_ratio) * failure(cell) / youngs_modulus
-                      - rate * (strain - failure(cell) / youngs_modulus))) for cell in pressures},
-           xlabel="axial strain ε_a [%]", ylabel="volumetric strain ε_v [%] (compression positive)",
-           title="Volume change: compression, then dilatancy", legend="lower left", ax=fig[1])
-plots.line(y={f"σ3 = {cell / 1e3:.0f} kPa": ((cell + deviator[cell] / 3) / 1e3, deviator[cell] / 1e3) for cell in pressures},
-           reference={"failure line in compression": (mean / 1e3, (slope * mean + 6 * cohesion * np.cos(friction) / (3 - np.sin(friction))) / 1e3)},
-           xlabel="mean stress p [kPa]", ylabel="deviator q [kPa]", title="Stress paths", legend="upper left", ax=fig[2])
-plots.line(y={f"σ3 = {cell / 1e3:.0f} kPa": ((cell + deviator[cell][-1] / 2 * (1 + np.cos(angle))) / 1e3,
-                                            deviator[cell][-1] / 2 * np.sin(angle) / 1e3) for cell in pressures},
-           reference={"envelope τ = c + σ tan φ": (np.r_[0.0, 800.0], (cohesion + np.r_[0.0, 800e3] * np.tan(friction)) / 1e3)},
-           xlimits=(0, 720), ylimits=(0, 540), xlabel="normal stress σ [kPa] (compression positive)", ylabel="shear stress τ [kPa]",
-           title="Mohr circles of the simulation at failure", legend="upper left", ax=fig[3])
+plots.line(
+    points={
+        f"σ3 = {cell / 1e3:.0f} kPa": (100 * compression, deviator[cell] / 1e3)
+        for cell in pressures
+    },
+    reference={
+        f"σ3 = {cell / 1e3:.0f} kPa": (
+            100 * strain,
+            np.minimum(youngs_modulus * strain, failure(cell)) / 1e3,
+        )
+        for cell in pressures
+    },
+    xlabel="axial strain ε_a [%]",
+    ylabel="deviator q = σ_a - σ3 [kPa]",
+    title="Deviator: simulation (markers), closed form (dashed)",
+    legend="lower right",
+    ax=fig[0],
+)
+plots.line(
+    points={
+        f"σ3 = {cell / 1e3:.0f} kPa": (100 * compression, 100 * volume[cell])
+        for cell in pressures
+    },
+    reference={
+        f"σ3 = {cell / 1e3:.0f} kPa": (
+            100 * strain,
+            100
+            * np.where(
+                strain < failure(cell) / youngs_modulus,
+                (1 - 2 * poisson_ratio) * strain,
+                (1 - 2 * poisson_ratio) * failure(cell) / youngs_modulus
+                - rate * (strain - failure(cell) / youngs_modulus),
+            ),
+        )
+        for cell in pressures
+    },
+    xlabel="axial strain ε_a [%]",
+    ylabel="volumetric strain ε_v [%] (compression positive)",
+    title="Volume change: compression, then dilatancy",
+    legend="lower left",
+    ax=fig[1],
+)
+plots.line(
+    y={
+        f"σ3 = {cell / 1e3:.0f} kPa": (
+            (cell + deviator[cell] / 3) / 1e3,
+            deviator[cell] / 1e3,
+        )
+        for cell in pressures
+    },
+    reference={
+        "failure line in compression": (
+            mean / 1e3,
+            (slope * mean + 6 * cohesion * np.cos(friction) / (3 - np.sin(friction)))
+            / 1e3,
+        )
+    },
+    xlabel="mean stress p [kPa]",
+    ylabel="deviator q [kPa]",
+    title="Stress paths",
+    legend="upper left",
+    ax=fig[2],
+)
+plots.line(
+    y={
+        f"σ3 = {cell / 1e3:.0f} kPa": (
+            (cell + deviator[cell][-1] / 2 * (1 + np.cos(angle))) / 1e3,
+            deviator[cell][-1] / 2 * np.sin(angle) / 1e3,
+        )
+        for cell in pressures
+    },
+    reference={
+        "envelope τ = c + σ tan φ": (
+            np.r_[0.0, 800.0],
+            (cohesion + np.r_[0.0, 800e3] * np.tan(friction)) / 1e3,
+        )
+    },
+    xlimits=(0, 720),
+    ylimits=(0, 540),
+    xlabel="normal stress σ [kPa] (compression positive)",
+    ylabel="shear stress τ [kPa]",
+    title="Mohr circles of the simulation at failure",
+    legend="upper left",
+    ax=fig[3],
+)
 plots.show()
 
 # ## Going further

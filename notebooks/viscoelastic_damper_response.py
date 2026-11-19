@@ -11,7 +11,6 @@ cycle, a three-level mesh study and the convergence of the time-domain solution 
 frequency-domain motion as the time step shrinks.
 """
 
-
 # # Viscoelastic structural damper under harmonic load
 #
 # Viscoelastic dampers reduce the wind-induced sway and the seismic response of tall
@@ -92,22 +91,26 @@ frequency-domain motion as the time step shrinks.
 # assembled stiffness, checked against OneSimulation's `SmallStrainSolid` solver on the
 # same mesh with the real storage modulus.
 
-from dataclasses import dataclass
 import time
-from petsc4py import PETSc
+from dataclasses import dataclass
+
 import numpy as np
+from onesim.cad.geometry.primitives import Geometry
+from onesim.meshing import UnstructuredSimplexMesh
+from onesim.numerics.discretization.geometry.carriers.kernels.simplex.tetrahedral import (
+    boundary_faces,
+)
+from onesim.numerics.fem import FiniteElement, Lagrange
+from onesim.physics.solid_mechanics import (
+    IsotropicHookeMaterial,
+    SmallStrainSolid,
+    voigt_strain_matrix,
+)
+from onesim.visualization import plots, theme
+from petsc4py import PETSc
 from scipy.optimize import brentq
 from scipy.sparse import coo_matrix
 from scipy.sparse.linalg import splu
-
-from onesim.cad.geometry.primitives import Geometry
-from onesim.meshing import UnstructuredSimplexMesh
-from onesim.numerics.discretization.geometry.carriers.kernels.simplex.tetrahedral import boundary_faces
-from onesim.numerics.fem import FiniteElement, Lagrange
-from onesim.physics.solid_mechanics import SmallStrainSolid
-from onesim.physics.solid_mechanics import IsotropicHookeMaterial
-from onesim.physics.solid_mechanics import voigt_strain_matrix
-from onesim.visualization import theme, plots
 
 theme.set()
 start_time = time.perf_counter()
@@ -118,10 +121,53 @@ start_time = time.perf_counter()
 # Prony series of the damper polymer (Park 2001), steel AISI 4340, dimensions and loads.
 
 mm = 1e-3
-G_branch = np.array([13.3, 286, 291, 212, 112, 61.6, 29.8, 16.1, 7.83, 4.15, 2.03, 1.11,
-                     0.491, 0.326, 0.0825, 0.126, 0.0373, 0.0118]) * 1e6
-tau_branch = np.array([1e-7, 1e-6, 3.16e-6, 1e-5, 3.16e-5, 1e-4, 3.16e-4, 1e-3, 3.16e-3,
-                       1e-2, 3.16e-2, 0.1, 0.316, 1.0, 3.16, 10.0, 100.0, 1000.0])
+G_branch = (
+    np.array(
+        [
+            13.3,
+            286,
+            291,
+            212,
+            112,
+            61.6,
+            29.8,
+            16.1,
+            7.83,
+            4.15,
+            2.03,
+            1.11,
+            0.491,
+            0.326,
+            0.0825,
+            0.126,
+            0.0373,
+            0.0118,
+        ]
+    )
+    * 1e6
+)
+tau_branch = np.array(
+    [
+        1e-7,
+        1e-6,
+        3.16e-6,
+        1e-5,
+        3.16e-5,
+        1e-4,
+        3.16e-4,
+        1e-3,
+        3.16e-3,
+        1e-2,
+        3.16e-2,
+        0.1,
+        0.316,
+        1.0,
+        3.16,
+        10.0,
+        100.0,
+        1000.0,
+    ]
+)
 G_inf = 58.6e3
 K_layer = 0.4e9
 rho_layer = 1060.0
@@ -145,14 +191,20 @@ levels = (1, 2, 3)
 def complex_modulus(f):
     """Exact complex shear modulus G* of the Prony series at frequency f (Hz)."""
     w = 2 * np.pi * np.atleast_1d(f)[:, None]
-    return G_inf + np.sum(G_branch * 1j * w * tau_branch / (1 + 1j * w * tau_branch), axis=1)
+    return G_inf + np.sum(
+        G_branch * 1j * w * tau_branch / (1 + 1j * w * tau_branch), axis=1
+    )
 
 
 G_star = complex_modulus(frequency)[0]
 delta_material = np.angle(G_star)
-print(f"Prony series at {frequency:g} Hz: G' = {G_star.real/1e6:.4f} MPa, G'' = {G_star.imag/1e6:.4f} MPa, "
-      f"loss factor tan(delta) = {G_star.imag/G_star.real:.4f}, delta = {np.degrees(delta_material):.2f} deg")
-print(f"glassy modulus G_inf + sum G_k = {(G_inf + G_branch.sum())/1e6:.0f} MPa, K/|G*| = {K_layer/abs(G_star):.0f}")
+print(
+    f"Prony series at {frequency:g} Hz: G' = {G_star.real/1e6:.4f} MPa, G'' = {G_star.imag/1e6:.4f} MPa, "
+    f"loss factor tan(delta) = {G_star.imag/G_star.real:.4f}, delta = {np.degrees(delta_material):.2f} deg"
+)
+print(
+    f"glassy modulus G_inf + sum G_k = {(G_inf + G_branch.sum())/1e6:.0f} MPa, K/|G*| = {K_layer/abs(G_star):.0f}"
+)
 print(f"pin force amplitude F = {F_pin:.1f} N per outer plate")
 
 
@@ -178,15 +230,25 @@ def line(p, q):
 
 def arc(centre, radius, a0, a1):
     c = np.asarray(centre, float)
-    return lambda t: c + radius * np.column_stack((np.cos(a0 + (a1 - a0) * t), np.sin(a0 + (a1 - a0) * t)))
+    return lambda t: c + radius * np.column_stack(
+        (np.cos(a0 + (a1 - a0) * t), np.sin(a0 + (a1 - a0) * t))
+    )
 
 
 def transfinite(bottom, top, left, right, u, v):
     B, T, L, R = bottom(u), top(u), left(v), right(v)
     U, V = np.meshgrid(u, v, indexing="ij")
     U, V = U[..., None], V[..., None]
-    return ((1 - V) * B[:, None] + V * T[:, None] + (1 - U) * L[None] + U * R[None]
-            - (1 - U) * (1 - V) * B[0] - U * (1 - V) * B[-1] - (1 - U) * V * T[0] - U * V * T[-1])
+    return (
+        (1 - V) * B[:, None]
+        + V * T[:, None]
+        + (1 - U) * L[None]
+        + U * R[None]
+        - (1 - U) * (1 - V) * B[0]
+        - U * (1 - V) * B[-1]
+        - (1 - U) * V * T[0]
+        - U * V * T[-1]
+    )
 
 
 def graded(n, ratio):
@@ -214,21 +276,57 @@ def plane_blocks(L):
     z_pad = two_sided(n_pad, 3.0)
     radial = graded(n_radial, 1 / 2.5)
     blocks = []
-    for ya, yb, u in ((0.0, tab_y0, margin), (tab_y0, tab_y1, across), (tab_y1, pad_w, 1 - margin[::-1])):
-        blocks.append(("pad", line((ya, 0), (yb, 0)), line((ya, pad_h), (yb, pad_h)),
-                       line((ya, 0), (ya, pad_h)), line((yb, 0), (yb, pad_h)), u, z_pad))
-    for region, za, zb, n in (("down", -35 * mm, 0.0, 2 * L + 1), ("up", pad_h, 112 * mm, 4 * L + 2)):
-        blocks.append((region, line((tab_y0, za), (tab_y1, za)), line((tab_y0, zb), (tab_y1, zb)),
-                       line((tab_y0, za), (tab_y0, zb)), line((tab_y1, za), (tab_y1, zb)),
-                       across, np.linspace(0.0, 1.0, n + 1)))
+    for ya, yb, u in (
+        (0.0, tab_y0, margin),
+        (tab_y0, tab_y1, across),
+        (tab_y1, pad_w, 1 - margin[::-1]),
+    ):
+        blocks.append(
+            (
+                "pad",
+                line((ya, 0), (yb, 0)),
+                line((ya, pad_h), (yb, pad_h)),
+                line((ya, 0), (ya, pad_h)),
+                line((yb, 0), (yb, pad_h)),
+                u,
+                z_pad,
+            )
+        )
+    for region, za, zb, n in (
+        ("down", -35 * mm, 0.0, 2 * L + 1),
+        ("up", pad_h, 112 * mm, 4 * L + 2),
+    ):
+        blocks.append(
+            (
+                region,
+                line((tab_y0, za), (tab_y1, za)),
+                line((tab_y0, zb), (tab_y1, zb)),
+                line((tab_y0, za), (tab_y0, zb)),
+                line((tab_y1, za), (tab_y1, zb)),
+                across,
+                np.linspace(0.0, 1.0, n + 1),
+            )
+        )
     for region, zc in (("down", z_bolts[0]), ("down", z_bolts[1]), ("up", z_pin)):
         z0, z1 = zc - 15 * mm, zc + 15 * mm
         corners = ((tab_y0, z0), (tab_y1, z0), (tab_y1, z1), (tab_y0, z1))
         for k in range(4):
             a = (1.25 + 0.5 * k) * np.pi
-            ends = [np.array((y_c, zc)) + r_hole * np.array((np.cos(t), np.sin(t))) for t in (a, a + np.pi / 2)]
-            blocks.append((region, line(corners[k], corners[(k + 1) % 4]), arc((y_c, zc), r_hole, a, a + np.pi / 2),
-                           line(corners[k], ends[0]), line(corners[(k + 1) % 4], ends[1]), across, radial))
+            ends = [
+                np.array((y_c, zc)) + r_hole * np.array((np.cos(t), np.sin(t)))
+                for t in (a, a + np.pi / 2)
+            ]
+            blocks.append(
+                (
+                    region,
+                    line(corners[k], corners[(k + 1) % 4]),
+                    arc((y_c, zc), r_hole, a, a + np.pi / 2),
+                    line(corners[k], ends[0]),
+                    line(corners[(k + 1) % 4], ends[1]),
+                    across,
+                    radial,
+                )
+            )
     return blocks
 
 
@@ -246,33 +344,57 @@ def plane_mesh(L):
                 ids[i, j] = index[key]
         for i in range(X.shape[0] - 1):
             for j in range(X.shape[1] - 1):
-                quads.append((ids[i, j], ids[i + 1, j], ids[i + 1, j + 1], ids[i, j + 1]))
+                quads.append(
+                    (ids[i, j], ids[i + 1, j], ids[i + 1, j + 1], ids[i, j + 1])
+                )
                 regions.append(region)
     return np.array(points), np.array(quads), np.array(regions)
 
 
-PRISM_ROTATIONS = np.array([[0, 1, 2, 3, 4, 5], [1, 2, 0, 4, 5, 3], [2, 0, 1, 5, 3, 4],
-                            [3, 5, 4, 0, 2, 1], [4, 3, 5, 1, 0, 2], [5, 4, 3, 2, 1, 0]])
+PRISM_ROTATIONS = np.array(
+    [
+        [0, 1, 2, 3, 4, 5],
+        [1, 2, 0, 4, 5, 3],
+        [2, 0, 1, 5, 3, 4],
+        [3, 5, 4, 0, 2, 1],
+        [4, 3, 5, 1, 0, 2],
+        [5, 4, 3, 2, 1, 0],
+    ]
+)
 
 
 def split_prism(vertices):
     v = np.asarray(vertices)[PRISM_ROTATIONS[int(np.argmin(vertices))]]
     if min(v[1], v[5]) < min(v[2], v[4]):
-        return [(v[0], v[1], v[2], v[5]), (v[0], v[1], v[5], v[4]), (v[0], v[4], v[5], v[3])]
-    return [(v[0], v[1], v[2], v[4]), (v[0], v[4], v[2], v[5]), (v[0], v[4], v[5], v[3])]
+        return [
+            (v[0], v[1], v[2], v[5]),
+            (v[0], v[1], v[5], v[4]),
+            (v[0], v[4], v[5], v[3]),
+        ]
+    return [
+        (v[0], v[1], v[2], v[4]),
+        (v[0], v[4], v[2], v[5]),
+        (v[0], v[4], v[5], v[3]),
+    ]
 
 
-PARTS = (("left", 0.0, t_plate, ("pad", "up")), ("layer_1", t_plate, h_layer, ("pad",)),
-         ("centre", t_plate + h_layer, t_plate, ("pad", "down")),
-         ("layer_2", 2 * t_plate + h_layer, h_layer, ("pad",)),
-         ("right", 2 * t_plate + 2 * h_layer, t_plate, ("pad", "up")))
+PARTS = (
+    ("left", 0.0, t_plate, ("pad", "up")),
+    ("layer_1", t_plate, h_layer, ("pad",)),
+    ("centre", t_plate + h_layer, t_plate, ("pad", "down")),
+    ("layer_2", 2 * t_plate + h_layer, h_layer, ("pad",)),
+    ("right", 2 * t_plate + 2 * h_layer, t_plate, ("pad", "up")),
+)
 
 
 def layer_index(x):
     """1 or 2 inside the viscoelastic layers, 0 in the steel."""
     x = np.asarray(x)
-    return np.where((x > t_plate) & (x < t_plate + h_layer), 1,
-                    np.where((x > 2 * t_plate + h_layer) & (x < 2 * t_plate + 2 * h_layer), 2, 0))
+    return np.where(
+        (x > t_plate) & (x < t_plate + h_layer),
+        1,
+        np.where((x > 2 * t_plate + h_layer) & (x < 2 * t_plate + 2 * h_layer), 2, 0),
+    )
 
 
 @dataclass(frozen=True, eq=False, kw_only=True)
@@ -316,18 +438,28 @@ def build_mesh(L):
 
     for k, footprint in enumerate(slabs):
         for a, b, c in triangles[np.isin(tri_regions, footprint)]:
-            prism = (a + n_plane * k, b + n_plane * k, c + n_plane * k,
-                     a + n_plane * (k + 1), b + n_plane * (k + 1), c + n_plane * (k + 1))
+            prism = (
+                a + n_plane * k,
+                b + n_plane * k,
+                c + n_plane * k,
+                a + n_plane * (k + 1),
+                b + n_plane * (k + 1),
+                c + n_plane * (k + 1),
+            )
             cells += [tuple(node(int(v)) for v in tet) for tet in split_prism(prism)]
     coordinates, cells = np.array(coordinates), np.array(cells)
     p = coordinates[cells]
-    signed = np.einsum("ij,ij->i", p[:, 1] - p[:, 0], np.cross(p[:, 2] - p[:, 0], p[:, 3] - p[:, 0]))
+    signed = np.einsum(
+        "ij,ij->i", p[:, 1] - p[:, 0], np.cross(p[:, 2] - p[:, 0], p[:, 3] - p[:, 0])
+    )
     cells[signed < 0] = cells[signed < 0][:, [0, 2, 1, 3]]
     geometry = Damper()
     groups = {name: [] for name in geometry.boundary_groups()["all"]}
     for face in boundary_faces(cells, coordinates):
         q = coordinates[np.asarray(face.vertices)]
-        on_hole = lambda zc: np.all(np.abs(np.hypot(q[:, 1] - y_c, q[:, 2] - zc) - r_hole) < 1e-7)
+        on_hole = lambda zc: np.all(
+            np.abs(np.hypot(q[:, 1] - y_c, q[:, 2] - zc) - r_hole) < 1e-7
+        )
         if on_hole(z_bolts[0]) or on_hole(z_bolts[1]):
             name = "bottom_holes"
         elif on_hole(z_pin):
@@ -335,7 +467,9 @@ def build_mesh(L):
         else:
             name = "free"
         groups[name].append(tuple(face.vertices))
-    mesh = UnstructuredSimplexMesh(geometry=geometry, coordinates=coordinates, cells=cells, boundary_facets=groups)
+    mesh = UnstructuredSimplexMesh(
+        geometry=geometry, coordinates=coordinates, cells=cells, boundary_facets=groups
+    )
     return geometry, mesh, groups
 
 
@@ -390,18 +524,27 @@ def assemble(L):
         blocks["B1"].append(local(D_shear) if owner[cell] == 1 else zero)
         blocks["B2"].append(local(D_shear) if owner[cell] == 2 else zero)
     rows, cols = np.concatenate(rows), np.concatenate(cols)
-    matrices = {key: coo_matrix((np.asarray(value).ravel(), (rows, cols)), shape=(n, n)).tocsr()
-                for key, value in blocks.items()}
+    matrices = {
+        key: coo_matrix((np.asarray(value).ravel(), (rows, cols)), shape=(n, n)).tocsr()
+        for key, value in blocks.items()
+    }
     b = geometry.boundaries
 
     def pin_load(boundary, direction):
         faces = mesh.facets(boundary)
         traces = [space.trace_data(face) for face in faces]
         polygon_area = sum(trace[2].sum() for trace in traces)
-        traction = q_load * (np.pi * 2 * r_hole * t_plate) / polygon_area * np.asarray(direction)
+        traction = (
+            q_load
+            * (np.pi * 2 * r_hole * t_plate)
+            / polygon_area
+            * np.asarray(direction)
+        )
         f = np.zeros(n)
         for cell, _, weights, _, basis, _ in traces:
-            index = (np.asarray(space.cell_dofs[cell])[:, None] * 3 + np.arange(3)).ravel()
+            index = (
+                np.asarray(space.cell_dofs[cell])[:, None] * 3 + np.arange(3)
+            ).ravel()
             f[index] += np.outer(basis.T @ weights, traction).ravel()
         return f
 
@@ -410,24 +553,49 @@ def assemble(L):
 
     f_right = pin_load(b.right_hole, (0.0, 0.0, 1.0))
     f_left = pin_load(b.left_hole, (0.5 / 8.5, 0.0, 1.0))
-    fixed = np.unique(np.concatenate(
-        [3 * nodes_of(b.bottom_holes) + c for c in range(3)]
-        + [3 * nodes_of(b.right_hole) + c for c in (0, 1)] + [3 * nodes_of(b.left_hole) + 1]))
-    return dict(level=L, geometry=geometry, mesh=mesh, groups=groups, space=space, n=n, M=matrices,
-                f_right=f_right, f_left=f_left, free=np.setdiff1d(np.arange(n), fixed),
-                left_nodes=nodes_of(b.left_hole), right_nodes=nodes_of(b.right_hole))
+    fixed = np.unique(
+        np.concatenate(
+            [3 * nodes_of(b.bottom_holes) + c for c in range(3)]
+            + [3 * nodes_of(b.right_hole) + c for c in (0, 1)]
+            + [3 * nodes_of(b.left_hole) + 1]
+        )
+    )
+    return dict(
+        level=L,
+        geometry=geometry,
+        mesh=mesh,
+        groups=groups,
+        space=space,
+        n=n,
+        M=matrices,
+        f_right=f_right,
+        f_left=f_left,
+        free=np.setdiff1d(np.arange(n), fixed),
+        left_nodes=nodes_of(b.left_hole),
+        right_nodes=nodes_of(b.right_hole),
+    )
 
 
 def direct_solver(A):
     """Sparse direct LU of A with a nested-dissection ordering and one refinement step."""
     pattern = abs(A).tocsr()
     pattern.sort_indices()
-    graph = PETSc.Mat().createAIJ(size=pattern.shape, csr=(pattern.indptr.astype(PETSc.IntType),
-                                                           pattern.indices.astype(PETSc.IntType), pattern.data))
+    graph = PETSc.Mat().createAIJ(
+        size=pattern.shape,
+        csr=(
+            pattern.indptr.astype(PETSc.IntType),
+            pattern.indices.astype(PETSc.IntType),
+            pattern.data,
+        ),
+    )
     order = graph.getOrdering("nd")[0].getIndices()
     graph.destroy()
-    lu = splu(A[order][:, order].tocsc(), permc_spec="NATURAL", diag_pivot_thresh=0.0,
-              options=dict(SymmetricMode=True))
+    lu = splu(
+        A[order][:, order].tocsc(),
+        permc_spec="NATURAL",
+        diag_pivot_thresh=0.0,
+        options=dict(SymmetricMode=True),
+    )
 
     def solve(rhs):
         x = np.empty_like(rhs, dtype=np.result_type(rhs, A.dtype))
@@ -442,7 +610,12 @@ def direct_solver(A):
 def harmonic(model, G, w, inertia=True):
     """Complex displacement amplitude for shear modulus G (complex) at angular frequency w."""
     M, free = model["M"], model["free"]
-    A = M["steel"] + M["bulk"] + G * (M["B1"] + M["B2"]) - (w**2 * M["mass"] if inertia else 0.0)
+    A = (
+        M["steel"]
+        + M["bulk"]
+        + G * (M["B1"] + M["B2"])
+        - (w**2 * M["mass"] if inertia else 0.0)
+    )
     f = model["f_right"] - 1j * model["f_left"]
     u = np.zeros(model["n"], complex)
     u[free] = direct_solver(A.tocsr()[free][:, free])(f[free])
@@ -454,10 +627,12 @@ def observables(model, u, G):
     U = u.reshape(-1, 3)
     f = model["f_right"] - 1j * model["f_left"]
     return dict(
-        w_right=U[model["right_nodes"], 2].mean(), w_left=U[model["left_nodes"], 2].mean(),
+        w_right=U[model["right_nodes"], 2].mean(),
+        w_left=U[model["left_nodes"], 2].mean(),
         W_1=np.pi * G.imag * np.real(np.conj(u) @ (model["M"]["B1"] @ u)),
         W_2=np.pi * G.imag * np.real(np.conj(u) @ (model["M"]["B2"] @ u)),
-        W_loads=-np.pi * np.imag(np.conj(f) @ u))
+        W_loads=-np.pi * np.imag(np.conj(f) @ u),
+    )
 
 
 # ## Solve
@@ -474,9 +649,11 @@ for L in levels:
     u = harmonic(model, G_star, omega)
     runs[L] = dict(model=model, u=u, **observables(model, u, G_star))
     r = runs[L]
-    print(f"level {L}: {model['mesh'].cell_count:6d} tetrahedra, {model['n']:7d} unknowns, "
-          f"|w_right| = {abs(r['w_right'])/mm:.5f} mm, W_1 + W_2 = {r['W_1'] + r['W_2']:.4f} J "
-          f"({time.perf_counter() - tic:.0f} s)")
+    print(
+        f"level {L}: {model['mesh'].cell_count:6d} tetrahedra, {model['n']:7d} unknowns, "
+        f"|w_right| = {abs(r['w_right'])/mm:.5f} mm, W_1 + W_2 = {r['W_1'] + r['W_2']:.4f} J "
+        f"({time.perf_counter() - tic:.0f} s)"
+    )
 fine = runs[levels[-1]]
 model, u_fine = fine["model"], fine["u"]
 middle = runs[levels[1]]
@@ -484,25 +661,55 @@ middle = runs[levels[1]]
 # Library cross-check: the assembled matrices with the real storage modulus G' against
 # OneSimulation's own small-strain solver with the same layered stiffness and supports.
 check = middle["model"]
-D_layer = np.asarray(IsotropicHookeMaterial(9 * K_layer * G_star.real / (3 * K_layer + G_star.real),
-                                            (3 * K_layer - 2 * G_star.real) / (2 * (3 * K_layer + G_star.real))
-                                            ).tangent_voigt())
+D_layer = np.asarray(
+    IsotropicHookeMaterial(
+        9 * K_layer * G_star.real / (3 * K_layer + G_star.real),
+        (3 * K_layer - 2 * G_star.real) / (2 * (3 * K_layer + G_star.real)),
+    ).tangent_voigt()
+)
 b = check["geometry"].boundaries
-library = SmallStrainSolid(youngs_modulus=E_steel, poisson_ratio=nu_steel, kinematics="volume").solve(
-    mesh=check["mesh"], times=(0.0,), order=2,
-    elastic_stiffness=lambda p, t: np.where((layer_index(p[:, 0]) > 0)[:, None, None], D_layer, D_steel),
-    displacements=((b.bottom_holes, "x", 0.0), (b.bottom_holes, "y", 0.0), (b.bottom_holes, "z", 0.0),
-                   (b.right_hole, "x", 0.0), (b.right_hole, "y", 0.0), (b.left_hole, "y", 0.0)),
-    tractions=((b.right_hole, (0.0, 0.0, q_load)), (b.left_hole, (0.0, 0.0, 0.0)), (b.free, (0.0, 0.0, 0.0))))
-A_real = check["M"]["steel"] + check["M"]["bulk"] + G_star.real * (check["M"]["B1"] + check["M"]["B2"])
+library = SmallStrainSolid(
+    youngs_modulus=E_steel, poisson_ratio=nu_steel, kinematics="volume"
+).solve(
+    mesh=check["mesh"],
+    times=(0.0,),
+    order=2,
+    elastic_stiffness=lambda p, t: np.where(
+        (layer_index(p[:, 0]) > 0)[:, None, None], D_layer, D_steel
+    ),
+    displacements=(
+        (b.bottom_holes, "x", 0.0),
+        (b.bottom_holes, "y", 0.0),
+        (b.bottom_holes, "z", 0.0),
+        (b.right_hole, "x", 0.0),
+        (b.right_hole, "y", 0.0),
+        (b.left_hole, "y", 0.0),
+    ),
+    tractions=(
+        (b.right_hole, (0.0, 0.0, q_load)),
+        (b.left_hole, (0.0, 0.0, 0.0)),
+        (b.free, (0.0, 0.0, 0.0)),
+    ),
+)
+A_real = (
+    check["M"]["steel"]
+    + check["M"]["bulk"]
+    + G_star.real * (check["M"]["B1"] + check["M"]["B2"])
+)
 q_right = np.zeros(check["n"])
 for face in check["mesh"].facets(b.right_hole):
     cell, _, weights, _, basis, _ = check["space"].trace_data(face)
-    index = (np.asarray(check["space"].cell_dofs[cell])[:, None] * 3 + np.arange(3)).ravel()
+    index = (
+        np.asarray(check["space"].cell_dofs[cell])[:, None] * 3 + np.arange(3)
+    ).ravel()
     q_right[index] += np.outer(basis.T @ weights, (0.0, 0.0, q_load)).ravel()
 u_real = np.zeros(check["n"])
-u_real[check["free"]] = direct_solver(A_real.tocsr()[check["free"]][:, check["free"]])(q_right[check["free"]])
-library_difference = np.abs(u_real - library.displacement[-1].ravel()).max() / np.abs(u_real).max()
+u_real[check["free"]] = direct_solver(A_real.tocsr()[check["free"]][:, check["free"]])(
+    q_right[check["free"]]
+)
+library_difference = (
+    np.abs(u_real - library.displacement[-1].ravel()).max() / np.abs(u_real).max()
+)
 
 # **Time domain** on the middle mesh, quasi-static. With a_k = exp(-dt/tau_k) and
 # b_k = tau_k (1 - a_k)/dt the branch histories obey h_k(n+1) = a_k h_k(n) + b_k (u(n+1) - u(n)),
@@ -526,16 +733,25 @@ def time_domain(model, steps_per_period, end_time, start=None):
     times = np.arange(0.0, end_time + 0.5 * dt, dt)
     a = np.exp(-dt / tau_branch)
     b_ = tau_branch * (1 - a) / dt
-    solve = direct_solver((M["steel"] + M["bulk"] + (G_inf + np.sum(G_branch * b_)) * B).tocsr()[free][:, free])
+    solve = direct_solver(
+        (M["steel"] + M["bulk"] + (G_inf + np.sum(G_branch * b_)) * B).tocsr()[free][
+            :, free
+        ]
+    )
     load = (lambda t: ramp(t)) if start is None else (lambda t: 1.0)
     if start is None:
         u, h = np.zeros(model["n"]), np.zeros((len(tau_branch), model["n"]))
     else:
         u = np.real(start)
-        h = np.real((1j * omega * tau_branch / (1 + 1j * omega * tau_branch))[:, None] * start[None, :])
+        h = np.real(
+            (1j * omega * tau_branch / (1 + 1j * omega * tau_branch))[:, None]
+            * start[None, :]
+        )
     history = [u.reshape(-1, 3)]
     for t in times[1:]:
-        f = load(t) * (np.cos(omega * t) * model["f_right"] + np.sin(omega * t) * model["f_left"])
+        f = load(t) * (
+            np.cos(omega * t) * model["f_right"] + np.sin(omega * t) * model["f_left"]
+        )
         memory = B @ ((G_branch * a) @ h - np.sum(G_branch * b_) * u)
         u_new = np.zeros(model["n"])
         u_new[free] = solve((f - memory)[free])
@@ -556,23 +772,42 @@ inertia_effect = np.abs(u_qs - middle["u"]).max() / np.abs(middle["u"]).max()
 def deviation(times, w_left, w_right, window):
     """Largest deviation of the left and right pins from the steady motion after `window`, per amplitude."""
     sel = times >= window - 1e-12
-    return (np.abs(w_left[sel] - np.real(w_left_qs * np.exp(1j * omega * times[sel]))).max() / abs(w_left_qs),
-            np.abs(w_right[sel] - np.real(w_right_qs * np.exp(1j * omega * times[sel]))).max() / abs(w_right_qs))
+    return (
+        np.abs(w_left[sel] - np.real(w_left_qs * np.exp(1j * omega * times[sel]))).max()
+        / abs(w_left_qs),
+        np.abs(
+            w_right[sel] - np.real(w_right_qs * np.exp(1j * omega * times[sel]))
+        ).max()
+        / abs(w_right_qs),
+    )
 
 
 tic = time.perf_counter()
 startup = time_domain(middle["model"], 64, 3.0)
-startup_offset = [deviation(*startup, window) for window in (1.0 / frequency, 1.0, 2.0, 3.0 - 1.0 / frequency)]
-integrator_error = {steps: max(deviation(*time_domain(middle["model"], steps, 2.0 / frequency, start=u_qs), 0.0))
-                    for steps in (16, 32, 64, 128)}
-print(f"time domain: start-up {len(startup[0]) - 1} steps and four steady-state runs "
-      f"({time.perf_counter() - tic:.0f} s)")
+startup_offset = [
+    deviation(*startup, window)
+    for window in (1.0 / frequency, 1.0, 2.0, 3.0 - 1.0 / frequency)
+]
+integrator_error = {
+    steps: max(
+        deviation(
+            *time_domain(middle["model"], steps, 2.0 / frequency, start=u_qs), 0.0
+        )
+    )
+    for steps in (16, 32, 64, 128)
+}
+print(
+    f"time domain: start-up {len(startup[0]) - 1} steps and four steady-state runs "
+    f"({time.perf_counter() - tic:.0f} s)"
+)
 
 # **Frequency sweep** of the right damper unit on the middle mesh.
 sweep_k, sweep_eta = [], []
 for f in sweep:
     G = complex_modulus(f)[0]
-    w_r = harmonic(check, G, 2 * np.pi * f).reshape(-1, 3)[check["right_nodes"], 2].mean()
+    w_r = (
+        harmonic(check, G, 2 * np.pi * f).reshape(-1, 3)[check["right_nodes"], 2].mean()
+    )
     k = F_pin / w_r
     sweep_k.append(k.real)
     sweep_eta.append(k.imag / k.real)
@@ -587,6 +822,7 @@ print(f"total run time so far {time.perf_counter() - start_time:.0f} s")
 # its pin, so its deviation measures the free-edge zones and the steel compliance only. The
 # left plate is guided in $y$ only and also carries the small $x$ force, so it tilts out of
 # its plane and works its layer harder than simple shear predicts.
+
 
 def richardson(values, h):
     """Observed order and extrapolated value from three meshes with sizes h (h1 > h2 > h3)."""
@@ -606,60 +842,110 @@ w_simple = F_pin * h_layer / (G_star * A_layer)
 W_simple = np.pi * (F_pin / A_layer) ** 2 * G_star.imag / G_m**2 * V_layer
 
 print("Material (exact Prony moduli at 3 Hz, the input to both solvers)")
-print(f"  G' = {G_star.real/1e6:.4f} MPa, G'' = {G_star.imag/1e6:.4f} MPa, delta = {np.degrees(delta_material):.2f} deg")
+print(
+    f"  G' = {G_star.real/1e6:.4f} MPa, G'' = {G_star.imag/1e6:.4f} MPa, delta = {np.degrees(delta_material):.2f} deg"
+)
 print()
-print("Right damper unit: 3D field against the closed-form simple-shear layer between rigid plates")
+print(
+    "Right damper unit: 3D field against the closed-form simple-shear layer between rigid plates"
+)
 w_r = fine["w_right"]
-print(f"  pin displacement amplitude  FEM {abs(w_r)/mm:.4f} mm   simple shear {abs(w_simple)/mm:.4f} mm   "
-      f"deviation {100*(abs(w_r)/abs(w_simple)-1):+.2f} %")
+print(
+    f"  pin displacement amplitude  FEM {abs(w_r)/mm:.4f} mm   simple shear {abs(w_simple)/mm:.4f} mm   "
+    f"deviation {100*(abs(w_r)/abs(w_simple)-1):+.2f} %"
+)
 lag = np.angle(F_pin / w_r)
-print(f"  phase lag of w behind F      FEM {np.degrees(lag):.3f} deg  material {np.degrees(delta_material):.3f} deg  "
-      f"deviation {np.degrees(lag - delta_material):+.3f} deg")
-print(f"  energy dissipated per cycle  FEM {fine['W_2']:.4f} J   simple shear {W_simple:.4f} J   "
-      f"deviation {100*(fine['W_2']/W_simple-1):+.2f} %")
+print(
+    f"  phase lag of w behind F      FEM {np.degrees(lag):.3f} deg  material {np.degrees(delta_material):.3f} deg  "
+    f"deviation {np.degrees(lag - delta_material):+.3f} deg"
+)
+print(
+    f"  energy dissipated per cycle  FEM {fine['W_2']:.4f} J   simple shear {W_simple:.4f} J   "
+    f"deviation {100*(fine['W_2']/W_simple-1):+.2f} %"
+)
 print(f"Left damper unit (loaded 90 deg later, plus a small x force):")
-print(f"  energy dissipated per cycle  FEM {fine['W_1']:.4f} J   simple shear {W_simple:.4f} J   "
-      f"deviation {100*(fine['W_1']/W_simple-1):+.2f} %")
+print(
+    f"  energy dissipated per cycle  FEM {fine['W_1']:.4f} J   simple shear {W_simple:.4f} J   "
+    f"deviation {100*(fine['W_1']/W_simple-1):+.2f} %"
+)
 print()
-print("Energy balance per cycle (finest mesh): hysteresis-loop work of the pin forces against the")
+print(
+    "Energy balance per cycle (finest mesh): hysteresis-loop work of the pin forces against the"
+)
 print("dissipation integrated over both layers")
-print(f"  work of the loads {fine['W_loads']:.6f} J, dissipation {fine['W_1'] + fine['W_2']:.6f} J, "
-      f"relative difference {abs(fine['W_loads']/(fine['W_1'] + fine['W_2']) - 1):.1e}")
+print(
+    f"  work of the loads {fine['W_loads']:.6f} J, dissipation {fine['W_1'] + fine['W_2']:.6f} J, "
+    f"relative difference {abs(fine['W_loads']/(fine['W_1'] + fine['W_2']) - 1):.1e}"
+)
 print()
 print("Mesh study")
-for name, key, unit, scale in (("total dissipation per cycle", "W", "J", 1.0),
-                               ("right pin amplitude |w_right|", "w", "mm", 1 / mm),
-                               ("left pin amplitude |w_left|", "wl", "mm", 1 / mm)):
-    values = [(runs[L]["W_1"] + runs[L]["W_2"]) if key == "W" else
-              abs(runs[L]["w_right" if key == "w" else "w_left"]) * scale for L in levels]
+for name, key, unit, scale in (
+    ("total dissipation per cycle", "W", "J", 1.0),
+    ("right pin amplitude |w_right|", "w", "mm", 1 / mm),
+    ("left pin amplitude |w_left|", "wl", "mm", 1 / mm),
+):
+    values = [
+        (
+            (runs[L]["W_1"] + runs[L]["W_2"])
+            if key == "W"
+            else abs(runs[L]["w_right" if key == "w" else "w_left"]) * scale
+        )
+        for L in levels
+    ]
     p, extrapolated = richardson(values, h_rel)
-    print(f"  {name:31s} " + "  ".join(f"L{L}: {v:.5f}" for L, v in zip(levels, values))
-          + f" {unit};  change L{levels[1]}->L{levels[2]} {100*abs(values[2]/values[1]-1):.3f} %;"
-          + f"  observed order {p:.2f};  Richardson {extrapolated:.5f} {unit}"
-          + f" (finest mesh {100*abs(values[2]/extrapolated-1):.3f} % from it)")
+    print(
+        f"  {name:31s} "
+        + "  ".join(f"L{L}: {v:.5f}" for L, v in zip(levels, values))
+        + f" {unit};  change L{levels[1]}->L{levels[2]} {100*abs(values[2]/values[1]-1):.3f} %;"
+        + f"  observed order {p:.2f};  Richardson {extrapolated:.5f} {unit}"
+        + f" (finest mesh {100*abs(values[2]/extrapolated-1):.3f} % from it)"
+    )
 print()
-print("Time domain (exponential Prony integrator, middle mesh) against the quasi-static")
+print(
+    "Time domain (exponential Prony integrator, middle mesh) against the quasi-static"
+)
 print("frequency-domain motion on the same mesh, largest deviation per amplitude")
 for steps, error in integrator_error.items():
-    print(f"  from the steady state, {steps:2d} steps per period, two periods: {100*error:.4f} %")
+    print(
+        f"  from the steady state, {steps:2d} steps per period, two periods: {100*error:.4f} %"
+    )
 errors = np.array(list(integrator_error.values()))
 orders = np.log2(errors[:-1] / errors[1:])
-print("  observed temporal order " + ", ".join(f"{o:.2f}" for o in orders)
-      + " (successive halvings; 2 for slow branches, 1 for the dashpot-like fast ones)")
-print("  start-up from rest with the ramped loads (64 steps per period): remaining start-up")
-print("  transient (largest deviation from the steady motion after the given time), left / right pin")
-for window, (left, right) in zip(("1 period", "1 s", "2 s", "8 periods"), startup_offset):
+print(
+    "  observed temporal order "
+    + ", ".join(f"{o:.2f}" for o in orders)
+    + " (successive halvings; 2 for slow branches, 1 for the dashpot-like fast ones)"
+)
+print(
+    "  start-up from rest with the ramped loads (64 steps per period): remaining start-up"
+)
+print(
+    "  transient (largest deviation from the steady motion after the given time), left / right pin"
+)
+for window, (left, right) in zip(
+    ("1 period", "1 s", "2 s", "8 periods"), startup_offset
+):
     print(f"    after {window:9s}: {100*left:6.2f} % / {100*right:6.2f} %")
 print()
-print(f"Inertia effect at 3 Hz (with vs without the mass matrix): {inertia_effect:.1e} of the amplitude")
-print(f"Assembled real stiffness vs OneSimulation SmallStrainSolid (same mesh, G = G'): "
-      f"max difference {library_difference:.1e} of the maximum displacement")
+print(
+    f"Inertia effect at 3 Hz (with vs without the mass matrix): {inertia_effect:.1e} of the amplitude"
+)
+print(
+    f"Assembled real stiffness vs OneSimulation SmallStrainSolid (same mesh, G = G'): "
+    f"max difference {library_difference:.1e} of the maximum displacement"
+)
 print()
-print("Frequency sweep of the right unit (middle mesh) against the material loss factor G''/G'")
-eta_material = (complex_modulus(np.array(sweep)).imag / complex_modulus(np.array(sweep)).real)
+print(
+    "Frequency sweep of the right unit (middle mesh) against the material loss factor G''/G'"
+)
+eta_material = (
+    complex_modulus(np.array(sweep)).imag / complex_modulus(np.array(sweep)).real
+)
 for f, eta_d, eta_m, k in zip(sweep, sweep_eta, eta_material, sweep_k):
-    print(f"  f = {f:5.3f} Hz: k' = {k/1e3:8.2f} N/mm, damper loss factor {eta_d:.4f}, material {eta_m:.4f} "
-          f"({100*(eta_d/eta_m-1):+.2f} %)")
+    print(
+        f"  f = {f:5.3f} Hz: k' = {k/1e3:8.2f} N/mm, damper loss factor {eta_d:.4f}, material {eta_m:.4f} "
+        f"({100*(eta_d/eta_m-1):+.2f} %)"
+    )
 print(f"total run time {time.perf_counter() - start_time:.0f} s")
 
 
@@ -694,7 +980,9 @@ for cell in np.flatnonzero(layer_index(cell_x) > 0):
     bary = space.reference_coordinates(cell, np.asarray(space.dof_coordinates)[dofs])
     gradient_sum[dofs] += np.einsum("qnd,nc->qcd", space.gradients(cell, bary), U[dofs])
     count[dofs] += 1
-recovered = (gradient_sum / np.maximum(count, 1)[:, None, None]).reshape(space.dof_count, 9)
+recovered = (gradient_sum / np.maximum(count, 1)[:, None, None]).reshape(
+    space.dof_count, 9
+)
 
 
 def layer_strain(points):
@@ -707,41 +995,127 @@ xs, zs = np.linspace(0.0, 50.0, 251) * mm, np.linspace(-6.0, 56.0, 311) * mm
 XX, ZZ = np.meshgrid(xs, zs, indexing="ij")
 in_layers = (layer_index(XX) > 0) & (ZZ > 0.02 * mm) & (ZZ < pad_h - 0.02 * mm)
 gamma_xz = np.full(XX.shape, np.nan)
-gamma_xz[in_layers] = np.abs(2 * layer_strain(np.column_stack((XX[in_layers], np.full(in_layers.sum(), y_c), ZZ[in_layers])))[:, 0, 2])
+gamma_xz[in_layers] = np.abs(
+    2
+    * layer_strain(
+        np.column_stack((XX[in_layers], np.full(in_layers.sum(), y_c), ZZ[in_layers]))
+    )[:, 0, 2]
+)
 side = np.linspace(1.0, 49.0, 193) * mm
 YY, ZS = np.meshgrid(side, side, indexing="ij")
-eps = layer_strain(np.column_stack((np.full(YY.size, 2 * t_plate + 1.5 * h_layer), YY.ravel(), ZS.ravel())))
+eps = layer_strain(
+    np.column_stack(
+        (np.full(YY.size, 2 * t_plate + 1.5 * h_layer), YY.ravel(), ZS.ravel())
+    )
+)
 volumetric = np.trace(eps, axis1=1, axis2=2)
-sigma_xx = np.real(K_layer * volumetric + 2 * G_star * (eps[:, 0, 0] - volumetric / 3)).reshape(YY.shape) / 1e6
+sigma_xx = (
+    np.real(
+        K_layer * volumetric + 2 * G_star * (eps[:, 0, 0] - volumetric / 3)
+    ).reshape(YY.shape)
+    / 1e6
+)
 times, w_left_t, _ = startup
 phase = np.linspace(0, 2 * np.pi, 400)
 fine_f = np.geomspace(0.1, 5.5, 200)
 Gf = complex_modulus(fine_f)
 W_levels = np.array([runs[L]["W_1"] + runs[L]["W_2"] for L in levels])
 p_W, W_ext = richardson(W_levels, h_rel)
-fig = plots.figure(layout=[["shape"] * 4 + ["shear"] * 4 + ["peel"] * 4,
-                           ["loop"] * 3 + ["stiffness"] * 3 + ["loss"] * 3 + ["study"] * 3], size=(22, 11.5))
-plots.trisurface((coords + 3.0 * nodal) / mm, faces, nodal[:, 2] / mm, colormap="diverging",
-                 camera=plots.Camera(elevation=18, azimuth=-62), label="u_z [mm]",
-                 title="Vertical displacement, deformation x3", ax=fig["shape"])
-plots.heatmap(xs / mm, zs / mm, gamma_xz, limits=(0, np.ceil(np.nanpercentile(gamma_xz, 99.5) * 10) / 10), contours=9,
-              label="|gamma_xz|", xlabel="x [mm]", ylabel="z [mm]",
-              title="Shear strain amplitude, section y = 25 mm", ax=fig["shear"])
-plots.heatmap(side / mm, side / mm, sigma_xx, colormap="diverging", contours=10, label="sigma_xx [MPa]", xlabel="y [mm]",
-              ylabel="z [mm]", title="Peel stress, mid-plane of the right layer", ax=fig["peel"])
-plots.line(y={"time domain from rest (64 steps/period)": (w_left_t / mm, ramp(times) * F_pin * np.sin(omega * times) / 1e3),
-              "frequency domain, steady state": (np.real(fine["w_left"] * np.exp(1j * phase)) / mm, F_pin * np.sin(phase) / 1e3)},
-           reference={"simple-shear layer, rigid plates": (np.real(-1j * w_simple * np.exp(1j * phase)) / mm, F_pin * np.sin(phase) / 1e3)},
-           xlabel="left pin displacement w [mm]", ylabel="left pin force F_z [kN]", legend="upper left",
-           title=f"Hysteresis loop at {frequency:g} Hz", ax=fig["loop"])
-plots.line(points={"3D damper": (sweep, sweep_k / 1e6)}, reference={"simple shear G' A / h": (fine_f, Gf.real * A_layer / h_layer / 1e6)},
-           scale="logx", xlabel="frequency [Hz]", ylabel="storage stiffness k' [kN/mm]", title="Damper stiffness", ax=fig["stiffness"])
-plots.line(points={"3D damper": (sweep, sweep_eta)}, reference={"material G''/G'": (fine_f, Gf.imag / Gf.real)},
-           scale="logx", xlabel="frequency [Hz]", ylabel="loss factor", title="Loss factor", ax=fig["loss"])
-plots.line(h_rel, {"3D FEM, P2 tetrahedra": W_levels},
-           hlines={f"Richardson estimate {W_ext:.3f} J (order {p_W:.1f})": W_ext, f"simple shear, two layers {2 * W_simple:.3f} J": 2 * W_simple},
-           markers=True, xlabel="relative cell size 1/L", ylabel="energy dissipated per cycle [J]",
-           title="Mesh study", ax=fig["study"])
+fig = plots.figure(
+    layout=[
+        ["shape"] * 4 + ["shear"] * 4 + ["peel"] * 4,
+        ["loop"] * 3 + ["stiffness"] * 3 + ["loss"] * 3 + ["study"] * 3,
+    ],
+    size=(22, 11.5),
+)
+plots.trisurface(
+    (coords + 3.0 * nodal) / mm,
+    faces,
+    nodal[:, 2] / mm,
+    colormap="diverging",
+    camera=plots.Camera(elevation=18, azimuth=-62),
+    label="u_z [mm]",
+    title="Vertical displacement, deformation x3",
+    ax=fig["shape"],
+)
+plots.heatmap(
+    xs / mm,
+    zs / mm,
+    gamma_xz,
+    limits=(0, np.ceil(np.nanpercentile(gamma_xz, 99.5) * 10) / 10),
+    contours=9,
+    label="|gamma_xz|",
+    xlabel="x [mm]",
+    ylabel="z [mm]",
+    title="Shear strain amplitude, section y = 25 mm",
+    ax=fig["shear"],
+)
+plots.heatmap(
+    side / mm,
+    side / mm,
+    sigma_xx,
+    colormap="diverging",
+    contours=10,
+    label="sigma_xx [MPa]",
+    xlabel="y [mm]",
+    ylabel="z [mm]",
+    title="Peel stress, mid-plane of the right layer",
+    ax=fig["peel"],
+)
+plots.line(
+    y={
+        "time domain from rest (64 steps/period)": (
+            w_left_t / mm,
+            ramp(times) * F_pin * np.sin(omega * times) / 1e3,
+        ),
+        "frequency domain, steady state": (
+            np.real(fine["w_left"] * np.exp(1j * phase)) / mm,
+            F_pin * np.sin(phase) / 1e3,
+        ),
+    },
+    reference={
+        "simple-shear layer, rigid plates": (
+            np.real(-1j * w_simple * np.exp(1j * phase)) / mm,
+            F_pin * np.sin(phase) / 1e3,
+        )
+    },
+    xlabel="left pin displacement w [mm]",
+    ylabel="left pin force F_z [kN]",
+    legend="upper left",
+    title=f"Hysteresis loop at {frequency:g} Hz",
+    ax=fig["loop"],
+)
+plots.line(
+    points={"3D damper": (sweep, sweep_k / 1e6)},
+    reference={"simple shear G' A / h": (fine_f, Gf.real * A_layer / h_layer / 1e6)},
+    scale="logx",
+    xlabel="frequency [Hz]",
+    ylabel="storage stiffness k' [kN/mm]",
+    title="Damper stiffness",
+    ax=fig["stiffness"],
+)
+plots.line(
+    points={"3D damper": (sweep, sweep_eta)},
+    reference={"material G''/G'": (fine_f, Gf.imag / Gf.real)},
+    scale="logx",
+    xlabel="frequency [Hz]",
+    ylabel="loss factor",
+    title="Loss factor",
+    ax=fig["loss"],
+)
+plots.line(
+    h_rel,
+    {"3D FEM, P2 tetrahedra": W_levels},
+    hlines={
+        f"Richardson estimate {W_ext:.3f} J (order {p_W:.1f})": W_ext,
+        f"simple shear, two layers {2 * W_simple:.3f} J": 2 * W_simple,
+    },
+    markers=True,
+    xlabel="relative cell size 1/L",
+    ylabel="energy dissipated per cycle [J]",
+    title="Mesh study",
+    ax=fig["study"],
+)
 plots.show()
 
 

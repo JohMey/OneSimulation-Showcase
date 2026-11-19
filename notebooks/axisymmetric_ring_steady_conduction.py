@@ -7,7 +7,6 @@ finite-element solution is compared with the NAFEMS target temperature and check
 balance and a mesh study.
 """
 
-
 # # Axisymmetric steady conduction in a thick ring
 #
 # A thick-walled ring (bore radius 20 mm, outer radius 100 mm, height 140 mm) is heated over a band
@@ -37,7 +36,6 @@ balance and a mesh study.
 # $q\cdot2\pi r_i\,(z_2-z_1)=3769.9$ W.
 
 import numpy as np
-
 from onesim.cad.exchange import load
 from onesim.materials import IsotropicSolid
 from onesim.meshing import TriangularMesher
@@ -47,7 +45,7 @@ from onesim.numerics.linear import SparseDirect
 from onesim.physics.heat_transfer import FixedTemperature, HeatConduction, HeatFlux
 from onesim.results.comparisons import convergence
 from onesim.simulation import Problem, Simulation
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -62,13 +60,33 @@ faces = ring.boundaries
 plane = ring.section((0, 1, 0))
 sides = plane.boundaries
 sizes = [0.01, 0.005, 0.0025]
-meshes = [TriangularMesher(target_size=size, grading=0.25, local_sizes={"heated": size / 3}).generate(plane) for size in sizes]
+meshes = [
+    TriangularMesher(
+        target_size=size, grading=0.25, local_sizes={"heated": size / 3}
+    ).generate(plane)
+    for size in sizes
+]
 
 fig = plots.figure(1, 2, size=(14, 6))
-plots.geometry(ring, selection={"heated band": faces.heated, "insulated bore": faces.bore_below | faces.bore_above,
-                                "0 °C": faces.bottom | faces.outer | faces.top},
-               labels=False, camera=plots.Camera(elevation=25, azimuth=-150), title="Half ring with its named faces", ax=fig[0])
-plots.mesh(meshes[1], groups=("all",), legend=False, title=f"Meridian plane, middle mesh: {meshes[1].cell_count} triangles", ax=fig[1])
+plots.geometry(
+    ring,
+    selection={
+        "heated band": faces.heated,
+        "insulated bore": faces.bore_below | faces.bore_above,
+        "0 °C": faces.bottom | faces.outer | faces.top,
+    },
+    labels=False,
+    camera=plots.Camera(elevation=25, azimuth=-150),
+    title="Half ring with its named faces",
+    ax=fig[0],
+)
+plots.mesh(
+    meshes[1],
+    groups=("all",),
+    legend=False,
+    title=f"Meridian plane, middle mesh: {meshes[1].cell_count} triangles",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Model
@@ -77,15 +95,39 @@ plots.show()
 # axisymmetric one (integration weight $2\pi r$). A positive `HeatFlux` leaves the body, so the
 # heating enters with a negative sign.
 
-steel = IsotropicSolid(density=7850.0, specific_heat_capacity=460.0, thermal_conductivity=52.0,
-                       youngs_modulus=2.1e11, poisson_ratio=0.3, thermal_expansion_coefficient=1.2e-5)
+steel = IsotropicSolid(
+    density=7850.0,
+    specific_heat_capacity=460.0,
+    thermal_conductivity=52.0,
+    youngs_modulus=2.1e11,
+    poisson_ratio=0.3,
+    thermal_expansion_coefficient=1.2e-5,
+)
 model = HeatConduction(domain=plane.domain(), material=steel, heating=0.0)
-problem = Problem(name="Axisymmetric ring", geometry=plane, physics=(model,), boundary_conditions=(
-    FixedTemperature(boundary=sides.bottom | sides.outer | sides.top, physics=model, value=273.15),
-    HeatFlux(boundary=sides.heated, physics=model, value=-5e5),
-    HeatFlux(boundary=sides.bore_below | sides.bore_above, physics=model, value=0.0)))
-numerics = Numerics(spatial=FiniteElement(element=Lagrange(order=2), provider=RevolvedH1SpaceFactory()), linear_solver=SparseDirect())
-fields = [Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_stationary().field(model.temperature) for mesh in meshes]
+problem = Problem(
+    name="Axisymmetric ring",
+    geometry=plane,
+    physics=(model,),
+    boundary_conditions=(
+        FixedTemperature(
+            boundary=sides.bottom | sides.outer | sides.top, physics=model, value=273.15
+        ),
+        HeatFlux(boundary=sides.heated, physics=model, value=-5e5),
+        HeatFlux(
+            boundary=sides.bore_below | sides.bore_above, physics=model, value=0.0
+        ),
+    ),
+)
+numerics = Numerics(
+    spatial=FiniteElement(element=Lagrange(order=2), provider=RevolvedH1SpaceFactory()),
+    linear_solver=SparseDirect(),
+)
+fields = [
+    Simulation(problem=problem, mesh=mesh, numerics=numerics)
+    .solve_stationary()
+    .field(model.temperature)
+    for mesh in meshes
+]
 field = fields[-1]
 
 # ## Results
@@ -98,10 +140,16 @@ study = convergence(target, sizes)
 supplied = 5e5 * 2 * np.pi * 0.02 * 0.06
 print("mesh size [mm]   triangles   T(40 mm, 40 mm) [K]   deviation from 332.97 K")
 for size, mesh, value in zip(sizes, meshes, target):
-    print(f"{1e3 * size:14.1f} {mesh.cell_count:11d} {value:21.4f} {value - 332.97:+16.4f} K")
-print(f"observed order {study.order:.2f}, Richardson estimate {study.extrapolated:.4f} K")
-print(f"heat supplied {supplied:.2f} W, heat entering at the band {-field.boundary_flux(sides.heated):.2f} W, "
-      f"heat leaving through the cooled faces {field.boundary_flux(sides.bottom | sides.outer | sides.top):.2f} W")
+    print(
+        f"{1e3 * size:14.1f} {mesh.cell_count:11d} {value:21.4f} {value - 332.97:+16.4f} K"
+    )
+print(
+    f"observed order {study.order:.2f}, Richardson estimate {study.extrapolated:.4f} K"
+)
+print(
+    f"heat supplied {supplied:.2f} W, heat entering at the band {-field.boundary_flux(sides.heated):.2f} W, "
+    f"heat leaving through the cooled faces {field.boundary_flux(sides.bottom | sides.outer | sides.top):.2f} W"
+)
 
 # ## Figure
 #
@@ -111,16 +159,57 @@ print(f"heat supplied {supplied:.2f} W, heat entering at the band {-field.bounda
 z = np.linspace(0, 0.14, 281)
 r = np.linspace(0.02, 0.1, 161)
 fig = plots.figure(1, 3, size=(19, 6))
-plots.surface(field, component=lambda T, position: T - 273.15, limits=(0, 210), contours=15, subdivisions=3,
-              xlabel="radius r [m]", ylabel="height z [m]", label="T [°C]", title="Temperature in the meridian plane", ax=fig[0])
-plots.line(y={"along the bore r = 20 mm, over z": (1e3 * z, field.evaluate(np.column_stack((np.full_like(z, 0.02), z))).ravel() - 273.15),
-              "along z = 40 mm, over r": (1e3 * r, field.evaluate(np.column_stack((r, np.full_like(r, 0.04)))).ravel() - 273.15)},
-           points={"NAFEMS target 59.82 °C": ([40.0], [59.82])}, vlines={"ends of the heated band": 40.0, "": 100.0},
-           xlabel="z or r [mm]", ylabel="T [°C]", title="Temperature along two lines", legend="upper right", ax=fig[1])
-plots.line(y={"quadratic triangles": (1e3 * np.array(sizes), [value - 332.97 for value in target])},
-           hlines={"NAFEMS target": 0.0, f"Richardson estimate {study.extrapolated:.3f} K": study.extrapolated - 332.97},
-           markers=True, scale="logx", xlabel="mesh size [mm]", ylabel="T(40 mm, 40 mm) - 332.97 K [K]",
-           title="Mesh study at the benchmark point", ax=fig[2])
+plots.surface(
+    field,
+    component=lambda T, position: T - 273.15,
+    limits=(0, 210),
+    contours=15,
+    subdivisions=3,
+    xlabel="radius r [m]",
+    ylabel="height z [m]",
+    label="T [°C]",
+    title="Temperature in the meridian plane",
+    ax=fig[0],
+)
+plots.line(
+    y={
+        "along the bore r = 20 mm, over z": (
+            1e3 * z,
+            field.evaluate(np.column_stack((np.full_like(z, 0.02), z))).ravel()
+            - 273.15,
+        ),
+        "along z = 40 mm, over r": (
+            1e3 * r,
+            field.evaluate(np.column_stack((r, np.full_like(r, 0.04)))).ravel()
+            - 273.15,
+        ),
+    },
+    points={"NAFEMS target 59.82 °C": ([40.0], [59.82])},
+    vlines={"ends of the heated band": 40.0, "": 100.0},
+    xlabel="z or r [mm]",
+    ylabel="T [°C]",
+    title="Temperature along two lines",
+    legend="upper right",
+    ax=fig[1],
+)
+plots.line(
+    y={
+        "quadratic triangles": (
+            1e3 * np.array(sizes),
+            [value - 332.97 for value in target],
+        )
+    },
+    hlines={
+        "NAFEMS target": 0.0,
+        f"Richardson estimate {study.extrapolated:.3f} K": study.extrapolated - 332.97,
+    },
+    markers=True,
+    scale="logx",
+    xlabel="mesh size [mm]",
+    ylabel="T(40 mm, 40 mm) - 332.97 K [K]",
+    title="Mesh study at the benchmark point",
+    ax=fig[2],
+)
 plots.show()
 
 # ## Going further

@@ -5,7 +5,6 @@ The beam is read from a STEP file and meshed with hexahedra; the mode shapes of 
 are checked against the closed-form Euler-Bernoulli eigenfunctions.
 """
 
-
 # # Mode shapes of a clamped-free beam
 #
 # A prismatic steel beam (length $L$, rectangular cross-section $b\times h$ with
@@ -31,16 +30,20 @@ are checked against the closed-form Euler-Bernoulli eigenfunctions.
 # frequency of a solid beam of finite slenderness by a few percent.
 
 import numpy as np
-
 from onesim.cad.exchange import load
 from onesim.materials import IsotropicSolid
 from onesim.meshing import StructuredHexahedralMesher
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import SparseDirect
-from onesim.physics.solid_mechanics import FixedDisplacement, LinearElasticity, TractionFree, structural_modes
+from onesim.physics.solid_mechanics import (
+    FixedDisplacement,
+    LinearElasticity,
+    TractionFree,
+    structural_modes,
+)
 from onesim.simulation import Problem, Simulation
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -55,8 +58,16 @@ length, width, height = beam.size
 mesh = StructuredHexahedralMesher(cells=(24, 2, 2)).generate(beam)
 
 fig = plots.figure(1, 2, size=(14, 4.5))
-plots.geometry(beam, selection={"clamped": faces.x_min}, labels=False, title="Beam with its clamped face", ax=fig[0])
-plots.mesh(mesh, groups=("all",), legend=False, title=f"{mesh.cell_count} hexahedra", ax=fig[1])
+plots.geometry(
+    beam,
+    selection={"clamped": faces.x_min},
+    labels=False,
+    title="Beam with its clamped face",
+    ax=fig[0],
+)
+plots.mesh(
+    mesh, groups=("all",), legend=False, title=f"{mesh.cell_count} hexahedra", ax=fig[1]
+)
 plots.show()
 
 # ## Model and modal analysis
@@ -66,22 +77,42 @@ plots.show()
 # modes are the modes whose centre-line motion is dominated by $u_z$.
 
 youngs_modulus, density = 210e9, 7850.0
-steel = IsotropicSolid(density=density, specific_heat_capacity=460.0, thermal_conductivity=50.0,
-                       youngs_modulus=youngs_modulus, poisson_ratio=0.30, thermal_expansion_coefficient=12e-6)
+steel = IsotropicSolid(
+    density=density,
+    specific_heat_capacity=460.0,
+    thermal_conductivity=50.0,
+    youngs_modulus=youngs_modulus,
+    poisson_ratio=0.30,
+    thermal_expansion_coefficient=12e-6,
+)
 model = LinearElasticity(domain=beam.volume, material=steel)
-problem = Problem(name="Clamped-free beam mode shapes", geometry=beam, physics=(model,), boundary_conditions=(
-    FixedDisplacement(boundary=faces.x_min, physics=model, value=(0.0, 0.0, 0.0)),
-    TractionFree(boundary=faces.all - faces.x_min, physics=model)))
-numerics = Numerics(spatial=FiniteElement(element=Lagrange(order=2)), linear_solver=SparseDirect())
+problem = Problem(
+    name="Clamped-free beam mode shapes",
+    geometry=beam,
+    physics=(model,),
+    boundary_conditions=(
+        FixedDisplacement(boundary=faces.x_min, physics=model, value=(0.0, 0.0, 0.0)),
+        TractionFree(boundary=faces.all - faces.x_min, physics=model),
+    ),
+)
+numerics = Numerics(
+    spatial=FiniteElement(element=Lagrange(order=2)), linear_solver=SparseDirect()
+)
 result = Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_stationary()
 modes = structural_modes(result, model, mode_count=4)
 
 nodes = np.asarray(result.operators[model.model_id].space.dof_coordinates)
-centre_line = np.flatnonzero(np.isclose(nodes[:, 1], width / 2) & np.isclose(nodes[:, 2], height / 2))
+centre_line = np.flatnonzero(
+    np.isclose(nodes[:, 1], width / 2) & np.isclose(nodes[:, 2], height / 2)
+)
 centre_line = centre_line[np.argsort(nodes[centre_line, 0])]
 x = nodes[centre_line, 0]
 motion = [modes.mode_displacements(i)[centre_line] for i in range(modes.mode_count)]
-first, second = [i for i, u in enumerate(motion) if np.abs(u[:, 2]).max() > 10 * np.abs(u[:, :2]).max()][:2]
+first, second = [
+    i
+    for i, u in enumerate(motion)
+    if np.abs(u[:, 2]).max() > 10 * np.abs(u[:, :2]).max()
+][:2]
 
 # ## Comparison with the Euler-Bernoulli eigenfunctions
 #
@@ -91,33 +122,60 @@ first, second = [i for i, u in enumerate(motion) if np.abs(u[:, 2]).max() > 10 *
 def eigenfunction(x, root):
     """Clamped-free Euler-Bernoulli mode shape for the root beta L, scaled to unit tip deflection."""
     sigma = (np.sinh(root) - np.sin(root)) / (np.cosh(root) + np.cos(root))
-    shape = lambda s: np.cosh(root * s) - np.cos(root * s) - sigma * (np.sinh(root * s) - np.sin(root * s))
+    shape = (
+        lambda s: np.cosh(root * s)
+        - np.cos(root * s)
+        - sigma * (np.sinh(root * s) - np.sin(root * s))
+    )
     return shape(x / length) / shape(1.0)
 
 
 roots = (1.8751, 4.6941)
 computed = [motion[i][:, 2] / motion[i][-1, 2] for i in (first, second)]
-beam_theory = [root**2 / (2 * np.pi) * np.sqrt(youngs_modulus * width * height**3 / 12 / (density * width * height * length**4))
-               for root in roots]
+beam_theory = [
+    root**2
+    / (2 * np.pi)
+    * np.sqrt(
+        youngs_modulus * width * height**3 / 12 / (density * width * height * length**4)
+    )
+    for root in roots
+]
 frequencies = [modes.frequencies[first], modes.frequencies[second]]
 
 print("first four frequencies [Hz]:", [round(f, 1) for f in modes.frequencies])
 print(f"weak-axis bending modes: number {first + 1} and number {second + 1}")
 for number, (shape, root) in enumerate(zip(computed, roots), start=1):
-    print(f"mode {number}: largest deviation of the shape from beam theory {np.abs(shape - eigenfunction(x, root)).max():.4f} (unit tip deflection)")
-print(f"f1: simulation {frequencies[0]:.1f} Hz, Euler-Bernoulli {beam_theory[0]:.1f} Hz, "
-      f"deviation {100 * (frequencies[0] / beam_theory[0] - 1):+.2f} %")
-print(f"f2/f1: simulation {frequencies[1] / frequencies[0]:.3f}, Euler-Bernoulli {beam_theory[1] / beam_theory[0]:.3f}, "
-      f"deviation {100 * (frequencies[1] / frequencies[0] * beam_theory[0] / beam_theory[1] - 1):+.2f} % (shear and rotary inertia)")
+    print(
+        f"mode {number}: largest deviation of the shape from beam theory {np.abs(shape - eigenfunction(x, root)).max():.4f} (unit tip deflection)"
+    )
+print(
+    f"f1: simulation {frequencies[0]:.1f} Hz, Euler-Bernoulli {beam_theory[0]:.1f} Hz, "
+    f"deviation {100 * (frequencies[0] / beam_theory[0] - 1):+.2f} %"
+)
+print(
+    f"f2/f1: simulation {frequencies[1] / frequencies[0]:.3f}, Euler-Bernoulli {beam_theory[1] / beam_theory[0]:.3f}, "
+    f"deviation {100 * (frequencies[1] / frequencies[0] * beam_theory[0] / beam_theory[1] - 1):+.2f} % (shear and rotary inertia)"
+)
 
 # ## Figure
 
 x_fine = np.linspace(0.0, length, 300)
-labels = [f"mode {number} ({frequency:.0f} Hz)" for number, frequency in enumerate(frequencies, start=1)]
-plots.line(points={label: (1e3 * x, shape) for label, shape in zip(labels, computed)},
-           reference={label: (1e3 * x_fine, eigenfunction(x_fine, root)) for label, root in zip(labels, roots)},
-           hlines=0.0, xlabel="position along the beam x [mm]", ylabel="normalised deflection w / w_tip",
-           title="Clamped-free beam: simulation (markers) and Euler-Bernoulli (dashed)", legend="lower left")
+labels = [
+    f"mode {number} ({frequency:.0f} Hz)"
+    for number, frequency in enumerate(frequencies, start=1)
+]
+plots.line(
+    points={label: (1e3 * x, shape) for label, shape in zip(labels, computed)},
+    reference={
+        label: (1e3 * x_fine, eigenfunction(x_fine, root))
+        for label, root in zip(labels, roots)
+    },
+    hlines=0.0,
+    xlabel="position along the beam x [mm]",
+    ylabel="normalised deflection w / w_tip",
+    title="Clamped-free beam: simulation (markers) and Euler-Bernoulli (dashed)",
+    legend="lower left",
+)
 plots.show()
 
 # ## Going further

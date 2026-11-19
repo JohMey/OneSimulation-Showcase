@@ -10,8 +10,9 @@ from onesim.cad.d3 import Box, Cylinder, Torus
 
 radius, length, bend = 1.0e-3, 20.0e-3, 2.0e-3
 Cylinder(radius=radius, length=length).save("wire_resistance_straight_and_bent.step")
-quarter = Torus(major_radius=bend, minor_radius=radius) & Box(length=2 * bend, width=2 * bend, height=2 * radius,
-                                                              origin=(0.0, 0.0, -radius)).named("cut")
+quarter = Torus(major_radius=bend, minor_radius=radius) & Box(
+    length=2 * bend, width=2 * bend, height=2 * radius, origin=(0.0, 0.0, -radius)
+).named("cut")
 faces = quarter.boundaries
 quarter = quarter.grouped(start=faces["cut.y_min"], end=faces["cut.x_min"])
 quarter.save("wire_resistance_straight_and_bent_bend.step")

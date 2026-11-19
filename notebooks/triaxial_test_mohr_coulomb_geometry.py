@@ -10,6 +10,10 @@ the axis).
 from onesim.cad.d3 import Box, Cylinder
 
 radius, height = 0.019, 0.076
-sample = Cylinder(radius=radius, length=height) & Box(length=2 * radius, width=4 * radius, height=2 * height,
-                                                       origin=(0.0, -2 * radius, -height / 2)).named("axis")
+sample = Cylinder(radius=radius, length=height) & Box(
+    length=2 * radius,
+    width=4 * radius,
+    height=2 * height,
+    origin=(0.0, -2 * radius, -height / 2),
+).named("axis")
 sample.save("triaxial_test_mohr_coulomb.step")

@@ -8,15 +8,29 @@ wall and outer.
 """
 
 import numpy as np
-
 from onesim.cad.d2 import Path, Profile, Segment
 from onesim.cad.d3 import Revolution
 
-cavity_radius, cavity_depth, neck_radius, neck_length, outer = 0.06, 0.06, 0.02, 0.04, 0.4
+cavity_radius, cavity_depth, neck_radius, neck_length, outer = (
+    0.06,
+    0.06,
+    0.02,
+    0.04,
+    0.4,
+)
 bottom = -neck_length - cavity_depth
-outline = Path((0.0, bottom), (
-    Segment((cavity_radius, bottom), name="cavity"), Segment((cavity_radius, -neck_length), name="cavity"),
-    Segment((neck_radius, -neck_length), name="cavity"), Segment((neck_radius, 0.0), name="neck"),
-    Segment((outer, 0.0), name="wall"), Segment((0.0, outer), center=(0.0, 0.0), name="outer"),
-    Segment((0.0, bottom), name="axis")))
-Revolution(profile=Profile(outline), angle=np.pi).rotated((0, 0, 1), -np.pi / 2).save("helmholtz_resonator_baffle.step")
+outline = Path(
+    (0.0, bottom),
+    (
+        Segment((cavity_radius, bottom), name="cavity"),
+        Segment((cavity_radius, -neck_length), name="cavity"),
+        Segment((neck_radius, -neck_length), name="cavity"),
+        Segment((neck_radius, 0.0), name="neck"),
+        Segment((outer, 0.0), name="wall"),
+        Segment((0.0, outer), center=(0.0, 0.0), name="outer"),
+        Segment((0.0, bottom), name="axis"),
+    ),
+)
+Revolution(profile=Profile(outline), angle=np.pi).rotated((0, 0, 1), -np.pi / 2).save(
+    "helmholtz_resonator_baffle.step"
+)

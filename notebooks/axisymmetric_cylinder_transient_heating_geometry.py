@@ -7,12 +7,20 @@ outer and top; the meridian plane y = 0 of the part is the computational domain.
 """
 
 import numpy as np
-
 from onesim.cad.d2 import Path, Profile, Segment
 from onesim.cad.d3 import Revolution
 
 radius, height = 0.3, 0.4
-outline = Path((0.0, 0.0), (Segment((radius, 0.0), name="bottom"), Segment((radius, height), name="outer"),
-                            Segment((0.0, height), name="top"), Segment((0.0, 0.0), name="axis")))
-cylinder = Revolution(profile=Profile(outline), angle=np.pi).rotated((0, 0, 1), -np.pi / 2)
+outline = Path(
+    (0.0, 0.0),
+    (
+        Segment((radius, 0.0), name="bottom"),
+        Segment((radius, height), name="outer"),
+        Segment((0.0, height), name="top"),
+        Segment((0.0, 0.0), name="axis"),
+    ),
+)
+cylinder = Revolution(profile=Profile(outline), angle=np.pi).rotated(
+    (0, 0, 1), -np.pi / 2
+)
 cylinder.save("axisymmetric_cylinder_transient_heating.step")

@@ -8,7 +8,6 @@ reflection, transmission and absorption of the layer over a frequency sweep thro
 cyclotron resonance.
 """
 
-
 # # Circularly polarized waves in a lossy magnetized plasma layer
 #
 # A static magnetic field $\mathbf B_0=B_0\hat{\mathbf z}$ makes a plasma anisotropic: the electrons
@@ -58,8 +57,6 @@ cyclotron resonance.
 # and absorbs $A=1-|r|^2-|t|^2$ of the incident power.
 
 import numpy as np
-from scipy.constants import c, e, epsilon_0, m_e, mu_0
-
 from onesim.cad.exchange import load
 from onesim.meshing import PeriodicPair, StructuredHexahedralMesher
 from onesim.numerics import Numerics
@@ -68,7 +65,8 @@ from onesim.numerics.linear import ComplexSparseDirect
 from onesim.physics.electromagnetics import FrequencyDomainMaxwell, ImpedanceBoundary
 from onesim.physics.plasma import MagnetizedColdPlasma
 from onesim.simulation import PeriodicBoundary, Problem, Simulation
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
+from scipy.constants import c, e, epsilon_0, m_e, mu_0
 
 theme.set()
 
@@ -80,14 +78,29 @@ theme.set()
 layer = load("magnetized_plasma_slab_waves.step")
 faces = layer.boundaries
 width, depth, thickness = layer.size
-meshes = {cells: StructuredHexahedralMesher(cells=(1, 1, cells)).generate(layer) for cells in (6, 12, 24)}
+meshes = {
+    cells: StructuredHexahedralMesher(cells=(1, 1, cells)).generate(layer)
+    for cells in (6, 12, 24)
+}
 mesh = meshes[24]
 
 fig = plots.figure(1, 2, size=(13, 5.5))
-plots.geometry(layer, selection={"front surface (incidence)": faces.z_min, "rear surface": faces.z_max}, labels=False,
-               camera=plots.Camera(elevation=20, azimuth=-60), title="Column of the plasma layer", ax=fig[0])
-plots.mesh(mesh, groups=("all",), legend=False, camera=plots.Camera(elevation=20, azimuth=-60),
-           title=f"Mesh: {mesh.cell_count} hexahedra", ax=fig[1])
+plots.geometry(
+    layer,
+    selection={"front surface (incidence)": faces.z_min, "rear surface": faces.z_max},
+    labels=False,
+    camera=plots.Camera(elevation=20, azimuth=-60),
+    title="Column of the plasma layer",
+    ax=fig[0],
+)
+plots.mesh(
+    mesh,
+    groups=("all",),
+    legend=False,
+    camera=plots.Camera(elevation=20, azimuth=-60),
+    title=f"Mesh: {mesh.cell_count} hexahedra",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Model
@@ -96,21 +109,60 @@ plots.show()
 # `waves` maps the sense to the incident field.
 
 electron_density, magnetic_field, collision_frequency = 5e16, 0.0875, 1e9
-plasma = MagnetizedColdPlasma.uniform(electron_density=electron_density, magnetic_field=(0.0, 0.0, magnetic_field),
-                                      collision_frequency=collision_frequency)
+plasma = MagnetizedColdPlasma.uniform(
+    electron_density=electron_density,
+    magnetic_field=(0.0, 0.0, magnetic_field),
+    collision_frequency=collision_frequency,
+)
 admittance = np.sqrt(epsilon_0 / mu_0)
-numerics = Numerics(spatial=FiniteElement(element=Nedelec(order=2)), linear_solver=ComplexSparseDirect())
-waves = {"R": np.array([1, 1j, 0]) / np.sqrt(2), "L": np.array([1, -1j, 0]) / np.sqrt(2)}
-maxwell = lambda frequency: FrequencyDomainMaxwell(domain=layer.volume, frequency=frequency, material=plasma,
-                                                    phasor_convention="exp(-i*omega*t)", amplitude_convention="peak")
-solve = lambda model, wave, mesh: Simulation(problem=Problem(name="Wave on a magnetized plasma layer", geometry=layer, physics=(model,),
-    boundary_conditions=(*(PeriodicBoundary(physics=model, pair=PeriodicPair(faces[side + "_min"], faces[side + "_max"])) for side in "xy"),
-                         ImpedanceBoundary(physics=model, boundary=faces.z_min, admittance=admittance, incident_electric_field=tuple(waves[wave])),
-                         ImpedanceBoundary(physics=model, boundary=faces.z_max, admittance=admittance))),
-    mesh=mesh, numerics=numerics).solve_stationary()
+numerics = Numerics(
+    spatial=FiniteElement(element=Nedelec(order=2)), linear_solver=ComplexSparseDirect()
+)
+waves = {
+    "R": np.array([1, 1j, 0]) / np.sqrt(2),
+    "L": np.array([1, -1j, 0]) / np.sqrt(2),
+}
+maxwell = lambda frequency: FrequencyDomainMaxwell(
+    domain=layer.volume,
+    frequency=frequency,
+    material=plasma,
+    phasor_convention="exp(-i*omega*t)",
+    amplitude_convention="peak",
+)
+solve = lambda model, wave, mesh: Simulation(
+    problem=Problem(
+        name="Wave on a magnetized plasma layer",
+        geometry=layer,
+        physics=(model,),
+        boundary_conditions=(
+            *(
+                PeriodicBoundary(
+                    physics=model,
+                    pair=PeriodicPair(faces[side + "_min"], faces[side + "_max"]),
+                )
+                for side in "xy"
+            ),
+            ImpedanceBoundary(
+                physics=model,
+                boundary=faces.z_min,
+                admittance=admittance,
+                incident_electric_field=tuple(waves[wave]),
+            ),
+            ImpedanceBoundary(
+                physics=model, boundary=faces.z_max, admittance=admittance
+            ),
+        ),
+    ),
+    mesh=mesh,
+    numerics=numerics,
+).solve_stationary()
 frequencies = np.round(np.arange(1.0e9, 6.01e9, 0.1e9), -6)
 models = {frequency: maxwell(frequency) for frequency in frequencies}
-results = {(wave, frequency): solve(models[frequency], wave, mesh) for wave in waves for frequency in frequencies}
+results = {
+    (wave, frequency): solve(models[frequency], wave, mesh)
+    for wave in waves
+    for frequency in frequencies
+}
 
 # ## Refractive index inside the plasma
 #
@@ -120,19 +172,39 @@ results = {(wave, frequency): solve(models[frequency], wave, mesh) for wave in w
 
 plasma_frequency2 = electron_density * e**2 / (epsilon_0 * m_e)
 cyclotron = e * magnetic_field / m_e
-appleton_hartree = lambda frequency, sign: np.sqrt(1 - plasma_frequency2 / ((2 * np.pi * frequency) ** 2 - sign * cyclotron * 2 * np.pi * frequency
-                                                                            + 1j * collision_frequency * 2 * np.pi * frequency))
+appleton_hartree = lambda frequency, sign: np.sqrt(
+    1
+    - plasma_frequency2
+    / (
+        (2 * np.pi * frequency) ** 2
+        - sign * cyclotron * 2 * np.pi * frequency
+        + 1j * collision_frequency * 2 * np.pi * frequency
+    )
+)
 sign = {"R": 1, "L": -1}
 z_fit = np.linspace(0, thickness, 11)
-fit_line = np.column_stack((np.full_like(z_fit, 0.4 * width), np.full_like(z_fit, 0.6 * depth), z_fit))
-circular = {key: result.field(models[key[1]].electric_field).evaluate(fit_line) @ waves[key[0]].conj() for key, result in results.items()}
-index = {key: np.arccos(np.linalg.lstsq(E[1:-1, None], (E[2:] + E[:-2]) / 2, rcond=None)[0][0]) / (z_fit[1] * 2 * np.pi * key[1] / c)
-         for key, E in circular.items()}
+fit_line = np.column_stack(
+    (np.full_like(z_fit, 0.4 * width), np.full_like(z_fit, 0.6 * depth), z_fit)
+)
+circular = {
+    key: result.field(models[key[1]].electric_field).evaluate(fit_line)
+    @ waves[key[0]].conj()
+    for key, result in results.items()
+}
+index = {
+    key: np.arccos(
+        np.linalg.lstsq(E[1:-1, None], (E[2:] + E[:-2]) / 2, rcond=None)[0][0]
+    )
+    / (z_fit[1] * 2 * np.pi * key[1] / c)
+    for key, E in circular.items()
+}
 print("wave   f [GHz]   computed n          Appleton-Hartree n    deviation")
 for key in [(wave, f) for wave in waves for f in (1.5e9, 2.4e9, 3.0e9, 5.0e9)]:
     exact = appleton_hartree(key[1], sign[key[0]])
-    print(f"  {key[0]}  {key[1] / 1e9:8.2f}   {index[key].real:7.4f}{index[key].imag:+.4f}i     {exact.real:7.4f}{exact.imag:+.4f}i      "
-          f"{100 * abs(index[key] / exact - 1):.3f} %")
+    print(
+        f"  {key[0]}  {key[1] / 1e9:8.2f}   {index[key].real:7.4f}{index[key].imag:+.4f}i     {exact.real:7.4f}{exact.imag:+.4f}i      "
+        f"{100 * abs(index[key] / exact - 1):.3f} %"
+    )
 
 # ## Reflection, transmission and absorption
 #
@@ -140,40 +212,82 @@ for key in [(wave, f) for wave in waves for f in (1.5e9, 2.4e9, 3.0e9, 5.0e9)]:
 # field on the rear surface. The absorbed power from the plasma's own dissipation density,
 # $\tfrac12\operatorname{Re}(\mathbf J^*\cdot\mathbf E)$ integrated over the column, must close the power balance.
 
-ends = np.array([[0.4 * width, 0.6 * depth, 0.0], [0.4 * width, 0.6 * depth, thickness]])
-end_fields = {key: result.field(models[key[1]].electric_field).evaluate(ends) for key, result in results.items()}
+ends = np.array(
+    [[0.4 * width, 0.6 * depth, 0.0], [0.4 * width, 0.6 * depth, thickness]]
+)
+end_fields = {
+    key: result.field(models[key[1]].electric_field).evaluate(ends)
+    for key, result in results.items()
+}
 reflection = {key: E[0] @ waves[key[0]].conj() - 1 for key, E in end_fields.items()}
 transmission = {key: E[1] @ waves[key[0]].conj() for key, E in end_fields.items()}
 incident_power = 0.5 * admittance * width * depth
-absorbed = {key: result.field(models[key[1]].absorbed_power_density).integrate().value / incident_power for key, result in results.items()}
+absorbed = {
+    key: result.field(models[key[1]].absorbed_power_density).integrate().value
+    / incident_power
+    for key, result in results.items()
+}
 k0 = lambda frequency: 2 * np.pi * frequency / c
-layer_r = lambda n, f: (1 - n) / (1 + n) * (1 - np.exp(2j * n * k0(f) * thickness)) / (1 - ((1 - n) / (1 + n)) ** 2 * np.exp(2j * n * k0(f) * thickness))
-layer_t = lambda n, f: (1 - ((1 - n) / (1 + n)) ** 2) * np.exp(1j * n * k0(f) * thickness) / (1 - ((1 - n) / (1 + n)) ** 2 * np.exp(2j * n * k0(f) * thickness))
-exact_r = {key: layer_r(appleton_hartree(key[1], sign[key[0]]), key[1]) for key in results}
-exact_t = {key: layer_t(appleton_hartree(key[1], sign[key[0]]), key[1]) for key in results}
+layer_r = (
+    lambda n, f: (1 - n)
+    / (1 + n)
+    * (1 - np.exp(2j * n * k0(f) * thickness))
+    / (1 - ((1 - n) / (1 + n)) ** 2 * np.exp(2j * n * k0(f) * thickness))
+)
+layer_t = (
+    lambda n, f: (1 - ((1 - n) / (1 + n)) ** 2)
+    * np.exp(1j * n * k0(f) * thickness)
+    / (1 - ((1 - n) / (1 + n)) ** 2 * np.exp(2j * n * k0(f) * thickness))
+)
+exact_r = {
+    key: layer_r(appleton_hartree(key[1], sign[key[0]]), key[1]) for key in results
+}
+exact_t = {
+    key: layer_t(appleton_hartree(key[1], sign[key[0]]), key[1]) for key in results
+}
 for wave in waves:
     keys = [(wave, f) for f in frequencies]
-    print(f"{wave} wave, {len(keys)} frequencies 1-6 GHz: largest deviation |R - R_exact| = "
-          f"{max(abs(abs(reflection[k]) ** 2 - abs(exact_r[k]) ** 2) for k in keys):.1e}, |T - T_exact| = "
-          f"{max(abs(abs(transmission[k]) ** 2 - abs(exact_t[k]) ** 2) for k in keys):.1e}; "
-          f"power balance |R + T + A_plasma - 1| <= {max(abs(abs(reflection[k]) ** 2 + abs(transmission[k]) ** 2 + absorbed[k] - 1) for k in keys):.1e}")
+    print(
+        f"{wave} wave, {len(keys)} frequencies 1-6 GHz: largest deviation |R - R_exact| = "
+        f"{max(abs(abs(reflection[k]) ** 2 - abs(exact_r[k]) ** 2) for k in keys):.1e}, |T - T_exact| = "
+        f"{max(abs(abs(transmission[k]) ** 2 - abs(exact_t[k]) ** 2) for k in keys):.1e}; "
+        f"power balance |R + T + A_plasma - 1| <= {max(abs(abs(reflection[k]) ** 2 + abs(transmission[k]) ** 2 + absorbed[k] - 1) for k in keys):.1e}"
+    )
 peak = max(frequencies, key=lambda f: absorbed[("R", f)])
-print(f"R wave absorbs most at {peak / 1e9:.1f} GHz: A = {absorbed[('R', peak)]:.3f} "
-      f"(exact {1 - abs(exact_r[('R', peak)]) ** 2 - abs(exact_t[('R', peak)]) ** 2:.3f}); L wave there: A = {absorbed[('L', peak)]:.3f}")
-cross = max(np.abs(result.field(models[key[1]].electric_field).evaluate(fit_line) @ waves["L" if key[0] == "R" else "R"].conj()).max()
-            for key, result in results.items())
-print(f"largest field of the opposite sense of rotation anywhere on the line: {cross:.1e} V/m (incident 1 V/m)")
+print(
+    f"R wave absorbs most at {peak / 1e9:.1f} GHz: A = {absorbed[('R', peak)]:.3f} "
+    f"(exact {1 - abs(exact_r[('R', peak)]) ** 2 - abs(exact_t[('R', peak)]) ** 2:.3f}); L wave there: A = {absorbed[('L', peak)]:.3f}"
+)
+cross = max(
+    np.abs(
+        result.field(models[key[1]].electric_field).evaluate(fit_line)
+        @ waves["L" if key[0] == "R" else "R"].conj()
+    ).max()
+    for key, result in results.items()
+)
+print(
+    f"largest field of the opposite sense of rotation anywhere on the line: {cross:.1e} V/m (incident 1 V/m)"
+)
 
 # A mesh study of the R wave at the resonance, 2.45 GHz: the error of the transmitted field against the
 # exact layer solution on 6, 12 and 24 cells through the layer.
 
 resonance = maxwell(2.45e9)
-study_t = [solve(resonance, "R", m).field(resonance.electric_field).evaluate(ends)[1] @ waves["R"].conj() for m in meshes.values()]
+study_t = [
+    solve(resonance, "R", m).field(resonance.electric_field).evaluate(ends)[1]
+    @ waves["R"].conj()
+    for m in meshes.values()
+]
 exact_resonance = layer_t(appleton_hartree(2.45e9, 1), 2.45e9)
 study_errors = [abs(t / exact_resonance - 1) for t in study_t]
 order = np.log(study_errors[0] / study_errors[-1]) / np.log(4.0)
-print("mesh study at 2.45 GHz: " + ", ".join(f"{cells} cells: {100 * e:.4f} %" for cells, e in zip(meshes, study_errors))
-      + f"; observed order {order:.2f}")
+print(
+    "mesh study at 2.45 GHz: "
+    + ", ".join(
+        f"{cells} cells: {100 * e:.4f} %" for cells, e in zip(meshes, study_errors)
+    )
+    + f"; observed order {order:.2f}"
+)
 
 # ## Figure
 #
@@ -188,30 +302,99 @@ z = np.linspace(0, thickness, 300)
 line = np.column_stack((np.full_like(z, 0.4 * width), np.full_like(z, 0.6 * depth), z))
 fine = np.linspace(1.0e9, 6.0e9, 600)
 ghz = frequencies / 1e9
-profile = {wave: np.abs(results[(wave, 2.4e9)].field(models[2.4e9].electric_field).evaluate(line) @ waves[wave].conj()) for wave in waves}
-inside = lambda n: np.abs((np.exp(1j * n * k0(2.4e9) * z) - (1 - n) / (1 + n) * np.exp(1j * n * k0(2.4e9) * (2 * thickness - z)))
-                          * 2 / (1 + n) / (1 - ((1 - n) / (1 + n)) ** 2 * np.exp(2j * n * k0(2.4e9) * thickness)))
+profile = {
+    wave: np.abs(
+        results[(wave, 2.4e9)].field(models[2.4e9].electric_field).evaluate(line)
+        @ waves[wave].conj()
+    )
+    for wave in waves
+}
+inside = lambda n: np.abs(
+    (
+        np.exp(1j * n * k0(2.4e9) * z)
+        - (1 - n) / (1 + n) * np.exp(1j * n * k0(2.4e9) * (2 * thickness - z))
+    )
+    * 2
+    / (1 + n)
+    / (1 - ((1 - n) / (1 + n)) ** 2 * np.exp(2j * n * k0(2.4e9) * thickness))
+)
 fig = plots.figure(2, 2, size=(14, 9))
-plots.line(ghz, {f"{wave} wave": [abs(transmission[(wave, f)]) ** 2 for f in frequencies] for wave in waves},
-           reference={f"{wave} wave": (fine / 1e9, np.abs(layer_t(appleton_hartree(fine, sign[wave]), fine)) ** 2) for wave in waves},
-           vlines={"f_c": cyclotron / (2e9 * np.pi)}, ylimits=(0, 1.05), xlabel="frequency [GHz]", ylabel="transmittance |t|²",
-           title="Transmitted power", legend="lower right", ax=fig[0])
-plots.line(ghz, {f"{wave} wave": [absorbed[(wave, f)] for f in frequencies] for wave in waves},
-           reference={f"{wave} wave": (fine / 1e9, 1 - np.abs(layer_r(appleton_hartree(fine, sign[wave]), fine)) ** 2
-                                       - np.abs(layer_t(appleton_hartree(fine, sign[wave]), fine)) ** 2) for wave in waves},
-           vlines={"f_c": cyclotron / (2e9 * np.pi)}, ylimits=(0, 1.05), xlabel="frequency [GHz]", ylabel="absorbed fraction",
-           title="Absorbed power (from the plasma dissipation)", legend="upper right", ax=fig[1])
-plots.line(fine / 1e9, {"Re n, R wave": appleton_hartree(fine, 1).real, "Im n, R wave": appleton_hartree(fine, 1).imag,
-                        "Re n, L wave": appleton_hartree(fine, -1).real, "Im n, L wave": appleton_hartree(fine, -1).imag},
-           points={"Re n, R wave": (ghz, [index[("R", f)].real for f in frequencies]), "Im n, R wave": (ghz, [index[("R", f)].imag for f in frequencies]),
-                   "Re n, L wave": (ghz, [index[("L", f)].real for f in frequencies]), "Im n, L wave": (ghz, [index[("L", f)].imag for f in frequencies])},
-           colors={"Re n, R wave": 0, "Im n, R wave": 0, "Re n, L wave": 1, "Im n, L wave": 1},
-           styles={"Im n, R wave": "dashdot", "Im n, L wave": "dashdot"},
-           ylimits=(0, 3.5), xlabel="frequency [GHz]", ylabel="refractive index",
-           title="Appleton-Hartree (lines) and computed fields (markers)", legend="upper right", ax=fig[2])
-plots.line(1e3 * z, {f"{wave} wave": profile[wave] for wave in waves},
-           reference={f"{wave} wave": inside(appleton_hartree(2.4e9, sign[wave])) for wave in waves},
-           xlabel="depth in the layer z [mm]", ylabel="|E| [V/m]", title="Field through the layer at 2.4 GHz", legend="upper right", ax=fig[3])
+plots.line(
+    ghz,
+    {
+        f"{wave} wave": [abs(transmission[(wave, f)]) ** 2 for f in frequencies]
+        for wave in waves
+    },
+    reference={
+        f"{wave} wave": (
+            fine / 1e9,
+            np.abs(layer_t(appleton_hartree(fine, sign[wave]), fine)) ** 2,
+        )
+        for wave in waves
+    },
+    vlines={"f_c": cyclotron / (2e9 * np.pi)},
+    ylimits=(0, 1.05),
+    xlabel="frequency [GHz]",
+    ylabel="transmittance |t|²",
+    title="Transmitted power",
+    legend="lower right",
+    ax=fig[0],
+)
+plots.line(
+    ghz,
+    {f"{wave} wave": [absorbed[(wave, f)] for f in frequencies] for wave in waves},
+    reference={
+        f"{wave} wave": (
+            fine / 1e9,
+            1
+            - np.abs(layer_r(appleton_hartree(fine, sign[wave]), fine)) ** 2
+            - np.abs(layer_t(appleton_hartree(fine, sign[wave]), fine)) ** 2,
+        )
+        for wave in waves
+    },
+    vlines={"f_c": cyclotron / (2e9 * np.pi)},
+    ylimits=(0, 1.05),
+    xlabel="frequency [GHz]",
+    ylabel="absorbed fraction",
+    title="Absorbed power (from the plasma dissipation)",
+    legend="upper right",
+    ax=fig[1],
+)
+plots.line(
+    fine / 1e9,
+    {
+        "Re n, R wave": appleton_hartree(fine, 1).real,
+        "Im n, R wave": appleton_hartree(fine, 1).imag,
+        "Re n, L wave": appleton_hartree(fine, -1).real,
+        "Im n, L wave": appleton_hartree(fine, -1).imag,
+    },
+    points={
+        "Re n, R wave": (ghz, [index[("R", f)].real for f in frequencies]),
+        "Im n, R wave": (ghz, [index[("R", f)].imag for f in frequencies]),
+        "Re n, L wave": (ghz, [index[("L", f)].real for f in frequencies]),
+        "Im n, L wave": (ghz, [index[("L", f)].imag for f in frequencies]),
+    },
+    colors={"Re n, R wave": 0, "Im n, R wave": 0, "Re n, L wave": 1, "Im n, L wave": 1},
+    styles={"Im n, R wave": "dashdot", "Im n, L wave": "dashdot"},
+    ylimits=(0, 3.5),
+    xlabel="frequency [GHz]",
+    ylabel="refractive index",
+    title="Appleton-Hartree (lines) and computed fields (markers)",
+    legend="upper right",
+    ax=fig[2],
+)
+plots.line(
+    1e3 * z,
+    {f"{wave} wave": profile[wave] for wave in waves},
+    reference={
+        f"{wave} wave": inside(appleton_hartree(2.4e9, sign[wave])) for wave in waves
+    },
+    xlabel="depth in the layer z [mm]",
+    ylabel="|E| [V/m]",
+    title="Field through the layer at 2.4 GHz",
+    legend="upper right",
+    ax=fig[3],
+)
 plots.show()
 
 # ## Going further

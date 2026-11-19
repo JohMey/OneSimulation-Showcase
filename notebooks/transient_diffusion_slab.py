@@ -4,7 +4,6 @@ Requires the installed, activated OneSimulation runtime.
 The OneSimulation solution is checked against the known closed-form series solution.
 """
 
-
 # # Transient diffusion of a species into a slab
 #
 # A slab of thickness $L$ starts at a uniform concentration $C_i$. From $t=0$ its
@@ -30,7 +29,6 @@ The OneSimulation solution is checked against the known closed-form series solut
 # concentration against the series.
 
 import numpy as np
-
 from onesim.cad.d1 import Line
 from onesim.meshing import StructuredLineMesher
 from onesim.numerics import Numerics
@@ -39,10 +37,14 @@ from onesim.numerics.linear import SparseDirect
 from onesim.numerics.nonlinear import Newton
 from onesim.numerics.time import BDF, BackwardEuler
 from onesim.physics.chemistry import SpeciesTransport, TransportSpecies
-from onesim.simulation import Problem, Simulation
+from onesim.simulation import (
+    OutwardFluxBoundary,
+    PrescribedValueBoundary,
+    Problem,
+    Simulation,
+)
 from onesim.simulation.initial_conditions import InitialValue
-from onesim.simulation import OutwardFluxBoundary, PrescribedValueBoundary
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -59,7 +61,9 @@ C_s = 1.0
 tau = L * L / D
 end_time = 0.4 * tau
 time_step = end_time / 60.0
-print(f"D = {D:.1e} m^2/s,  characteristic time L^2/D = {tau:.0f} s,  end time = {end_time:.0f} s")
+print(
+    f"D = {D:.1e} m^2/s,  characteristic time L^2/D = {tau:.0f} s,  end time = {end_time:.0f} s"
+)
 
 geometry = Line(start=(0.0, 0.0, 0.0), end=(L, 0.0, 0.0))
 mesh = StructuredLineMesher(cells=160).generate(geometry)
@@ -76,12 +80,15 @@ problem = Problem(
     physics=(model,),
     boundary_conditions=(
         PrescribedValueBoundary(
-            physics=model, boundary=geometry.boundaries.start,
+            physics=model,
+            boundary=geometry.boundaries.start,
             value=lambda time, coordinate: {"A": C_s},
         ),
         OutwardFluxBoundary(
-            physics=model, boundary=geometry.boundaries.end,
-            flux=lambda **kw: np.zeros(1), jacobian=lambda **kw: np.zeros((1, 1)),
+            physics=model,
+            boundary=geometry.boundaries.end,
+            flux=lambda **kw: np.zeros(1),
+            jacobian=lambda **kw: np.zeros((1, 1)),
         ),
     ),
     initial_conditions=(InitialValue(model.concentration("A"), C_i),),
@@ -90,7 +97,9 @@ simulation = Simulation(
     problem=problem,
     mesh=mesh,
     numerics=Numerics(
-        spatial=FiniteElement(element=Lagrange(order=2), boundary_enforcement=Nitsche()),
+        spatial=FiniteElement(
+            element=Lagrange(order=2), boundary_enforcement=Nitsche()
+        ),
         nonlinear_solver=Newton(linear_solver=SparseDirect(), jacobian="analytic"),
         time_integrator=BDF(order=2, startup=BackwardEuler()),
     ),
@@ -104,13 +113,18 @@ result = simulation.run(start_time=0.0, end_time=end_time, time_step=time_step)
 # We evaluate the computed concentration along the line at several times and
 # compare it with the truncated quarter-wave series (401 terms).
 
+
 def analytic(x, t, terms=401):
     theta = np.zeros_like(x, dtype=float)
     for n in range(1, terms + 1):
         m = 2 * n - 1
-        theta += (4.0 / (m * np.pi)) * np.sin(m * np.pi * x / (2 * L)) * np.exp(
-            -((m * np.pi / (2 * L)) ** 2) * D * t)
+        theta += (
+            (4.0 / (m * np.pi))
+            * np.sin(m * np.pi * x / (2 * L))
+            * np.exp(-((m * np.pi / (2 * L)) ** 2) * D * t)
+        )
     return C_s + (C_i - C_s) * theta
+
 
 # The sudden surface condition creates a corner singularity at (x=0, t=0); right
 # at the open face at the earliest times neither the series nor the mesh is
@@ -125,7 +139,9 @@ profiles = {}
 print("Error per time (mol/m^3):")
 for t in probe_times:
     pts = np.column_stack((sample_x, np.zeros_like(sample_x), np.zeros_like(sample_x)))
-    num = np.asarray(result.field(model.concentration("A")).evaluate(pts, time=float(t))).reshape(-1)
+    num = np.asarray(
+        result.field(model.concentration("A")).evaluate(pts, time=float(t))
+    ).reshape(-1)
     ana = analytic(sample_x, float(t))
     err = float(np.max(np.abs(num - ana)))
     print(f"  t={t:8.0f} s  max|dC|={err:7.4f}")
@@ -133,15 +149,26 @@ for t in probe_times:
     max_abs_error = max(max_abs_error, err)
 
 rel_error = max_abs_error / abs(C_i - C_s)
-print(f"Maximum absolute error against the series: {max_abs_error:.4f} mol/m^3  ({100*rel_error:.2f} % of Cs-Ci)")
+print(
+    f"Maximum absolute error against the series: {max_abs_error:.4f} mol/m^3  ({100*rel_error:.2f} % of Cs-Ci)"
+)
 
 
 # ## Figure
 
-plots.line(points={f"t = {t / 3600:.1f} h": (sample_x * 1000, numeric) for t, (numeric, _) in profiles.items()},
-           reference={f"t = {t / 3600:.1f} h": (sample_x * 1000, exact) for t, (_, exact) in profiles.items()},
-           xlabel="position x [mm]", ylabel="concentration [mol/m^3]",
-           title="Diffusing slab: OneSimulation FEM (markers) and series solution (dashed)")
+plots.line(
+    points={
+        f"t = {t / 3600:.1f} h": (sample_x * 1000, numeric)
+        for t, (numeric, _) in profiles.items()
+    },
+    reference={
+        f"t = {t / 3600:.1f} h": (sample_x * 1000, exact)
+        for t, (_, exact) in profiles.items()
+    },
+    xlabel="position x [mm]",
+    ylabel="concentration [mol/m^3]",
+    title="Diffusing slab: OneSimulation FEM (markers) and series solution (dashed)",
+)
 plots.show()
 
 

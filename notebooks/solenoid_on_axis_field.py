@@ -5,7 +5,6 @@ The air cylinder around the coil is read from a STEP file. The computed axial fl
 checked against the finite-solenoid formula.
 """
 
-
 # # Magnetostatics: the on-axis field of a finite solenoid
 #
 # A single short, thin-walled solenoid carries a steady current. OneSimulation
@@ -34,7 +33,6 @@ checked against the finite-solenoid formula.
 # formula is accurate to well under a percent.
 
 import numpy as np
-
 from onesim.cad.d3 import AnnularCylinder
 from onesim.cad.exchange import load
 from onesim.materials import VacuumPermeability
@@ -42,9 +40,15 @@ from onesim.meshing import LocalRefinement, TetrahedralMesher
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Nedelec
 from onesim.numerics.linear import SparseDirect
-from onesim.physics.magnetostatics import CoulombGauge, MagneticInsulation, MagneticVectorPotential, Magnetostatics, SolenoidCurrent
+from onesim.physics.magnetostatics import (
+    CoulombGauge,
+    MagneticInsulation,
+    MagneticVectorPotential,
+    Magnetostatics,
+    SolenoidCurrent,
+)
 from onesim.simulation import Problem, Simulation
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -56,24 +60,56 @@ theme.set()
 air = load("solenoid_on_axis_field.step")
 centre = air.size[2] / 2
 inner_radius, outer_radius, coil_length, turns, current = 0.0235, 0.0265, 0.03, 200, 1.0
-coil = SolenoidCurrent(inner_radius=inner_radius, outer_radius=outer_radius, length=coil_length,
-                       center=(0.0, 0.0, centre), turns=turns, current=current, support_factory=AnnularCylinder)
-mesh = TetrahedralMesher(target_size=0.032, embedded_regions=(coil.support,),
-                         refinements=(LocalRefinement(region=coil.support, target_size=0.0045),)).generate(air)
+coil = SolenoidCurrent(
+    inner_radius=inner_radius,
+    outer_radius=outer_radius,
+    length=coil_length,
+    center=(0.0, 0.0, centre),
+    turns=turns,
+    current=current,
+    support_factory=AnnularCylinder,
+)
+mesh = TetrahedralMesher(
+    target_size=0.032,
+    embedded_regions=(coil.support,),
+    refinements=(LocalRefinement(region=coil.support, target_size=0.0045),),
+).generate(air)
 
 fig = plots.figure(1, 2, size=(13, 6))
 plots.geometry([air, coil.support], title="Air cylinder with the winding", ax=fig[0])
-plots.mesh(mesh, groups=("all",), legend=False, title=f"{mesh.cell_count} tetrahedra", ax=fig[1])
+plots.mesh(
+    mesh,
+    groups=("all",),
+    legend=False,
+    title=f"{mesh.cell_count} tetrahedra",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Model
 
-model = Magnetostatics(domain=air.volume, permeability=VacuumPermeability(),
-                       formulation=MagneticVectorPotential(gauge=CoulombGauge()), current_sources=(coil,))
-problem = Problem(name="On-axis field of a finite solenoid", geometry=air, physics=(model,),
-                  boundary_conditions=(MagneticInsulation(boundary=air.boundaries.all, physics=model),))
-numerics = Numerics(spatial=FiniteElement(element=Nedelec(order=1)), linear_solver=SparseDirect())
-flux_density = Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_stationary().field(model.magnetic_flux_density)
+model = Magnetostatics(
+    domain=air.volume,
+    permeability=VacuumPermeability(),
+    formulation=MagneticVectorPotential(gauge=CoulombGauge()),
+    current_sources=(coil,),
+)
+problem = Problem(
+    name="On-axis field of a finite solenoid",
+    geometry=air,
+    physics=(model,),
+    boundary_conditions=(
+        MagneticInsulation(boundary=air.boundaries.all, physics=model),
+    ),
+)
+numerics = Numerics(
+    spatial=FiniteElement(element=Nedelec(order=1)), linear_solver=SparseDirect()
+)
+flux_density = (
+    Simulation(problem=problem, mesh=mesh, numerics=numerics)
+    .solve_stationary()
+    .field(model.magnetic_flux_density)
+)
 
 # ## Comparison with the finite-solenoid formula
 #
@@ -83,24 +119,46 @@ flux_density = Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_s
 
 z = centre + np.linspace(-0.045, 0.045, 31)
 angles = np.linspace(0.0, 2 * np.pi, 12, endpoint=False)
-ring = np.column_stack((np.append(0.0, 0.006 * np.cos(angles)), np.append(0.0, 0.006 * np.sin(angles))))
+ring = np.column_stack(
+    (np.append(0.0, 0.006 * np.cos(angles)), np.append(0.0, 0.006 * np.sin(angles)))
+)
 stations = np.column_stack((np.tile(ring, (len(z), 1)), np.repeat(z, len(ring))))
 axial = flux_density.evaluate(stations)[:, 2].reshape(len(z), len(ring)).mean(axis=1)
-radius, ends = (inner_radius + outer_radius) / 2, (centre - coil_length / 2, centre + coil_length / 2)
-formula = VacuumPermeability().evaluate() * turns * current / (2 * coil_length) * (
-    (z - ends[0]) / np.hypot(z - ends[0], radius) - (z - ends[1]) / np.hypot(z - ends[1], radius))
+radius, ends = (inner_radius + outer_radius) / 2, (
+    centre - coil_length / 2,
+    centre + coil_length / 2,
+)
+formula = (
+    VacuumPermeability().evaluate()
+    * turns
+    * current
+    / (2 * coil_length)
+    * (
+        (z - ends[0]) / np.hypot(z - ends[0], radius)
+        - (z - ends[1]) / np.hypot(z - ends[1], radius)
+    )
+)
 inside = np.abs(z - centre) <= coil_length / 2 + 1e-12
 
-print(f"centre B_z: simulation {1e6 * axial[15]:.2f} µT, formula {1e6 * formula[15]:.2f} µT, "
-      f"deviation {100 * (axial[15] / formula[15] - 1):+.2f} %")
-print(f"largest deviation along the axis inside the coil: {100 * np.max(np.abs(axial[inside] / formula[inside] - 1)):.2f} %")
+print(
+    f"centre B_z: simulation {1e6 * axial[15]:.2f} µT, formula {1e6 * formula[15]:.2f} µT, "
+    f"deviation {100 * (axial[15] / formula[15] - 1):+.2f} %"
+)
+print(
+    f"largest deviation along the axis inside the coil: {100 * np.max(np.abs(axial[inside] / formula[inside] - 1)):.2f} %"
+)
 
 # ## Figure
 
-plots.line(1e3 * (z - centre), points={"simulation": 1e6 * axial}, reference={"finite-solenoid formula": 1e6 * formula},
-           vlines={"coil ends": -1e3 * coil_length / 2, "": 1e3 * coil_length / 2},
-           xlabel="axial position z from the coil centre [mm]", ylabel="axial flux density B_z [µT]",
-           title="Finite solenoid: on-axis field")
+plots.line(
+    1e3 * (z - centre),
+    points={"simulation": 1e6 * axial},
+    reference={"finite-solenoid formula": 1e6 * formula},
+    vlines={"coil ends": -1e3 * coil_length / 2, "": 1e3 * coil_length / 2},
+    xlabel="axial position z from the coil centre [mm]",
+    ylabel="axial flux density B_z [µT]",
+    title="Finite solenoid: on-axis field",
+)
 plots.show()
 
 # ## Going further

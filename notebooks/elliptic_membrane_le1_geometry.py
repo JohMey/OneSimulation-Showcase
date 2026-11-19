@@ -9,7 +9,15 @@ from onesim.cad.d2 import Profile
 from onesim.cad.d3 import Box, Prism
 
 inner, outer, thickness = (2.0, 1.0), (3.25, 2.75), 0.1
-ring = Prism(profile=Profile.ellipse(*outer, name="outer").with_holes(Profile.ellipse(*inner, name="inner")), height=thickness)
+ring = Prism(
+    profile=Profile.ellipse(*outer, name="outer").with_holes(
+        Profile.ellipse(*inner, name="inner")
+    ),
+    height=thickness,
+)
 membrane = ring & Box(length=4.0, width=4.0, height=thickness)
-membrane = membrane.grouped(symmetry_x=membrane.boundaries["part.x_min"], symmetry_y=membrane.boundaries["part.y_min"])
+membrane = membrane.grouped(
+    symmetry_x=membrane.boundaries["part.x_min"],
+    symmetry_y=membrane.boundaries["part.y_min"],
+)
 membrane.save("elliptic_membrane_le1.step")

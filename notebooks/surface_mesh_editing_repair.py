@@ -9,7 +9,6 @@ The deviation of every edited skin from the true sphere, its volume and its numb
 are measured at each step.
 """
 
-
 # # Editing and repairing surface meshes
 #
 # Surface meshes from scanners, from image segmentation or from other programs are rarely ready
@@ -34,11 +33,10 @@ are measured at each step.
 # so it lies a little above $z_c$.
 
 import numpy as np
-
 from onesim.cad.exchange import load
 from onesim.meshing import FacetMesher
 from onesim.meshing.quality import quality
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -49,10 +47,19 @@ theme.set()
 
 radius, cap = 0.03, 0.025
 scan = load("surface_mesh_editing_repair.stl")
-stray = lambda body: 1e6 * np.abs(np.linalg.norm(body.points[body.points[:, 2] < cap - 0.001], axis=1) - radius).max()
-print(f"scan: {len(scan.triangles)} triangles, {len(scan.points)} points, closed {scan.is_closed}, "
-      f"largest distance from the sphere {stray(scan):.2f} um")
-print(f"open rims: {len(scan.holes())}, with {', '.join(str(len(rim)) for rim in scan.holes())} points")
+stray = (
+    lambda body: 1e6
+    * np.abs(
+        np.linalg.norm(body.points[body.points[:, 2] < cap - 0.001], axis=1) - radius
+    ).max()
+)
+print(
+    f"scan: {len(scan.triangles)} triangles, {len(scan.points)} points, closed {scan.is_closed}, "
+    f"largest distance from the sphere {stray(scan):.2f} um"
+)
+print(
+    f"open rims: {len(scan.holes())}, with {', '.join(str(len(rim)) for rim in scan.holes())} points"
+)
 
 # ## Filling, thinning out, laying anew
 #
@@ -64,26 +71,51 @@ thinned = closed.simplified(1e-4)
 even = FacetMesher(target_size=0.003).skin(thinned)
 height = radius - cap
 expected = 4 / 3 * np.pi * radius**3 - np.pi * height**2 * (3 * radius - height) / 3
-print("skin                 triangles   points   closed   volume [cm3]   largest distance from the sphere below the cap [um]")
-for name, body in {"scan": scan, "holes filled": closed, "thinned to 0.1 mm": thinned, "laid anew at 3 mm": even}.items():
+print(
+    "skin                 triangles   points   closed   volume [cm3]   largest distance from the sphere below the cap [um]"
+)
+for name, body in {
+    "scan": scan,
+    "holes filled": closed,
+    "thinned to 0.1 mm": thinned,
+    "laid anew at 3 mm": even,
+}.items():
     volume = f"{body.measure * 1e6:13.4f}" if body.is_closed else f"{'open':>13s}"
-    print(f"{name:19s} {len(body.triangles):10d} {len(body.points):8d} {str(body.is_closed):>8s} {volume} {stray(body):24.2f}")
-print(f"sphere less a flat cap: {expected * 1e6:.4f} cm3 (the filled cap rim lies a little above z = 25 mm)")
+    print(
+        f"{name:19s} {len(body.triangles):10d} {len(body.points):8d} {str(body.is_closed):>8s} {volume} {stray(body):24.2f}"
+    )
+print(
+    f"sphere less a flat cap: {expected * 1e6:.4f} cm3 (the filled cap rim lies a little above z = 25 mm)"
+)
 
 mesh = FacetMesher(target_size=0.003, keep_facets=True).generate(even)
 report = quality(mesh)
 view = plots.Camera(elevation=35, azimuth=-60)
 fig = plots.figure(1, 2, size=(16, 7))
-plots.geometry(scan, camera=view, title=f"Scan: {len(scan.triangles)} triangles, two holes", ax=fig[0])
-plots.mesh(mesh, groups=("all",), legend=False, camera=view, title=f"Edited skin filled: {mesh.cell_count} tetrahedra", ax=fig[1])
+plots.geometry(
+    scan,
+    camera=view,
+    title=f"Scan: {len(scan.triangles)} triangles, two holes",
+    ax=fig[0],
+)
+plots.mesh(
+    mesh,
+    groups=("all",),
+    legend=False,
+    camera=view,
+    title=f"Edited skin filled: {mesh.cell_count} tetrahedra",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Results
 #
 # The volume mesh keeps the edited skin as it is: its volume is that of the skin to rounding.
 
-print(f"volume mesh: {mesh.cell_count} cells, volume {report['size'].sum() * 1e6:.4f} cm3 against the skin {even.measure * 1e6:.4f} cm3; "
-      f"smallest shape {report['shape'].min():.3f}, mean {report['shape'].mean():.3f}")
+print(
+    f"volume mesh: {mesh.cell_count} cells, volume {report['size'].sum() * 1e6:.4f} cm3 against the skin {even.measure * 1e6:.4f} cm3; "
+    f"smallest shape {report['shape'].min():.3f}, mean {report['shape'].mean():.3f}"
+)
 
 # ## Figure
 #
@@ -92,9 +124,24 @@ print(f"volume mesh: {mesh.cell_count} cells, volume {report['size'].sum() * 1e6
 
 top = plots.Camera(elevation=60, azimuth=-60)
 fig = plots.figure(1, 3, size=(21, 7))
-for index, (name, body) in enumerate({"holes filled": closed, "thinned to 0.1 mm": thinned, "laid anew at 3 mm": even}.items()):
-    plots.trisurface(body.points, body.triangles, 1e3 * body.points[:, 2], edges=True, limits=(-30, 30), label="height z [mm]",
-                     camera=top, title=f"{name}: {len(body.triangles)} triangles", ax=fig[index])
+for index, (name, body) in enumerate(
+    {
+        "holes filled": closed,
+        "thinned to 0.1 mm": thinned,
+        "laid anew at 3 mm": even,
+    }.items()
+):
+    plots.trisurface(
+        body.points,
+        body.triangles,
+        1e3 * body.points[:, 2],
+        edges=True,
+        limits=(-30, 30),
+        label="height z [mm]",
+        camera=top,
+        title=f"{name}: {len(body.triangles)} triangles",
+        ax=fig[index],
+    )
 plots.show()
 
 # ## Going further

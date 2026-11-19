@@ -10,6 +10,10 @@ coaxial_cable_impedance_eccentric.step with the faces conductor.outer_wall and o
 from onesim.cad.d3 import AnnularCylinder, Cylinder
 
 inner, outer, length, offset = 0.45e-3, 1.475e-3, 1.0e-3, 0.40e-3
-AnnularCylinder(inner_radius=inner, outer_radius=outer, length=length).save("coaxial_cable_impedance.step")
-eccentric = Cylinder(radius=outer, length=length) - Cylinder(radius=inner, length=length, origin=(offset, 0.0, 0.0)).named("conductor")
+AnnularCylinder(inner_radius=inner, outer_radius=outer, length=length).save(
+    "coaxial_cable_impedance.step"
+)
+eccentric = Cylinder(radius=outer, length=length) - Cylinder(
+    radius=inner, length=length, origin=(offset, 0.0, 0.0)
+).named("conductor")
 eccentric.save("coaxial_cable_impedance_eccentric.step")

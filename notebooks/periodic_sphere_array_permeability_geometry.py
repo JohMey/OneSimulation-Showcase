@@ -9,13 +9,14 @@ names x_min, x_max, y_min, y_max, z_min and z_max, the sphere surface is sphere.
 """
 
 import numpy as np
-
 from onesim.cad.d3 import Box, Sphere
 
 side = 1e-3
 for per_mille in (64, 125, 216, 343, 450):
     radius = side * (3 * per_mille / 1000 / (4 * np.pi)) ** (1 / 3)
-    quarter = Box(length=side, width=side / 2, height=side / 2) - Sphere(radius=radius, origin=(side / 2, 0.0, 0.0)).named("sphere")
+    quarter = Box(length=side, width=side / 2, height=side / 2) - Sphere(
+        radius=radius, origin=(side / 2, 0.0, 0.0)
+    ).named("sphere")
     quarter.save(f"periodic_sphere_array_permeability_{per_mille}.step")
     if per_mille == 216:
         quarter.save("periodic_sphere_array_permeability.step")

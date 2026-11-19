@@ -10,7 +10,6 @@ The cleaned rim must have exactly the volume of the same rim built without the d
 number of faces, edges and cells and the smallest cells show what the clean-up buys.
 """
 
-
 # # Geometry clean-up on a wheel rim
 #
 # CAD models made for manufacturing carry details that matter for the drawing but not for the
@@ -28,14 +27,14 @@ number of faces, edges and cells and the smallest cells show what the clean-up b
 # hole: the clean rim must have its volume. The volumes of the
 # meshes must match the volume of the body they were made for.
 
-import numpy as np
 from collections import Counter
 
+import numpy as np
 from onesim.cad.d2 import Profile
 from onesim.cad.d3 import CircularPattern, Cylinder, Prism, Revolution, UnionFromObjects
 from onesim.meshing import TetrahedralMesher
 from onesim.meshing.quality import quality
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -48,28 +47,86 @@ theme.set()
 # 8 mm is drilled through the barrel.
 
 mm = 1e-3
-barrel = Revolution(profile=Profile.polygon([(185 * mm, 0), (200 * mm, 0), (200 * mm, 8 * mm), (192 * mm, 14 * mm), (192 * mm, 186 * mm),
-                                             (200 * mm, 192 * mm), (200 * mm, 200 * mm), (185 * mm, 200 * mm), (185 * mm, 190 * mm),
-                                             (186 * mm, 10 * mm)]))
-window = Prism(profile=Profile.rounded_polygon([(80 * mm, -25 * mm), (160 * mm, -45 * mm), (160 * mm, 45 * mm), (80 * mm, 25 * mm)], 10 * mm),
-               height=40 * mm).moved((0, 0, 110 * mm))
-lug = Cylinder(radius=7 * mm, length=40 * mm, origin=(57 * mm, 0, 110 * mm)).rotated((0, 0, 1), np.pi / 5)
-plain = (UnionFromObjects(objects=[barrel, Cylinder(radius=186 * mm, length=20 * mm, origin=(0, 0, 120 * mm))])
-         - Cylinder(radius=35 * mm, length=40 * mm, origin=(0, 0, 110 * mm)).named("bore")
-         - CircularPattern(window, (0, 0, 1), 5).named("window")
-         - CircularPattern(lug, (0, 0, 1), 5).named("lug"))
-drilled = plain - Cylinder(radius=4 * mm, length=30 * mm, origin=(175 * mm, 0, 60 * mm), axis=(1, 0, 0)).named("valve")
-rim = drilled.fillet(3 * mm, edges=drilled.select(edges=lambda edge: abs(edge.start[2] - 0.14) < 1e-9 and abs(edge.end[2] - 0.14) < 1e-9
-                                                  and 0.07 < np.hypot(edge.start[0], edge.start[1]) < 0.17))
-print(f"rim: {len(rim.faces)} faces, {len(rim.edges)} edges, volume {rim.measure * 1e6:.3f} cm3, valid {rim.is_valid}")
+barrel = Revolution(
+    profile=Profile.polygon(
+        [
+            (185 * mm, 0),
+            (200 * mm, 0),
+            (200 * mm, 8 * mm),
+            (192 * mm, 14 * mm),
+            (192 * mm, 186 * mm),
+            (200 * mm, 192 * mm),
+            (200 * mm, 200 * mm),
+            (185 * mm, 200 * mm),
+            (185 * mm, 190 * mm),
+            (186 * mm, 10 * mm),
+        ]
+    )
+)
+window = Prism(
+    profile=Profile.rounded_polygon(
+        [
+            (80 * mm, -25 * mm),
+            (160 * mm, -45 * mm),
+            (160 * mm, 45 * mm),
+            (80 * mm, 25 * mm),
+        ],
+        10 * mm,
+    ),
+    height=40 * mm,
+).moved((0, 0, 110 * mm))
+lug = Cylinder(radius=7 * mm, length=40 * mm, origin=(57 * mm, 0, 110 * mm)).rotated(
+    (0, 0, 1), np.pi / 5
+)
+plain = (
+    UnionFromObjects(
+        objects=[
+            barrel,
+            Cylinder(radius=186 * mm, length=20 * mm, origin=(0, 0, 120 * mm)),
+        ]
+    )
+    - Cylinder(radius=35 * mm, length=40 * mm, origin=(0, 0, 110 * mm)).named("bore")
+    - CircularPattern(window, (0, 0, 1), 5).named("window")
+    - CircularPattern(lug, (0, 0, 1), 5).named("lug")
+)
+drilled = plain - Cylinder(
+    radius=4 * mm, length=30 * mm, origin=(175 * mm, 0, 60 * mm), axis=(1, 0, 0)
+).named("valve")
+rim = drilled.fillet(
+    3 * mm,
+    edges=drilled.select(
+        edges=lambda edge: abs(edge.start[2] - 0.14) < 1e-9
+        and abs(edge.end[2] - 0.14) < 1e-9
+        and 0.07 < np.hypot(edge.start[0], edge.start[1]) < 0.17
+    ),
+)
+print(
+    f"rim: {len(rim.faces)} faces, {len(rim.edges)} edges, volume {rim.measure * 1e6:.3f} cm3, valid {rim.is_valid}"
+)
 print(f"modelling steps: {', '.join(type(step).__name__ for step in rim.history())}")
 
 detailed = TetrahedralMesher(target_size=0.02).generate(rim)
 view = plots.Camera(elevation=35, azimuth=-50)
 fig = plots.figure(1, 2, size=(16, 7))
-plots.geometry(rim, selection={"3 mm fillets": rim.boundaries.fillet, "valve hole": rim.boundaries["valve.outer_wall"]}, labels=False,
-               camera=view, title="Wheel rim with its small details", ax=fig[0])
-plots.mesh(detailed, groups=("all",), legend=False, camera=view, title=f"Mesh with all details: {detailed.cell_count} tetrahedra", ax=fig[1])
+plots.geometry(
+    rim,
+    selection={
+        "3 mm fillets": rim.boundaries.fillet,
+        "valve hole": rim.boundaries["valve.outer_wall"],
+    },
+    labels=False,
+    camera=view,
+    title="Wheel rim with its small details",
+    ax=fig[0],
+)
+plots.mesh(
+    detailed,
+    groups=("all",),
+    legend=False,
+    camera=view,
+    title=f"Mesh with all details: {detailed.cell_count} tetrahedra",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Finding the details
@@ -89,20 +146,34 @@ for (kind, radius), count in sorted(found.items()):
 
 clean = rim.remove_faces(rim.boundaries.fillet | rim.boundaries["valve.outer_wall"])
 by_hand = rim.rolled_back(1).remove_faces(drilled.boundaries["valve.outer_wall"])
-print("body                         faces   edges   volume [cm3]   against the rim built without details")
-for name, body in {"rim with details": rim, "fillets and valve removed": clean, "rolled back, valve removed": by_hand,
-                   "built without details": plain}.items():
-    print(f"{name:28s} {len(body.faces):6d} {len(body.edges):7d} {body.measure * 1e6:13.4f} {body.measure / plain.measure - 1:+16.1e}")
+print(
+    "body                         faces   edges   volume [cm3]   against the rim built without details"
+)
+for name, body in {
+    "rim with details": rim,
+    "fillets and valve removed": clean,
+    "rolled back, valve removed": by_hand,
+    "built without details": plain,
+}.items():
+    print(
+        f"{name:28s} {len(body.faces):6d} {len(body.edges):7d} {body.measure * 1e6:13.4f} {body.measure / plain.measure - 1:+16.1e}"
+    )
 
-meshes = {"rim with details": detailed,
-          "fillets and valve removed": TetrahedralMesher(target_size=0.02).generate(clean),
-          "rolled back, valve removed": TetrahedralMesher(target_size=0.02).generate(by_hand)}
-print("mesh                        cells   shortest edge [mm]   smallest shape   volume error")
+meshes = {
+    "rim with details": detailed,
+    "fillets and valve removed": TetrahedralMesher(target_size=0.02).generate(clean),
+    "rolled back, valve removed": TetrahedralMesher(target_size=0.02).generate(by_hand),
+}
+print(
+    "mesh                        cells   shortest edge [mm]   smallest shape   volume error"
+)
 for name, mesh in meshes.items():
     report = quality(mesh)
     reference = rim.measure if name == "rim with details" else plain.measure
-    print(f"{name:25s} {mesh.cell_count:8d} {1e3 * report['shortest_edge'].min():14.2f} {report['shape'].min():16.3f}"
-          f" {100 * (report['size'].sum() / reference - 1):+12.3f} %")
+    print(
+        f"{name:25s} {mesh.cell_count:8d} {1e3 * report['shortest_edge'].min():14.2f} {report['shape'].min():16.3f}"
+        f" {100 * (report['size'].sum() / reference - 1):+12.3f} %"
+    )
 
 # ## Figure
 #
@@ -110,11 +181,26 @@ for name, mesh in meshes.items():
 # around the valve position are as large as the rest.
 
 fig = plots.figure(1, 2, size=(16, 7))
-plots.geometry(clean, selection={"windows": clean.boundaries["window.side"], "lug holes": clean.boundaries["lug.outer_wall"]},
-               labels=False, camera=view, title="Rim without fillets and valve hole", ax=fig[0])
-plots.mesh(meshes["fillets and valve removed"], cell_values=1e3 * quality(meshes["fillets and valve removed"])["longest_edge"], limits=(0, 40),
-           label="longest cell edge [mm]", camera=view, title=f"Mesh of the clean rim: {meshes['fillets and valve removed'].cell_count} tetrahedra",
-           ax=fig[1])
+plots.geometry(
+    clean,
+    selection={
+        "windows": clean.boundaries["window.side"],
+        "lug holes": clean.boundaries["lug.outer_wall"],
+    },
+    labels=False,
+    camera=view,
+    title="Rim without fillets and valve hole",
+    ax=fig[0],
+)
+plots.mesh(
+    meshes["fillets and valve removed"],
+    cell_values=1e3 * quality(meshes["fillets and valve removed"])["longest_edge"],
+    limits=(0, 40),
+    label="longest cell edge [mm]",
+    camera=view,
+    title=f"Mesh of the clean rim: {meshes['fillets and valve removed'].cell_count} tetrahedra",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Going further

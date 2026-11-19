@@ -4,7 +4,6 @@ Requires the installed, activated OneSimulation runtime.
 The OneSimulation solution is checked against Newton's law of cooling.
 """
 
-
 # # Convective cooling of a lumped thermal mass
 #
 # A compact body with total heat capacity $C$ sits in a still environment at
@@ -28,7 +27,6 @@ The OneSimulation solution is checked against Newton's law of cooling.
 # expression.
 
 import numpy as np
-
 from onesim.cad.geometry import LumpedDomain
 from onesim.meshing import LumpedMesh
 from onesim.numerics import Numerics
@@ -38,7 +36,7 @@ from onesim.physics.systems import ThermalCapacitance
 from onesim.results.storage import MemoryOutputSink, Output
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -59,7 +57,9 @@ conductance = heat_transfer_coefficient * area
 time_constant = heat_capacity / conductance
 end_time = 3.0 * time_constant
 time_step = 0.05 * time_constant
-print(f"conductance hA = {conductance:.3f} W/K,  time constant C/(hA) = {time_constant:.1f} s")
+print(
+    f"conductance hA = {conductance:.3f} W/K,  time constant C/(hA) = {time_constant:.1f} s"
+)
 
 domain = LumpedDomain()
 model = ThermalCapacitance(
@@ -113,11 +113,21 @@ print(f"Maximum absolute error against the exponential: {max_abs_error:.3e} K")
 # ## Figure
 
 dense_t = np.linspace(0.0, end_time, 400)
-plots.line(points={"OneSimulation RK4": (times, temperatures)},
-           reference={"Newton's law of cooling": (dense_t, ambient_temperature + (initial_temperature - ambient_temperature)
-                                                  * np.exp(-conductance * dense_t / heat_capacity))},
-           hlines={"ambient": ambient_temperature}, xlabel="time [s]", ylabel="temperature [K]",
-           title="Convective cooling of a lumped thermal mass")
+plots.line(
+    points={"OneSimulation RK4": (times, temperatures)},
+    reference={
+        "Newton's law of cooling": (
+            dense_t,
+            ambient_temperature
+            + (initial_temperature - ambient_temperature)
+            * np.exp(-conductance * dense_t / heat_capacity),
+        )
+    },
+    hlines={"ambient": ambient_temperature},
+    xlabel="time [s]",
+    ylabel="temperature [K]",
+    title="Convective cooling of a lumped thermal mass",
+)
 plots.show()
 
 

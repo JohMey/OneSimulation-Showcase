@@ -4,7 +4,6 @@ Requires the installed, activated OneSimulation runtime.
 The OneSimulation solution is checked against the known closed-form relaxation.
 """
 
-
 # # Reversible reaction A <-> B
 #
 # A species $A$ converts into $B$ and back in a homogeneous, well-mixed (0D)
@@ -32,7 +31,6 @@ The OneSimulation solution is checked against the known closed-form relaxation.
 # the equilibrium ratio.
 
 import numpy as np
-
 from onesim.cad.geometry import LumpedDomain
 from onesim.meshing import LumpedMesh
 from onesim.numerics import Numerics
@@ -46,7 +44,7 @@ from onesim.physics.chemistry import (
 )
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -69,8 +67,12 @@ C_B_eq = k_f / relaxation_rate * C_total
 tau = 1.0 / relaxation_rate
 end_time = 12.0 * tau
 time_step = 0.02 * tau
-print(f"relaxation rate k_f+k_r = {relaxation_rate:.3f} 1/s,  relaxation time = {tau:.3f} s")
-print(f"equilibrium: C_A_eq = {C_A_eq:.4f}, C_B_eq = {C_B_eq:.4f} mol/m^3,  ratio k_f/k_r = {k_f / k_r:.3f}")
+print(
+    f"relaxation rate k_f+k_r = {relaxation_rate:.3f} 1/s,  relaxation time = {tau:.3f} s"
+)
+print(
+    f"equilibrium: C_A_eq = {C_A_eq:.4f}, C_B_eq = {C_B_eq:.4f} mol/m^3,  ratio k_f/k_r = {k_f / k_r:.3f}"
+)
 
 
 # ## Model
@@ -131,13 +133,19 @@ _, num_B = result.field(C_B).time_series()
 exact_A = C_A_eq + (C_A0 - C_A_eq) * np.exp(-relaxation_rate * times)
 exact_B = C_B_eq + (C_B0 - C_B_eq) * np.exp(-relaxation_rate * times)
 
-err = max(float(np.max(np.abs(num_A - exact_A))), float(np.max(np.abs(num_B - exact_B))))
+err = max(
+    float(np.max(np.abs(num_A - exact_A))), float(np.max(np.abs(num_B - exact_B)))
+)
 rel_error = err / C_total
-print(f"Maximum absolute error against the relaxation: {err:.3e} mol/m^3"
-      f"  ({100 * rel_error:.4f} % of total)")
+print(
+    f"Maximum absolute error against the relaxation: {err:.3e} mol/m^3"
+    f"  ({100 * rel_error:.4f} % of total)"
+)
 
 final_A, final_B = num_A[-1], num_B[-1]
-print(f"final C_A = {final_A:.5f} (eq {C_A_eq:.5f}),  final C_B = {final_B:.5f} (eq {C_B_eq:.5f})")
+print(
+    f"final C_A = {final_A:.5f} (eq {C_A_eq:.5f}),  final C_B = {final_B:.5f} (eq {C_B_eq:.5f})"
+)
 ratio = final_B / final_A
 print(f"equilibrium ratio C_B/C_A = {ratio:.4f},  k_f/k_r = {k_f / k_r:.4f}")
 
@@ -149,12 +157,17 @@ print(f"Maximum mass-balance error C_A+C_B-C_total: {mass_error:.3e} mol/m^3")
 
 t_fine = np.linspace(0.0, end_time, 400)
 shown = slice(None, None, max(1, len(times) // 40))
-plots.line(points={"C_A": (times[shown], num_A[shown]), "C_B": (times[shown], num_B[shown])},
-           reference={"C_A": (t_fine, C_A_eq + (C_A0 - C_A_eq) * np.exp(-relaxation_rate * t_fine)),
-                      "C_B": (t_fine, C_B_eq + (C_B0 - C_B_eq) * np.exp(-relaxation_rate * t_fine))},
-           hlines={"equilibrium C_A": C_A_eq, "equilibrium C_B": C_B_eq},
-           xlabel="time [s]", ylabel="concentration [mol/m^3]",
-           title="Reversible reaction: OneSimulation (markers) and exact relaxation (dashed)")
+plots.line(
+    points={"C_A": (times[shown], num_A[shown]), "C_B": (times[shown], num_B[shown])},
+    reference={
+        "C_A": (t_fine, C_A_eq + (C_A0 - C_A_eq) * np.exp(-relaxation_rate * t_fine)),
+        "C_B": (t_fine, C_B_eq + (C_B0 - C_B_eq) * np.exp(-relaxation_rate * t_fine)),
+    },
+    hlines={"equilibrium C_A": C_A_eq, "equilibrium C_B": C_B_eq},
+    xlabel="time [s]",
+    ylabel="concentration [mol/m^3]",
+    title="Reversible reaction: OneSimulation (markers) and exact relaxation (dashed)",
+)
 plots.show()
 
 

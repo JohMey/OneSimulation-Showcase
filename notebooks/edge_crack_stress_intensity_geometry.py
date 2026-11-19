@@ -13,7 +13,15 @@ from onesim.cad.d3 import Box, Prism
 width, height, thickness, mouth = 0.100, 0.400, 0.010, 0.0002
 for ratio in (0.2, 0.3, 0.4, 0.5):
     tip = ratio * width
-    wedge = Prism(profile=Profile.polygon([(-0.1 * width, (height - mouth) / 2), (tip, height / 2),
-                                           (-0.1 * width, (height + mouth) / 2)]), height=thickness)
+    wedge = Prism(
+        profile=Profile.polygon(
+            [
+                (-0.1 * width, (height - mouth) / 2),
+                (tip, height / 2),
+                (-0.1 * width, (height + mouth) / 2),
+            ]
+        ),
+        height=thickness,
+    )
     plate = Box(length=width, width=height, height=thickness) - wedge.named("crack")
     plate.save(f"edge_crack_stress_intensity_{round(100 * ratio)}.step")

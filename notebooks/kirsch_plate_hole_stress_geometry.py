@@ -11,9 +11,14 @@ from onesim.cad.d3 import Box, Cylinder
 
 radius, thickness = 0.010, 0.010
 for size, suffix in ((20, ""), (5, "_5a"), (10, "_10a"), (40, "_40a")):
-    plate = Box(length=size * radius, width=size * radius, height=thickness) \
-        - Cylinder(radius=radius, length=thickness).named("hole")
+    plate = Box(length=size * radius, width=size * radius, height=thickness) - Cylinder(
+        radius=radius, length=thickness
+    ).named("hole")
     faces = plate.boundaries
-    plate = plate.grouped(loaded=faces.x_max, symmetry_x=faces.x_min, symmetry_y=faces.y_min,
-                          hole=plate.select(faces=lambda face: face.kind == "cylinder"))
+    plate = plate.grouped(
+        loaded=faces.x_max,
+        symmetry_x=faces.x_min,
+        symmetry_y=faces.y_min,
+        hole=plate.select(faces=lambda face: face.kind == "cylinder"),
+    )
     plate.save(f"kirsch_plate_hole_stress{suffix}.step")

@@ -11,10 +11,29 @@ the two flanks of the notch are the face notch.side.
 from onesim.cad.d2 import Profile
 from onesim.cad.d3 import Box, Prism
 
-length, depth, thickness, span, notch, mouth, plate = 0.440, 0.100, 0.050, 0.400, 0.050, 0.002, 0.010
+length, depth, thickness, span, notch, mouth, plate = (
+    0.440,
+    0.100,
+    0.050,
+    0.400,
+    0.050,
+    0.002,
+    0.010,
+)
 middle = length / 2
-pad = lambda x, y: Box(length=plate, width=0.005, height=thickness, origin=(x - plate / 2, y, 0.0))
-wedge = Prism(profile=Profile.polygon([(middle - mouth / 2, -0.004), (middle, notch), (middle + mouth / 2, -0.004)]), height=thickness)
-beam = (Box(length=length, width=depth, height=thickness) | pad(middle - span / 2, -0.005).named("left_plate")
-        | pad(middle + span / 2, -0.005).named("right_plate") | pad(middle, depth).named("load_plate")) - wedge.named("notch")
+pad = lambda x, y: Box(
+    length=plate, width=0.005, height=thickness, origin=(x - plate / 2, y, 0.0)
+)
+wedge = Prism(
+    profile=Profile.polygon(
+        [(middle - mouth / 2, -0.004), (middle, notch), (middle + mouth / 2, -0.004)]
+    ),
+    height=thickness,
+)
+beam = (
+    Box(length=length, width=depth, height=thickness)
+    | pad(middle - span / 2, -0.005).named("left_plate")
+    | pad(middle + span / 2, -0.005).named("right_plate")
+    | pad(middle, depth).named("load_plate")
+) - wedge.named("notch")
 beam.save("notched_beam_phase_field.step")

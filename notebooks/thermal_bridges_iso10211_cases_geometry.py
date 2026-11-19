@@ -15,9 +15,22 @@ end, balcony, top, soffit = 1.3, -0.6, 2.15, 1.0
 
 def wall_legs(inner, outer):
     """The two legs of the corner between the distances inner and outer from the outside faces."""
-    return UnionFromObjects(objects=[
-        Box(length=outer - inner, width=end - inner, height=top, origin=(inner, inner, 0.0)),
-        Box(length=end - outer, width=outer - inner, height=top, origin=(outer, inner, 0.0))])
+    return UnionFromObjects(
+        objects=[
+            Box(
+                length=outer - inner,
+                width=end - inner,
+                height=top,
+                origin=(inner, inner, 0.0),
+            ),
+            Box(
+                length=end - outer,
+                width=outer - inner,
+                height=top,
+                origin=(outer, inner, 0.0),
+            ),
+        ]
+    )
 
 
 def environment(face):
@@ -30,13 +43,24 @@ def environment(face):
     return "alpha" if z <= soffit + 1e-9 else "beta"
 
 
-slab = Box(length=end - 0.15, width=end - balcony, height=0.15, origin=(0.15, balcony, soffit))
+slab = Box(
+    length=end - 0.15, width=end - balcony, height=0.15, origin=(0.15, balcony, soffit)
+)
 finish = Box(length=end - 0.3, width=end - 0.3, height=0.05, origin=(0.3, 0.3, 1.15))
 construction = UnionFromObjects(objects=[wall_legs(0.0, 0.3), slab, finish])
-construction = construction.grouped(**{name: construction.select(faces=lambda face: environment(face) == name)
-                                       for name in ("alpha", "beta", "gamma", "delta")})
+construction = construction.grouped(
+    **{
+        name: construction.select(faces=lambda face: environment(face) == name)
+        for name in ("alpha", "beta", "gamma", "delta")
+    }
+)
 construction.save("thermal_bridges_iso10211_cases.step")
 
-regions = {"slab": slab, "finish": finish, "brick": wall_legs(0.0, 0.10), "insulation": wall_legs(0.10, 0.15)}
+regions = {
+    "slab": slab,
+    "finish": finish,
+    "brick": wall_legs(0.0, 0.10),
+    "insulation": wall_legs(0.10, 0.15),
+}
 for name, region in regions.items():
     region.save(f"thermal_bridges_iso10211_cases_{name}.step")

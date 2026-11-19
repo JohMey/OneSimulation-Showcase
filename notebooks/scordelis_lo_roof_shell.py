@@ -7,7 +7,6 @@ elements; the vertical displacement at the middle of the free edge is compared w
 value of the benchmark on three meshes.
 """
 
-
 # # Scordelis-Lo roof
 #
 # The roof is a segment of a circular cylinder: radius $R=25$ m, length $L=50$ m, spanning
@@ -34,11 +33,10 @@ value of the benchmark on three meshes.
 # shell theory).
 
 import numpy as np
-
 from onesim.cad.exchange import load
 from onesim.meshing import SheetMesher
 from onesim.physics.solid_mechanics import ElasticShell, ShellSurface
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -55,9 +53,20 @@ meshes = [SheetMesher(target_size=size, paved=True).generate(sheet) for size in 
 
 view = plots.Camera(elevation=30, azimuth=-60)
 fig = plots.figure(1, 2, size=(15, 5.5))
-plots.geometry(roof, selection={"diaphragm": faces.diaphragm, "free edge": faces.free_edge}, labels=False, camera=view,
-               title=f"Roof, {sheet.thickness:.2f} m thick, with its named faces", ax=fig[0])
-plots.mesh(meshes[1], camera=view, title=f"Mid-surface mesh: {len(meshes[1].quadrilaterals)} quadrilaterals", ax=fig[1])
+plots.geometry(
+    roof,
+    selection={"diaphragm": faces.diaphragm, "free edge": faces.free_edge},
+    labels=False,
+    camera=view,
+    title=f"Roof, {sheet.thickness:.2f} m thick, with its named faces",
+    ax=fig[0],
+)
+plots.mesh(
+    meshes[1],
+    camera=view,
+    title=f"Mid-surface mesh: {len(meshes[1].quadrilaterals)} quadrilaterals",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Model
@@ -66,15 +75,24 @@ plots.show()
 # displacements and two rotations about the local tangent axes. The supports are given node by
 # node: the nodes on the two diaphragm ends and the node on the crown at mid-length.
 
-shell = ElasticShell(youngs_modulus=4.32e8, poisson_ratio=0.0, thickness=sheet.thickness)
+shell = ElasticShell(
+    youngs_modulus=4.32e8, poisson_ratio=0.0, thickness=sheet.thickness
+)
 results = []
 for mesh in meshes:
     nodes = np.asarray(mesh.coordinates)
     ends = np.flatnonzero(np.isclose(np.abs(nodes[:, 0]), length / 2, atol=1e-6))
     crown = int(np.argmin(np.linalg.norm(nodes - (0.0, 0.0, radius), axis=1)))
-    results.append(shell.solve(surface=ShellSurface(coordinates=nodes, quadrilaterals=np.asarray(mesh.quadrilaterals)),
-                               supports=[(int(node), axis, 0.0) for node in ends for axis in ("y", "z")] + [(crown, "x", 0.0)],
-                               surface_load=(0.0, 0.0, -90.0)))
+    results.append(
+        shell.solve(
+            surface=ShellSurface(
+                coordinates=nodes, quadrilaterals=np.asarray(mesh.quadrilaterals)
+            ),
+            supports=[(int(node), axis, 0.0) for node in ends for axis in ("y", "z")]
+            + [(crown, "x", 0.0)],
+            surface_load=(0.0, 0.0, -90.0),
+        )
+    )
 
 # ## Results
 #
@@ -84,12 +102,22 @@ for mesh in meshes:
 
 reference = 0.3024
 edge = (0.0, radius * np.sin(half_angle), radius * np.cos(half_angle))
-sags = [-result.displacement[np.argmin(np.linalg.norm(np.asarray(mesh.coordinates) - edge, axis=1)), 2]
-        for mesh, result in zip(meshes, results)]
-print("cell size   quadrilaterals   nodes   displacement at the free edge   deviation from 0.3024")
+sags = [
+    -result.displacement[
+        np.argmin(np.linalg.norm(np.asarray(mesh.coordinates) - edge, axis=1)), 2
+    ]
+    for mesh, result in zip(meshes, results)
+]
+print(
+    "cell size   quadrilaterals   nodes   displacement at the free edge   deviation from 0.3024"
+)
 for size, mesh, sag in zip(sizes, meshes, sags):
-    print(f"{size:9.1f} {len(mesh.quadrilaterals):16d} {len(mesh.coordinates):7d} {sag:31.4f} {100 * (sag / reference - 1):+19.2f} %")
-print(f"vertical reactions {results[-1].reaction_force[:, 2].sum():.1f}, weight of the roof {90.0 * results[-1].area:.1f}")
+    print(
+        f"{size:9.1f} {len(mesh.quadrilaterals):16d} {len(mesh.coordinates):7d} {sag:31.4f} {100 * (sag / reference - 1):+19.2f} %"
+    )
+print(
+    f"vertical reactions {results[-1].reaction_force[:, 2].sum():.1f}, weight of the roof {90.0 * results[-1].area:.1f}"
+)
 
 # ## Figure
 #
@@ -101,15 +129,41 @@ nodes = np.asarray(mesh.coordinates)
 on_edge = np.flatnonzero(np.isclose(nodes[:, 1], edge[1], atol=1e-3))
 on_crown = np.flatnonzero(np.abs(nodes[:, 1]) < 0.5)
 fig = plots.figure(1, 3, size=(19, 5.5))
-plots.mesh(mesh, values=result.displacement[:, 2], displacement=result.displacement, scale=10.0, camera=view, label="u_z",
-           title="Vertical displacement, magnified 10 times", ax=fig[0])
-plots.line(points={"free edge": (nodes[on_edge, 0], result.displacement[on_edge, 2]),
-                   "near the crown": (nodes[on_crown, 0], result.displacement[on_crown, 2])},
-           hlines={"reference at the middle of the free edge": -reference}, xlabel="x along the roof", ylabel="u_z",
-           title="Sag along the roof", legend="center", ax=fig[1])
-plots.line([len(mesh.coordinates) for mesh in meshes], {"simulation": sags}, markers=True, hlines={"reference 0.3024": reference},
-           scale="logx", ylimits=(0.28, 0.32), xlabel="nodes", ylabel="vertical displacement at the free edge",
-           title="Mesh study", legend="lower right", ax=fig[2])
+plots.mesh(
+    mesh,
+    values=result.displacement[:, 2],
+    displacement=result.displacement,
+    scale=10.0,
+    camera=view,
+    label="u_z",
+    title="Vertical displacement, magnified 10 times",
+    ax=fig[0],
+)
+plots.line(
+    points={
+        "free edge": (nodes[on_edge, 0], result.displacement[on_edge, 2]),
+        "near the crown": (nodes[on_crown, 0], result.displacement[on_crown, 2]),
+    },
+    hlines={"reference at the middle of the free edge": -reference},
+    xlabel="x along the roof",
+    ylabel="u_z",
+    title="Sag along the roof",
+    legend="center",
+    ax=fig[1],
+)
+plots.line(
+    [len(mesh.coordinates) for mesh in meshes],
+    {"simulation": sags},
+    markers=True,
+    hlines={"reference 0.3024": reference},
+    scale="logx",
+    ylimits=(0.28, 0.32),
+    xlabel="nodes",
+    ylabel="vertical displacement at the free edge",
+    title="Mesh study",
+    legend="lower right",
+    ax=fig[2],
+)
 plots.show()
 
 # ## Going further

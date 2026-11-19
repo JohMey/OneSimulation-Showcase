@@ -7,7 +7,6 @@ of EN ISO 10211, with linear, quadratic and cubic finite elements on the same me
 construction is read from STEP files.
 """
 
-
 # # Thermal bridge in 3D: a balcony slab between two heated floors
 #
 # EN ISO 10211 (*Thermal bridges in building construction - Heat flows and surface
@@ -68,8 +67,8 @@ construction is read from STEP files.
 # within 0.1 K.
 
 from dataclasses import replace
-import numpy as np
 
+import numpy as np
 from onesim.cad.d2 import Plane
 from onesim.cad.d3 import Box
 from onesim.cad.exchange import load
@@ -80,7 +79,7 @@ from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import SparseDirect
 from onesim.physics.heat_transfer import ConvectiveHeatFlux, HeatConduction, HeatFlux
 from onesim.simulation import Problem, Simulation, regionwise
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -90,12 +89,22 @@ theme.set()
 # of the material interfaces are read from the regions.
 
 building = load("thermal_bridges_iso10211_cases.step")
-slab, finish, brick, insulation = (load(f"thermal_bridges_iso10211_cases_{name}.step")
-                                   for name in ("slab", "finish", "brick", "insulation"))
+slab, finish, brick, insulation = (
+    load(f"thermal_bridges_iso10211_cases_{name}.step")
+    for name in ("slab", "finish", "brick", "insulation")
+)
 faces = building.boundaries
 (_, balcony, _), (end, _, top) = building.bounding_box
-leaf, core, room = insulation.bounding_box[0][0], slab.bounding_box[0][0], finish.bounding_box[0][0]
-soffit, deck, floor = slab.bounding_box[0][2], finish.bounding_box[0][2], finish.bounding_box[1][2]
+leaf, core, room = (
+    insulation.bounding_box[0][0],
+    slab.bounding_box[0][0],
+    finish.bounding_box[0][0],
+)
+soffit, deck, floor = (
+    slab.bounding_box[0][2],
+    finish.bounding_box[0][2],
+    finish.bounding_box[1][2],
+)
 
 # ## Mesh
 #
@@ -103,20 +112,52 @@ soffit, deck, floor = slab.bounding_box[0][2], finish.bounding_box[0][2], finish
 # interfaces and grow away from them. `region_mesh` keeps the cells inside the construction.
 
 fine = 0.02
-across_wall = ((leaf, Geometric(2, first=fine)), (core - leaf, Geometric(2, first=fine)),
-               (room - core, Geometric(3, first=fine, toward="end")), (end - room, Geometric(5, first=fine)))
-grading = (Piecewise(across_wall),
-           Piecewise(((-balcony, Geometric(4, first=fine, toward="end")),) + across_wall),
-           Piecewise(((soffit, Geometric(5, first=fine, toward="end")), (deck - soffit, Geometric(3, first=fine)),
-                      (floor - deck, Geometric(2, first=fine)), (top - floor, Geometric(5, first=fine)))))
+across_wall = (
+    (leaf, Geometric(2, first=fine)),
+    (core - leaf, Geometric(2, first=fine)),
+    (room - core, Geometric(3, first=fine, toward="end")),
+    (end - room, Geometric(5, first=fine)),
+)
+grading = (
+    Piecewise(across_wall),
+    Piecewise(((-balcony, Geometric(4, first=fine, toward="end")),) + across_wall),
+    Piecewise(
+        (
+            (soffit, Geometric(5, first=fine, toward="end")),
+            (deck - soffit, Geometric(3, first=fine)),
+            (floor - deck, Geometric(2, first=fine)),
+            (top - floor, Geometric(5, first=fine)),
+        )
+    ),
+)
 hull = Box(length=end, width=end - balcony, height=top, origin=building.bounding_box[0])
-mesh = region_mesh(StructuredHexahedralMesher(cells=tuple(g.cells for g in grading), grading=grading).generate(hull), building)
+mesh = region_mesh(
+    StructuredHexahedralMesher(
+        cells=tuple(g.cells for g in grading), grading=grading
+    ).generate(hull),
+    building,
+)
 
 view = plots.Camera(elevation=20, azimuth=225)
 fig = plots.figure(1, 2, size=(15, 7))
-plots.geometry(building, selection={name: getattr(faces, name) for name in ("alpha", "beta", "gamma", "delta")}, labels=False,
-               camera=view, title="Construction with its four environments", ax=fig[0])
-plots.mesh(mesh, groups=("all",), legend=False, camera=view, title=f"{mesh.cell_count} hexahedra", ax=fig[1])
+plots.geometry(
+    building,
+    selection={
+        name: getattr(faces, name) for name in ("alpha", "beta", "gamma", "delta")
+    },
+    labels=False,
+    camera=view,
+    title="Construction with its four environments",
+    ax=fig[0],
+)
+plots.mesh(
+    mesh,
+    groups=("all",),
+    legend=False,
+    camera=view,
+    title=f"{mesh.cell_count} hexahedra",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Materials and boundary conditions
@@ -124,24 +165,56 @@ plots.show()
 # The conductivity is given region by region (the first match wins); the interior leaf is the
 # default. Each room and the outside exchange heat through a surface resistance.
 
-conductivity = regionwise(((slab, 2.5), (finish, 1.0), (brick, 1.0), (insulation, 0.04)), default=0.7, unit="W/m/K")
-material = replace(IsotropicSolid(density=1500.0, specific_heat_capacity=1000.0, thermal_conductivity=1.0,
-                                  youngs_modulus=1e9, poisson_ratio=0.3, thermal_expansion_coefficient=0.0),
-                   thermal_conductivity=conductivity)
+conductivity = regionwise(
+    ((slab, 2.5), (finish, 1.0), (brick, 1.0), (insulation, 0.04)),
+    default=0.7,
+    unit="W/m/K",
+)
+material = replace(
+    IsotropicSolid(
+        density=1500.0,
+        specific_heat_capacity=1000.0,
+        thermal_conductivity=1.0,
+        youngs_modulus=1e9,
+        poisson_ratio=0.3,
+        thermal_expansion_coefficient=0.0,
+    ),
+    thermal_conductivity=conductivity,
+)
 model = HeatConduction(domain=building.volume, material=material, heating=0.0)
 air = {"alpha": (20.0, 1 / 0.20), "beta": (15.0, 1 / 0.20), "gamma": (0.0, 1 / 0.05)}
-problem = Problem(name="ISO 10211 case 3", geometry=building, physics=(model,), boundary_conditions=tuple(
-    ConvectiveHeatFlux(boundary=getattr(faces, name), physics=model, heat_transfer_coefficient=h, ambient_temperature=273.15 + T)
-    for name, (T, h) in air.items()) + (HeatFlux(boundary=faces.delta, physics=model, value=0.0),))
+problem = Problem(
+    name="ISO 10211 case 3",
+    geometry=building,
+    physics=(model,),
+    boundary_conditions=tuple(
+        ConvectiveHeatFlux(
+            boundary=getattr(faces, name),
+            physics=model,
+            heat_transfer_coefficient=h,
+            ambient_temperature=273.15 + T,
+        )
+        for name, (T, h) in air.items()
+    )
+    + (HeatFlux(boundary=faces.delta, physics=model, value=0.0),),
+)
 
 # ## Solve
 #
 # One steady solve per element order on the same mesh.
 
+
 def solve(order):
     """Temperature field for Lagrange elements of the given order."""
-    numerics = Numerics(spatial=FiniteElement(element=Lagrange(order=order)), linear_solver=SparseDirect())
-    return Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_stationary().field(model.temperature)
+    numerics = Numerics(
+        spatial=FiniteElement(element=Lagrange(order=order)),
+        linear_solver=SparseDirect(),
+    )
+    return (
+        Simulation(problem=problem, mesh=mesh, numerics=numerics)
+        .solve_stationary()
+        .field(model.temperature)
+    )
 
 
 fields = {order: solve(order) for order in (1, 2, 3)}
@@ -152,17 +225,42 @@ field = fields[3]
 # Heat flows into the construction and the lowest surface temperature of each room, against the
 # values of the standard.
 
-reference = {"heat flow alpha [W]": 46.09, "heat flow beta [W]": 13.89, "heat flow gamma [W]": 59.98,
-             "min. temperature alpha [°C]": 11.32, "min. temperature beta [°C]": 11.11}
-results = {order: [-f.boundary_flux(faces.alpha), -f.boundary_flux(faces.beta), f.boundary_flux(faces.gamma),
-                   f.sample(along=faces.alpha, subdivisions=6).values.min() - 273.15,
-                   f.sample(along=faces.beta, subdivisions=6).values.min() - 273.15] for order, f in fields.items()}
-print(f"{'quantity':30s} {'ISO 10211':>10s} {'Q1':>10s} {'Q2':>10s} {'Q3':>10s}   deviation of Q3")
+reference = {
+    "heat flow alpha [W]": 46.09,
+    "heat flow beta [W]": 13.89,
+    "heat flow gamma [W]": 59.98,
+    "min. temperature alpha [°C]": 11.32,
+    "min. temperature beta [°C]": 11.11,
+}
+results = {
+    order: [
+        -f.boundary_flux(faces.alpha),
+        -f.boundary_flux(faces.beta),
+        f.boundary_flux(faces.gamma),
+        f.sample(along=faces.alpha, subdivisions=6).values.min() - 273.15,
+        f.sample(along=faces.beta, subdivisions=6).values.min() - 273.15,
+    ]
+    for order, f in fields.items()
+}
+print(
+    f"{'quantity':30s} {'ISO 10211':>10s} {'Q1':>10s} {'Q2':>10s} {'Q3':>10s}   deviation of Q3"
+)
 for row, (name, value) in enumerate(reference.items()):
     q3 = results[3][row]
-    deviation = f"{100 * (q3 / value - 1):+.3f} % (1 % allowed)" if "flow" in name else f"{q3 - value:+.4f} K (0.1 K allowed)"
-    print(f"{name:30s} {value:10.2f} " + " ".join(f"{results[order][row]:10.4f}" for order in fields) + "   " + deviation)
-print(f"energy balance (Q3): in {results[3][0] + results[3][1]:.5f} W, out {results[3][2]:.5f} W")
+    deviation = (
+        f"{100 * (q3 / value - 1):+.3f} % (1 % allowed)"
+        if "flow" in name
+        else f"{q3 - value:+.4f} K (0.1 K allowed)"
+    )
+    print(
+        f"{name:30s} {value:10.2f} "
+        + " ".join(f"{results[order][row]:10.4f}" for order in fields)
+        + "   "
+        + deviation
+    )
+print(
+    f"energy balance (Q3): in {results[3][0] + results[3][1]:.5f} W, out {results[3][2]:.5f} W"
+)
 
 # ## Figure
 #
@@ -171,29 +269,86 @@ print(f"energy balance (Q3): in {results[3][0] + results[3][1]:.5f} W, out {resu
 
 celsius = lambda T, position: T - 273.15
 z = np.linspace(0, top, 431)
-corner = field.evaluate(np.column_stack((np.full_like(z, room), np.full_like(z, room), z))).ravel() - 273.15
+corner = (
+    field.evaluate(
+        np.column_stack((np.full_like(z, room), np.full_like(z, room), z))
+    ).ravel()
+    - 273.15
+)
 rooms = {"lower room": z <= soffit, "upper room": z >= floor}
-deviation = {name[:-4]: [100 * (results[order][row] / value - 1) for order in fields]
-             for row, (name, value) in enumerate(reference.items()) if "flow" in name}
+deviation = {
+    name[:-4]: [100 * (results[order][row] / value - 1) for order in fields]
+    for row, (name, value) in enumerate(reference.items())
+    if "flow" in name
+}
 
 fig = plots.figure(2, 3, size=(18, 11))
-plots.surface(field, boundary=faces.alpha | faces.beta, component=celsius, limits=(0, 20), subdivisions=3,
-              camera=plots.Camera(elevation=20, azimuth=45), label="surface temperature [°C]",
-              title="Room side: 20 °C below, 15 °C above the slab", ax=fig[0])
-plots.surface(field, boundary=faces.gamma, component=celsius, limits=(0, 2.5), subdivisions=3,
-              camera=view, label="surface temperature [°C]",
-              title="Outside with the balcony", ax=fig[1])
-plots.line(y={label: (corner[part], z[part]) for label, part in rooms.items()},
-           points={"ISO 10211 minimum": ([11.32, 11.11], [soffit, floor])}, ylimits=(0, top),
-           xlabel="temperature in the room corner x = y = 0.3 m [°C]", ylabel="z [m]",
-           title="The cold spots sit at the slab", legend="lower left", ax=fig[2])
-plots.section(field, plane=Plane(origin=(0.8, 0, 0), normal=(1, 0, 0)), component=celsius, limits=(0, 20), contours=19,
-              subdivisions=3, label="T [°C]", title="Section x = 0.8 m: wall, slab and balcony",
-              xlabel="y [m] (outside at y < 0)", ylabel="z [m]", ax=fig[3])
-plots.section(field, plane=Plane(origin=(0, 0, 1.075), normal=(0, 0, 1)), component=celsius, limits=(0, 20),
-              contours=19, subdivisions=3, label="T [°C]", title="Section z = 1.075 m through the slab", ax=fig[4])
-plots.line([1, 2, 3], deviation, hlines={"tolerance of the standard": 1.0}, markers=True, xlabel="element order",
-           ylabel="deviation from ISO 10211 [%]", title="Heat flows against the standard", ax=fig[5])
+plots.surface(
+    field,
+    boundary=faces.alpha | faces.beta,
+    component=celsius,
+    limits=(0, 20),
+    subdivisions=3,
+    camera=plots.Camera(elevation=20, azimuth=45),
+    label="surface temperature [°C]",
+    title="Room side: 20 °C below, 15 °C above the slab",
+    ax=fig[0],
+)
+plots.surface(
+    field,
+    boundary=faces.gamma,
+    component=celsius,
+    limits=(0, 2.5),
+    subdivisions=3,
+    camera=view,
+    label="surface temperature [°C]",
+    title="Outside with the balcony",
+    ax=fig[1],
+)
+plots.line(
+    y={label: (corner[part], z[part]) for label, part in rooms.items()},
+    points={"ISO 10211 minimum": ([11.32, 11.11], [soffit, floor])},
+    ylimits=(0, top),
+    xlabel="temperature in the room corner x = y = 0.3 m [°C]",
+    ylabel="z [m]",
+    title="The cold spots sit at the slab",
+    legend="lower left",
+    ax=fig[2],
+)
+plots.section(
+    field,
+    plane=Plane(origin=(0.8, 0, 0), normal=(1, 0, 0)),
+    component=celsius,
+    limits=(0, 20),
+    contours=19,
+    subdivisions=3,
+    label="T [°C]",
+    title="Section x = 0.8 m: wall, slab and balcony",
+    xlabel="y [m] (outside at y < 0)",
+    ylabel="z [m]",
+    ax=fig[3],
+)
+plots.section(
+    field,
+    plane=Plane(origin=(0, 0, 1.075), normal=(0, 0, 1)),
+    component=celsius,
+    limits=(0, 20),
+    contours=19,
+    subdivisions=3,
+    label="T [°C]",
+    title="Section z = 1.075 m through the slab",
+    ax=fig[4],
+)
+plots.line(
+    [1, 2, 3],
+    deviation,
+    hlines={"tolerance of the standard": 1.0},
+    markers=True,
+    xlabel="element order",
+    ylabel="deviation from ISO 10211 [%]",
+    title="Heat flows against the standard",
+    ax=fig[5],
+)
 plots.show()
 
 # ## Going further

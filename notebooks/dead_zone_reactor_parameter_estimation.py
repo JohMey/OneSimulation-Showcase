@@ -9,7 +9,6 @@ against the exact matrix-exponential solution, the fitted values against the val
 generated the synthetic data.
 """
 
-
 # # Parameter estimation for a non-ideal stirred reactor
 #
 # A stirred tank of volume $V=1$ m³ is fed with $q=1$ l/s of liquid, so its mean residence time is
@@ -48,12 +47,11 @@ generated the synthetic data.
 # exactly $\mathbf c(t)=\bigl(I-e^{At}\bigr)\,\mathbf 1$.
 
 import numpy as np
-from scipy.linalg import expm
-
 from onesim.numerics.time import DEFAULT_TIME_INTEGRATOR_REGISTRY
 from onesim.physics.systems import ControlSignalFlowProvider, SignalBlock
 from onesim.simulation.studies import SimulationStudyService, StudyParameter
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
+from scipy.linalg import expm
 
 theme.set()
 
@@ -66,18 +64,48 @@ volume, feed = 1.0, 1e-3
 residence_time = volume / feed
 samples = np.arange(60.0, 4 * 3600.0 + 1, 60.0)
 rk4 = DEFAULT_TIME_INTEGRATOR_REGISTRY.resolve_id("classical_rk4")
-tank = lambda values: ControlSignalFlowProvider(blocks=(
-    SignalBlock("inlet", "constant", parameters={"value": 1.0}),
-    SignalBlock("active", "integrator", inputs=("d_active",)),
-    SignalBlock("dead", "integrator", inputs=("d_dead",)),
-    SignalBlock("d_active", "sum", inputs=("inlet", "active", "dead"), parameters={"weights": (
-        feed / (values["alpha"] * volume), -(1 + values["beta"]) * feed / (values["alpha"] * volume), values["beta"] * feed / (values["alpha"] * volume))}),
-    SignalBlock("d_dead", "sum", inputs=("active", "dead"), parameters={"weights": (
-        values["beta"] * feed / ((1 - values["alpha"]) * volume), -values["beta"] * feed / ((1 - values["alpha"]) * volume))})),
-    final_time=samples[-1], time_step=5.0, time_integrator=rk4)
-outlet = lambda run, block: {f"c_{i}": c for i, c in enumerate(np.interp(samples, run.times, run.signals[block]))}
-study = SimulationStudyService((StudyParameter("alpha", 0.05, 0.99), StudyParameter("beta", 0.01, 5.0)), tank,
-                               lambda run: outlet(run, "active"), solve=lambda graph: graph.execute())
+tank = lambda values: ControlSignalFlowProvider(
+    blocks=(
+        SignalBlock("inlet", "constant", parameters={"value": 1.0}),
+        SignalBlock("active", "integrator", inputs=("d_active",)),
+        SignalBlock("dead", "integrator", inputs=("d_dead",)),
+        SignalBlock(
+            "d_active",
+            "sum",
+            inputs=("inlet", "active", "dead"),
+            parameters={
+                "weights": (
+                    feed / (values["alpha"] * volume),
+                    -(1 + values["beta"]) * feed / (values["alpha"] * volume),
+                    values["beta"] * feed / (values["alpha"] * volume),
+                )
+            },
+        ),
+        SignalBlock(
+            "d_dead",
+            "sum",
+            inputs=("active", "dead"),
+            parameters={
+                "weights": (
+                    values["beta"] * feed / ((1 - values["alpha"]) * volume),
+                    -values["beta"] * feed / ((1 - values["alpha"]) * volume),
+                )
+            },
+        ),
+    ),
+    final_time=samples[-1],
+    time_step=5.0,
+    time_integrator=rk4,
+)
+outlet = lambda run, block: {
+    f"c_{i}": c for i, c in enumerate(np.interp(samples, run.times, run.signals[block]))
+}
+study = SimulationStudyService(
+    (StudyParameter("alpha", 0.05, 0.99), StudyParameter("beta", 0.01, 5.0)),
+    tank,
+    lambda run: outlet(run, "active"),
+    solve=lambda graph: graph.execute(),
+)
 
 # ## Synthetic experiment
 #
@@ -85,9 +113,24 @@ study = SimulationStudyService((StudyParameter("alpha", 0.05, 0.99), StudyParame
 # the step height.
 
 true = {"alpha": 0.65, "beta": 0.10}
-exact = lambda t, a, b: np.array([1 - (expm(np.array([[-(1 + b), b], [b * a / (1 - a), -b * a / (1 - a)]]) * feed / (a * volume) * s)
-                                       @ np.ones(2))[0] for s in np.atleast_1d(t)])
-measured = exact(samples, *true.values()) + np.random.default_rng(7).normal(0.0, 0.01, samples.size)
+exact = lambda t, a, b: np.array(
+    [
+        1
+        - (
+            expm(
+                np.array([[-(1 + b), b], [b * a / (1 - a), -b * a / (1 - a)]])
+                * feed
+                / (a * volume)
+                * s
+            )
+            @ np.ones(2)
+        )[0]
+        for s in np.atleast_1d(t)
+    ]
+)
+measured = exact(samples, *true.values()) + np.random.default_rng(7).normal(
+    0.0, 0.01, samples.size
+)
 
 # ## Results
 #
@@ -95,29 +138,67 @@ measured = exact(samples, *true.values()) + np.random.default_rng(7).normal(0.0,
 # the dead-zone model (start $\alpha=0.5$, $\beta=0.5$) and of the ideal tank.
 
 simulated = study.sweep(combinations=[true]).runs[0].measurements
-print(f"time integration against the matrix exponential: largest deviation "
-      f"{np.abs(np.array([simulated[f'c_{i}'] for i in range(samples.size)]) - exact(samples, *true.values())).max():.1e}")
-fit = study.fit(residuals=lambda m: np.array([(m[f"c_{i}"] - measured[i]) / 0.01 for i in range(samples.size)]),
-                start={"alpha": 0.5, "beta": 0.5}, method="levenberg_marquardt", maximum_runs=100)
-ideal = SimulationStudyService((StudyParameter("tau", 100.0, 5000.0),),
-                               lambda values: ControlSignalFlowProvider(blocks=(
-                                   SignalBlock("inlet", "constant", parameters={"value": 1.0}),
-                                   SignalBlock("outlet", "first_order", inputs=("inlet",), parameters={"time_constant": values["tau"]})),
-                                   final_time=samples[-1], time_step=5.0, time_integrator=rk4),
-                               lambda run: outlet(run, "outlet"), solve=lambda graph: graph.execute()).fit(
-    residuals=lambda m: np.array([(m[f"c_{i}"] - measured[i]) / 0.01 for i in range(samples.size)]),
-    start={"tau": residence_time}, method="levenberg_marquardt", maximum_runs=50)
-print(f"dead-zone fit: {fit.run_count} simulations, converged {fit.converged}, rank {fit.rank}, "
-      f"χ² = {fit.residuals @ fit.residuals:.1f} for {fit.degrees_of_freedom} degrees of freedom")
+print(
+    f"time integration against the matrix exponential: largest deviation "
+    f"{np.abs(np.array([simulated[f'c_{i}'] for i in range(samples.size)]) - exact(samples, *true.values())).max():.1e}"
+)
+fit = study.fit(
+    residuals=lambda m: np.array(
+        [(m[f"c_{i}"] - measured[i]) / 0.01 for i in range(samples.size)]
+    ),
+    start={"alpha": 0.5, "beta": 0.5},
+    method="levenberg_marquardt",
+    maximum_runs=100,
+)
+ideal = SimulationStudyService(
+    (StudyParameter("tau", 100.0, 5000.0),),
+    lambda values: ControlSignalFlowProvider(
+        blocks=(
+            SignalBlock("inlet", "constant", parameters={"value": 1.0}),
+            SignalBlock(
+                "outlet",
+                "first_order",
+                inputs=("inlet",),
+                parameters={"time_constant": values["tau"]},
+            ),
+        ),
+        final_time=samples[-1],
+        time_step=5.0,
+        time_integrator=rk4,
+    ),
+    lambda run: outlet(run, "outlet"),
+    solve=lambda graph: graph.execute(),
+).fit(
+    residuals=lambda m: np.array(
+        [(m[f"c_{i}"] - measured[i]) / 0.01 for i in range(samples.size)]
+    ),
+    start={"tau": residence_time},
+    method="levenberg_marquardt",
+    maximum_runs=50,
+)
+print(
+    f"dead-zone fit: {fit.run_count} simulations, converged {fit.converged}, rank {fit.rank}, "
+    f"χ² = {fit.residuals @ fit.residuals:.1f} for {fit.degrees_of_freedom} degrees of freedom"
+)
 print("parameter         true    estimate ± standard error   deviation")
 for name, label in (("alpha", "active fraction"), ("beta", "exchange ratio")):
-    print(f"{label:16s} {true[name]:6.3f} {fit.parameters[name]:10.4f} ± {fit.standard_errors[name]:.4f}       "
-          f"{(fit.parameters[name] - true[name]) / fit.standard_errors[name]:+5.2f} σ")
-print(f"correlation of the two estimates {fit.covariance[0, 1] / np.sqrt(fit.covariance[0, 0] * fit.covariance[1, 1]):+.2f}")
+    print(
+        f"{label:16s} {true[name]:6.3f} {fit.parameters[name]:10.4f} ± {fit.standard_errors[name]:.4f}       "
+        f"{(fit.parameters[name] - true[name]) / fit.standard_errors[name]:+5.2f} σ"
+    )
+print(
+    f"correlation of the two estimates {fit.covariance[0, 1] / np.sqrt(fit.covariance[0, 0] * fit.covariance[1, 1]):+.2f}"
+)
 for name, result in (("dead-zone model", fit), ("ideal stirred tank", ideal)):
-    print(f"{name:20s} rms residual {0.01 * np.sqrt(np.mean(result.residuals ** 2)):.4f}  (noise level 0.0100)")
-print(f"best ideal tank: residence time {ideal.parameters['tau']:.0f} ± {ideal.standard_errors['tau']:.0f} s instead of V/q = {residence_time:.0f} s")
-print(f"well-mixed volume {fit.parameters['alpha'] * volume:.3f} m³, exchange flow {fit.parameters['beta'] * feed * 1e3:.3f} l/s")
+    print(
+        f"{name:20s} rms residual {0.01 * np.sqrt(np.mean(result.residuals ** 2)):.4f}  (noise level 0.0100)"
+    )
+print(
+    f"best ideal tank: residence time {ideal.parameters['tau']:.0f} ± {ideal.standard_errors['tau']:.0f} s instead of V/q = {residence_time:.0f} s"
+)
+print(
+    f"well-mixed volume {fit.parameters['alpha'] * volume:.3f} m³, exchange flow {fit.parameters['beta'] * feed * 1e3:.3f} l/s"
+)
 
 # ## Figure
 #
@@ -125,19 +206,66 @@ print(f"well-mixed volume {fit.parameters['alpha'] * volume:.3f} m³, exchange f
 # both models, and the sum of squared residuals over a grid of the two parameters (a sweep of the
 # same study), whose minimum is the estimate.
 
-grid = SimulationStudyService((StudyParameter("alpha", 0.45, 0.85, values=tuple(np.linspace(0.45, 0.85, 13))),
-                               StudyParameter("beta", 0.02, 0.30, values=tuple(np.linspace(0.02, 0.30, 13)))),
-                              tank, lambda run: outlet(run, "active"), solve=lambda graph: graph.execute()).sweep()
-misfit = np.log10(np.array([np.sum((np.array([run.measurements[f"c_{i}"] for i in range(samples.size)]) - measured) ** 2)
-                            for run in grid.runs]).reshape(13, 13))
+grid = SimulationStudyService(
+    (
+        StudyParameter("alpha", 0.45, 0.85, values=tuple(np.linspace(0.45, 0.85, 13))),
+        StudyParameter("beta", 0.02, 0.30, values=tuple(np.linspace(0.02, 0.30, 13))),
+    ),
+    tank,
+    lambda run: outlet(run, "active"),
+    solve=lambda graph: graph.execute(),
+).sweep()
+misfit = np.log10(
+    np.array(
+        [
+            np.sum(
+                (
+                    np.array([run.measurements[f"c_{i}"] for i in range(samples.size)])
+                    - measured
+                )
+                ** 2
+            )
+            for run in grid.runs
+        ]
+    ).reshape(13, 13)
+)
 fig = plots.figure(1, 3, size=(18, 5))
-plots.line(samples / 60, {"dead-zone model, fitted": measured + 0.01 * fit.residuals, "ideal stirred tank, fitted": measured + 0.01 * ideal.residuals},
-           points={"synthetic measurements": (samples[::3] / 60, measured[::3])}, xlabel="time [min]",
-           ylabel="outlet concentration / step height", title="Tracer step response", legend="lower right", ax=fig[0])
-plots.line(points={"dead-zone model": (samples / 60, 0.01 * fit.residuals), "ideal stirred tank": (samples / 60, 0.01 * ideal.residuals)},
-           hlines=0.0, xlabel="time [min]", ylabel="model - measured", title="Residuals", ax=fig[1])
-plots.heatmap(np.linspace(0.45, 0.85, 13), np.linspace(0.02, 0.30, 13), misfit, contours=12, label="log10(sum of squared residuals)",
-              aspect="auto", xlabel="active fraction α", ylabel="exchange ratio β", title="Least-squares objective", ax=fig[2])
+plots.line(
+    samples / 60,
+    {
+        "dead-zone model, fitted": measured + 0.01 * fit.residuals,
+        "ideal stirred tank, fitted": measured + 0.01 * ideal.residuals,
+    },
+    points={"synthetic measurements": (samples[::3] / 60, measured[::3])},
+    xlabel="time [min]",
+    ylabel="outlet concentration / step height",
+    title="Tracer step response",
+    legend="lower right",
+    ax=fig[0],
+)
+plots.line(
+    points={
+        "dead-zone model": (samples / 60, 0.01 * fit.residuals),
+        "ideal stirred tank": (samples / 60, 0.01 * ideal.residuals),
+    },
+    hlines=0.0,
+    xlabel="time [min]",
+    ylabel="model - measured",
+    title="Residuals",
+    ax=fig[1],
+)
+plots.heatmap(
+    np.linspace(0.45, 0.85, 13),
+    np.linspace(0.02, 0.30, 13),
+    misfit,
+    contours=12,
+    label="log10(sum of squared residuals)",
+    aspect="auto",
+    xlabel="active fraction α",
+    ylabel="exchange ratio β",
+    title="Least-squares objective",
+    ax=fig[2],
+)
 plots.show()
 
 # ## Going further

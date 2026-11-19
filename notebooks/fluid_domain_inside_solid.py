@@ -10,7 +10,6 @@ Volume, wall areas and opening areas of the fluid domain are compared with close
 intersecting cylinders, and both domains are meshed, the fluid with boundary layers on its wall.
 """
 
-
 # # Creating a fluid domain inside a solid structure
 #
 # CAD models of valves, manifolds, pumps and heat exchangers describe the metal. A flow or
@@ -36,11 +35,10 @@ intersecting cylinders, and both domains are meshed, the fluid with boundary lay
 #   A_\text{main} = 2\pi r L - 4r^2,\qquad A_\text{branch} = \pi r H - 4r^2,\qquad A_\text{opening} = \pi r^2 .$$
 
 import numpy as np
-
 from onesim.cad.d3 import Assembly, Box, Cylinder
 from onesim.meshing import BoundaryLayers, TetrahedralMesher
 from onesim.meshing.quality import quality
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -50,9 +48,18 @@ theme.set()
 # `main.outer_wall` and `branch.outer_wall`.
 
 length, width, height, radius = 0.12, 0.06, 0.06, 0.012
-block = (Box(length=length, width=width, height=height)
-         - Cylinder(radius=radius, length=length, origin=(0.0, width / 2, height / 2), axis=(1, 0, 0)).named("main")
-         - Cylinder(radius=radius, length=height / 2, origin=(length / 2, width / 2, height / 2)).named("branch"))
+block = (
+    Box(length=length, width=width, height=height)
+    - Cylinder(
+        radius=radius,
+        length=length,
+        origin=(0.0, width / 2, height / 2),
+        axis=(1, 0, 0),
+    ).named("main")
+    - Cylinder(
+        radius=radius, length=height / 2, origin=(length / 2, width / 2, height / 2)
+    ).named("branch")
+)
 walls = block.boundaries["main.outer_wall"] | block.boundaries["branch.outer_wall"]
 print(f"block faces: {', '.join(face.id for face in block.faces)}")
 
@@ -70,10 +77,24 @@ print(f"walls: {', '.join(groups['wall'])}; openings: {', '.join(groups['opening
 mesh = TetrahedralMesher(target_size=0.006, curvature_angle=0.3).generate(manifold)
 view = plots.Camera(elevation=30, azimuth=-55)
 fig = plots.figure(1, 2, size=(16, 6))
-plots.geometry(block, selection={"bore walls": walls}, labels=False, camera=view, title="Manifold block with its bores", ax=fig[0])
-plots.mesh(mesh, cell_values=quality(mesh)["shape"], limits=(0, 1), plane=((length / 2, width / 2, height / 2), (0.0, 1.0, 0.0)),
-           label="shape measure", camera=plots.Camera(elevation=15, azimuth=90),
-           title=f"Assembly mesh of housing and water cut open: {mesh.cell_count} tetrahedra", ax=fig[1])
+plots.geometry(
+    block,
+    selection={"bore walls": walls},
+    labels=False,
+    camera=view,
+    title="Manifold block with its bores",
+    ax=fig[0],
+)
+plots.mesh(
+    mesh,
+    cell_values=quality(mesh)["shape"],
+    limits=(0, 1),
+    plane=((length / 2, width / 2, height / 2), (0.0, 1.0, 0.0)),
+    label="shape measure",
+    camera=plots.Camera(elevation=15, azimuth=90),
+    title=f"Assembly mesh of housing and water cut open: {mesh.cell_count} tetrahedra",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Results
@@ -84,34 +105,69 @@ plots.show()
 # $1-\sin\alpha/\alpha \approx 1.5\,\%$ smaller for a turn of $\alpha$ = 0.3 rad per cell, and the
 # housing larger by the same volume.
 
-exact = {"fluid volume [cm3]": (fluid.measure, np.pi * radius**2 * length + np.pi * radius**2 * height / 2 - 8 * radius**3 / 3, 1e6),
-         "main bore wall [cm2]": (fluid.topology.face("main.outer_wall").area, 2 * np.pi * radius * length - 4 * radius**2, 1e4),
-         "branch bore wall [cm2]": (fluid.topology.face("branch.outer_wall").area, np.pi * radius * height - 4 * radius**2, 1e4),
-         **{f"{name} [cm2]": (fluid.topology.face(name).area, np.pi * radius**2, 1e4) for name in groups["opening"]},
-         "housing volume [cm3]": (block.measure, length * width * height - fluid.measure, 1e6)}
+exact = {
+    "fluid volume [cm3]": (
+        fluid.measure,
+        np.pi * radius**2 * length + np.pi * radius**2 * height / 2 - 8 * radius**3 / 3,
+        1e6,
+    ),
+    "main bore wall [cm2]": (
+        fluid.topology.face("main.outer_wall").area,
+        2 * np.pi * radius * length - 4 * radius**2,
+        1e4,
+    ),
+    "branch bore wall [cm2]": (
+        fluid.topology.face("branch.outer_wall").area,
+        np.pi * radius * height - 4 * radius**2,
+        1e4,
+    ),
+    **{
+        f"{name} [cm2]": (fluid.topology.face(name).area, np.pi * radius**2, 1e4)
+        for name in groups["opening"]
+    },
+    "housing volume [cm3]": (
+        block.measure,
+        length * width * height - fluid.measure,
+        1e6,
+    ),
+}
 print("quantity                    CAD           closed form    deviation")
 for name, (value, reference, scale) in exact.items():
-    print(f"{name:24s} {value * scale:12.5f} {reference * scale:14.5f} {value / reference - 1:+12.1e}")
-contact, = manifold.interfaces
-print(f"contact between {' and '.join(contact.parts)}: {contact.area * 1e4:.5f} cm2, wall area "
-      f"{(exact['main bore wall [cm2]'][1] + exact['branch bore wall [cm2]'][1]) * 1e4:.5f} cm2")
+    print(
+        f"{name:24s} {value * scale:12.5f} {reference * scale:14.5f} {value / reference - 1:+12.1e}"
+    )
+(contact,) = manifold.interfaces
+print(
+    f"contact between {' and '.join(contact.parts)}: {contact.area * 1e4:.5f} cm2, wall area "
+    f"{(exact['main bore wall [cm2]'][1] + exact['branch bore wall [cm2]'][1]) * 1e4:.5f} cm2"
+)
 volumes = quality(mesh)["size"]
 for part in manifold.volumes:
-    print(f"mesh of {part.id:8s}: {len(mesh.region_cells(manifold.volume_of(part.id))):6d} cells, volume {volumes[list(mesh.region_cells(manifold.volume_of(part.id)))].sum() * 1e6:.4f} cm3 "
-          f"(CAD {part.measure * 1e6:.4f} cm3)")
+    print(
+        f"mesh of {part.id:8s}: {len(mesh.region_cells(manifold.volume_of(part.id))):6d} cells, volume {volumes[list(mesh.region_cells(manifold.volume_of(part.id)))].sum() * 1e6:.4f} cm3 "
+        f"(CAD {part.measure * 1e6:.4f} cm3)"
+    )
 
 # ## Fluid mesh with boundary layers
 #
 # For the flow alone the fluid gets its own mesh with five prism-like layers of tetrahedra on the
 # wall, 0.2 mm high at the wall and growing by 1.3, where the velocity rises from zero.
 
-layers = BoundaryLayers(walls=fluid.boundaries.wall, count=5, first_height=2e-4, growth=1.3)
-flow_mesh = TetrahedralMesher(target_size=0.004, curvature_angle=0.3, boundary_layers=(layers,)).generate(fluid)
+layers = BoundaryLayers(
+    walls=fluid.boundaries.wall, count=5, first_height=2e-4, growth=1.3
+)
+flow_mesh = TetrahedralMesher(
+    target_size=0.004, curvature_angle=0.3, boundary_layers=(layers,)
+).generate(fluid)
 report = flow_mesh.layer_report
-print(f"fluid mesh: {flow_mesh.cell_count} cells, {report['layer_count']} layers, heights "
-      f"{', '.join(f'{1e3 * item['mean']:.3f}' for item in report['layer_heights'])} mm, stated "
-      f"{', '.join(f'{1e3 * h:.3f}' for h in layers.layer_heights())} mm")
-print(f"fluid mesh volume {quality(flow_mesh)['size'].sum() * 1e6:.4f} cm3, closed form {exact['fluid volume [cm3]'][1] * 1e6:.4f} cm3")
+print(
+    f"fluid mesh: {flow_mesh.cell_count} cells, {report['layer_count']} layers, heights "
+    f"{', '.join(f'{1e3 * item['mean']:.3f}' for item in report['layer_heights'])} mm, stated "
+    f"{', '.join(f'{1e3 * h:.3f}' for h in layers.layer_heights())} mm"
+)
+print(
+    f"fluid mesh volume {quality(flow_mesh)['size'].sum() * 1e6:.4f} cm3, closed form {exact['fluid volume [cm3]'][1] * 1e6:.4f} cm3"
+)
 
 # ## Figure
 #
@@ -119,11 +175,24 @@ print(f"fluid mesh volume {quality(flow_mesh)['size'].sum() * 1e6:.4f} cm3, clos
 # of the main bore.
 
 fig = plots.figure(1, 2, size=(16, 6))
-plots.geometry(fluid, selection={"wall": fluid.boundaries.wall, "openings": fluid.boundaries.opening}, labels=False,
-               camera=view, title="Fluid domain: wall and openings", ax=fig[0])
-plots.mesh(flow_mesh, cell_values=flow_mesh.cell_layers, limits=(0, 5), plane=((length / 2, width / 2, height / 2), (0.0, 1.0, 0.0)),
-           label="layer (0 = core)", camera=plots.Camera(elevation=15, azimuth=90),
-           title=f"Fluid mesh with 5 wall layers: {flow_mesh.cell_count} cells", ax=fig[1])
+plots.geometry(
+    fluid,
+    selection={"wall": fluid.boundaries.wall, "openings": fluid.boundaries.opening},
+    labels=False,
+    camera=view,
+    title="Fluid domain: wall and openings",
+    ax=fig[0],
+)
+plots.mesh(
+    flow_mesh,
+    cell_values=flow_mesh.cell_layers,
+    limits=(0, 5),
+    plane=((length / 2, width / 2, height / 2), (0.0, 1.0, 0.0)),
+    label="layer (0 = core)",
+    camera=plots.Camera(elevation=15, azimuth=90),
+    title=f"Fluid mesh with 5 wall layers: {flow_mesh.cell_count} cells",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Going further

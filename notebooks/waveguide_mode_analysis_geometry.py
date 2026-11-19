@@ -10,5 +10,7 @@ from onesim.cad.d3 import Box
 
 guide = Box(length=22.86e-3, width=10.16e-3, height=1.5e-3)
 faces = guide.boundaries
-guide = guide.grouped(port=faces.z_min, short=faces.z_max, walls=faces.all - faces.z_min - faces.z_max)
+guide = guide.grouped(
+    port=faces.z_min, short=faces.z_max, walls=faces.all - faces.z_min - faces.z_max
+)
 guide.save("waveguide_mode_analysis.step")

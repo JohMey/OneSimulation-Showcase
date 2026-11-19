@@ -10,7 +10,6 @@ Displacement volume, waterplane area and centre of buoyancy are compared with th
 integrals of the hull equation.
 """
 
-
 # # Ship hull geometry
 #
 # A hull is drawn as a set of cross-sections, the stations, along its length; the shell runs
@@ -38,12 +37,11 @@ integrals of the hull equation.
 # parabolic waterlines*, Proc. Royal Society A 144 (1934) 144-159).
 
 import numpy as np
-
 from onesim.cad.d2 import Path, PlanarRegion, Profile, Segment
 from onesim.cad.d3 import Box, Loft
 from onesim.meshing import OctreeMesher
 from onesim.meshing.quality import quality
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -56,12 +54,28 @@ hull_length, beam, draft, freeboard = 4.0, 0.4, 0.25, 0.1
 end = 0.45 * hull_length
 stations = np.linspace(-end, end, 11)
 half_breadth = lambda x: beam / 2 * (1 - (2 * x / hull_length) ** 2)
-sections = [(Profile(Path((b, freeboard), (Segment((b, 0.0)), Segment((0.0, -draft), control=((b, -draft / 2),)),
-                                           Segment((-b, 0.0), control=((-b, -draft / 2),)), Segment((-b, freeboard)),
-                                           Segment((b, freeboard))))), x)
-            for x, b in zip(stations, half_breadth(stations))]
+sections = [
+    (
+        Profile(
+            Path(
+                (b, freeboard),
+                (
+                    Segment((b, 0.0)),
+                    Segment((0.0, -draft), control=((b, -draft / 2),)),
+                    Segment((-b, 0.0), control=((-b, -draft / 2),)),
+                    Segment((-b, freeboard)),
+                    Segment((b, freeboard)),
+                ),
+            )
+        ),
+        x,
+    )
+    for x, b in zip(stations, half_breadth(stations))
+]
 hull = Loft(sections=sections, axis=(1.0, 0.0, 0.0))
-print(f"hull: {len(hull.faces)} faces, bounding box {np.round(hull.bounding_box[0], 4)} to {np.round(hull.bounding_box[1], 4)} m")
+print(
+    f"hull: {len(hull.faces)} faces, bounding box {np.round(hull.bounding_box[0], 4)} to {np.round(hull.bounding_box[1], 4)} m"
+)
 
 # ## The underwater body
 #
@@ -69,14 +83,35 @@ print(f"hull: {len(hull.faces)} faces, bounding box {np.round(hull.bounding_box[
 # tetrahedra cut from a grid of cubes of 30 mm at the shell, which grow to 60 mm inside; the grid
 # follows a fine triangulation of the lofted shell (`faceted()`).
 
-underwater = hull - Box(length=hull_length, width=beam, height=freeboard, origin=(-hull_length / 2, -beam / 2, 0.0))
+underwater = hull - Box(
+    length=hull_length,
+    width=beam,
+    height=freeboard,
+    origin=(-hull_length / 2, -beam / 2, 0.0),
+)
 mesh = OctreeMesher(target_size=0.03, coarsening=1).generate(underwater.faceted())
 
 view = plots.Camera(elevation=35, azimuth=-50)
 fig = plots.figure(1, 2, size=(17, 6))
-plots.geometry(hull, selection={"shell": hull.boundaries.side, "transom and stem": hull.boundaries.bottom | hull.boundaries.top},
-               labels=False, camera=view, title="Wigley hull lofted through 11 stations", ax=fig[0])
-plots.mesh(mesh, groups=("all",), legend=False, camera=view, title=f"Underwater body: {mesh.cell_count} tetrahedra", ax=fig[1])
+plots.geometry(
+    hull,
+    selection={
+        "shell": hull.boundaries.side,
+        "transom and stem": hull.boundaries.bottom | hull.boundaries.top,
+    },
+    labels=False,
+    camera=view,
+    title="Wigley hull lofted through 11 stations",
+    ax=fig[0],
+)
+plots.mesh(
+    mesh,
+    groups=("all",),
+    legend=False,
+    camera=view,
+    title=f"Underwater body: {mesh.cell_count} tetrahedra",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Results
@@ -87,15 +122,35 @@ plots.show()
 
 integral = end - 4 * end**3 / (3 * hull_length**2)
 displacement = 4 / 3 * beam * draft * integral
-station_areas = np.array([profile.area for profile, _ in sections]) - 2 * half_breadth(stations) * freeboard
-simpson = (stations[1] - stations[0]) / 3 * (station_areas[0] + 4 * station_areas[1:-1:2].sum() + 2 * station_areas[2:-1:2].sum() + station_areas[-1])
+station_areas = (
+    np.array([profile.area for profile, _ in sections])
+    - 2 * half_breadth(stations) * freeboard
+)
+simpson = (
+    (stations[1] - stations[0])
+    / 3
+    * (
+        station_areas[0]
+        + 4 * station_areas[1:-1:2].sum()
+        + 2 * station_areas[2:-1:2].sum()
+        + station_areas[-1]
+    )
+)
 waterplane = hull.section((0, 0, 1), (0.0, 0.0, 0.0))
-print(f"displacement: CAD {underwater.measure * 1e3:.4f} l, mesh {quality(mesh)['size'].sum() * 1e3:.4f} l, Simpson over the stations "
-      f"{simpson * 1e3:.4f} l, closed form {displacement * 1e3:.4f} l ({underwater.measure / displacement - 1:+.2e})")
-print(f"waterplane area: CAD {waterplane.measure:.6f} m2, closed form {2 * beam * integral:.6f} m2 ({waterplane.measure / (2 * beam * integral) - 1:+.2e})")
-print(f"centre of buoyancy: x {underwater.center_of_mass[0]:+.5f} m (0 by symmetry), z {underwater.center_of_mass[2]:+.5f} m, "
-      f"closed form {-3 / 8 * draft:+.5f} m")
-print(f"block coefficient over the cut length: {underwater.measure / (2 * end * beam * draft):.4f}")
+print(
+    f"displacement: CAD {underwater.measure * 1e3:.4f} l, mesh {quality(mesh)['size'].sum() * 1e3:.4f} l, Simpson over the stations "
+    f"{simpson * 1e3:.4f} l, closed form {displacement * 1e3:.4f} l ({underwater.measure / displacement - 1:+.2e})"
+)
+print(
+    f"waterplane area: CAD {waterplane.measure:.6f} m2, closed form {2 * beam * integral:.6f} m2 ({waterplane.measure / (2 * beam * integral) - 1:+.2e})"
+)
+print(
+    f"centre of buoyancy: x {underwater.center_of_mass[0]:+.5f} m (0 by symmetry), z {underwater.center_of_mass[2]:+.5f} m, "
+    f"closed form {-3 / 8 * draft:+.5f} m"
+)
+print(
+    f"block coefficient over the cut length: {underwater.measure / (2 * end * beam * draft):.4f}"
+)
 
 # ## Figure
 #
@@ -105,9 +160,19 @@ print(f"block coefficient over the cut length: {underwater.measure / (2 * end * 
 x = np.linspace(-end, end, 101)
 fig = plots.figure(1, 3, size=(20, 6))
 plots.geometry(waterplane, title="Waterplane: section at z = 0", ax=fig[0])
-plots.line(points={"station profiles": (stations, station_areas)}, reference={"closed form 4/3 b(x) T": (x, 4 / 3 * half_breadth(x) * draft)},
-           xlabel="x [m]", ylabel="underwater section area [m2]", title="Sectional area curve", ax=fig[1])
-plots.geometry(PlanarRegion(profile=sections[5][0]), title="Midship station: deck line, sides, keel", ax=fig[2])
+plots.line(
+    points={"station profiles": (stations, station_areas)},
+    reference={"closed form 4/3 b(x) T": (x, 4 / 3 * half_breadth(x) * draft)},
+    xlabel="x [m]",
+    ylabel="underwater section area [m2]",
+    title="Sectional area curve",
+    ax=fig[1],
+)
+plots.geometry(
+    PlanarRegion(profile=sections[5][0]),
+    title="Midship station: deck line, sides, keel",
+    ax=fig[2],
+)
 plots.show()
 
 # ## Going further

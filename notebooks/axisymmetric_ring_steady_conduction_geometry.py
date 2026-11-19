@@ -7,13 +7,20 @@ axisymmetric_ring_steady_conduction.step. The bore is split into the heated band
 """
 
 import numpy as np
-
 from onesim.cad.d2 import Path, Profile, Segment
 from onesim.cad.d3 import Revolution
 
 bore, outer, height, band = 0.02, 0.1, 0.14, (0.04, 0.10)
-outline = Path((bore, 0.0), (Segment((outer, 0.0), name="bottom"), Segment((outer, height), name="outer"),
-                             Segment((bore, height), name="top"), Segment((bore, band[1]), name="bore_above"),
-                             Segment((bore, band[0]), name="heated"), Segment((bore, 0.0), name="bore_below")))
+outline = Path(
+    (bore, 0.0),
+    (
+        Segment((outer, 0.0), name="bottom"),
+        Segment((outer, height), name="outer"),
+        Segment((bore, height), name="top"),
+        Segment((bore, band[1]), name="bore_above"),
+        Segment((bore, band[0]), name="heated"),
+        Segment((bore, 0.0), name="bore_below"),
+    ),
+)
 ring = Revolution(profile=Profile(outline), angle=np.pi).rotated((0, 0, 1), -np.pi / 2)
 ring.save("axisymmetric_ring_steady_conduction.step")

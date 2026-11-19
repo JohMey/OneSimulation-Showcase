@@ -4,7 +4,6 @@ Requires the installed, activated OneSimulation runtime.
 The OneSimulation solution is checked against the underdamped closed-form solution.
 """
 
-
 # # Capacitor discharge through a series RLC circuit
 #
 # A capacitor $C$, initially charged to the voltage $U_0$, is connected at $t=0$ to
@@ -30,7 +29,6 @@ The OneSimulation solution is checked against the underdamped closed-form soluti
 # not only the time series but also the damped angular frequency and the decay rate.
 
 import numpy as np
-
 from onesim.cad.geometry import LumpedDomain
 from onesim.meshing import LumpedMesh
 from onesim.numerics import Numerics
@@ -40,7 +38,7 @@ from onesim.physics.electromagnetics import SeriesRLC
 from onesim.results.storage import MemoryOutputSink, Output
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -65,8 +63,12 @@ initial_charge = capacitance * initial_voltage
 damped_period = 2 * np.pi / omega_d
 end_time = 5.0 / alpha
 time_step = damped_period / 200.0
-print(f"omega_0 = {omega_0:.1f} rad/s,  alpha = {alpha:.1f} 1/s,  omega_d = {omega_d:.1f} rad/s")
-print(f"damped period = {damped_period * 1e3:.3f} ms,  decay time 1/alpha = {1e3 / alpha:.1f} ms")
+print(
+    f"omega_0 = {omega_0:.1f} rad/s,  alpha = {alpha:.1f} 1/s,  omega_d = {omega_d:.1f} rad/s"
+)
+print(
+    f"damped period = {damped_period * 1e3:.3f} ms,  decay time 1/alpha = {1e3 / alpha:.1f} ms"
+)
 
 domain = LumpedDomain()
 model = SeriesRLC(
@@ -122,38 +124,69 @@ capacitor_voltages = sink.time_series(model.capacitor_voltage)[1]
 # with the linear circuit equations; it is not a measurement of a real circuit.
 
 envelope = initial_charge * np.exp(-alpha * times)
-reference_charge = envelope * (np.cos(omega_d * times) + (alpha / omega_d) * np.sin(omega_d * times))
-reference_current = -initial_charge * (omega_0**2 / omega_d) * np.exp(-alpha * times) * np.sin(omega_d * times)
+reference_charge = envelope * (
+    np.cos(omega_d * times) + (alpha / omega_d) * np.sin(omega_d * times)
+)
+reference_current = (
+    -initial_charge
+    * (omega_0**2 / omega_d)
+    * np.exp(-alpha * times)
+    * np.sin(omega_d * times)
+)
 
 max_charge_error = float(np.max(np.abs(charges - reference_charge)))
 max_current_error = float(np.max(np.abs(currents - reference_current)))
 print(f"Maximum charge error:  {max_charge_error:.3e} C  (q0 = {initial_charge:.1e} C)")
-print(f"Maximum current error: {max_current_error:.3e} A  (peak current ~ {initial_charge * omega_0:.2f} A)")
+print(
+    f"Maximum current error: {max_current_error:.3e} A  (peak current ~ {initial_charge * omega_0:.2f} A)"
+)
 
 sign_change = np.where(np.sign(currents[:-1]) * np.sign(currents[1:]) < 0)[0]
 crossing_times = times[sign_change] - currents[sign_change] * (
-    (times[sign_change + 1] - times[sign_change]) / (currents[sign_change + 1] - currents[sign_change])
+    (times[sign_change + 1] - times[sign_change])
+    / (currents[sign_change + 1] - currents[sign_change])
 )
 measured_omega_d = np.pi / np.mean(np.diff(crossing_times))
 charge_at_crossings = np.interp(crossing_times, times, charges)
 measured_alpha = -np.polyfit(crossing_times, np.log(np.abs(charge_at_crossings)), 1)[0]
-print(f"Damped angular frequency: measured {measured_omega_d:.2f} rad/s, exact {omega_d:.2f} rad/s")
-print(f"Decay rate:               measured {measured_alpha:.3f} 1/s,  exact {alpha:.3f} 1/s")
+print(
+    f"Damped angular frequency: measured {measured_omega_d:.2f} rad/s, exact {omega_d:.2f} rad/s"
+)
+print(
+    f"Decay rate:               measured {measured_alpha:.3f} 1/s,  exact {alpha:.3f} 1/s"
+)
 
 
 # ## Figure
 
 dense_t = np.linspace(0.0, end_time, 2000)
 dense_env = initial_voltage * np.exp(-alpha * dense_t)
-dense_voltage = dense_env * (np.cos(omega_d * dense_t) + (alpha / omega_d) * np.sin(omega_d * dense_t))
+dense_voltage = dense_env * (
+    np.cos(omega_d * dense_t) + (alpha / omega_d) * np.sin(omega_d * dense_t)
+)
 fig = plots.figure(2, 1, size=(8, 7))
-plots.line(points={"OneSimulation RK4": (times[::10] * 1e3, capacitor_voltages[::10])},
-           reference={"closed-form solution": (dense_t * 1e3, dense_voltage)},
-           band={"decay envelope": (-np.interp(times[::10], dense_t, dense_env), np.interp(times[::10], dense_t, dense_env))},
-           x=times[::10] * 1e3, ylabel="capacitor voltage [V]", title="Series RLC capacitor discharge", ax=fig[0])
-plots.line(times * 1e3, {"loop current": currents},
-           points={"zero crossings": (crossing_times * 1e3, np.zeros_like(crossing_times))},
-           xlabel="time [ms]", ylabel="current [A]", ax=fig[1])
+plots.line(
+    points={"OneSimulation RK4": (times[::10] * 1e3, capacitor_voltages[::10])},
+    reference={"closed-form solution": (dense_t * 1e3, dense_voltage)},
+    band={
+        "decay envelope": (
+            -np.interp(times[::10], dense_t, dense_env),
+            np.interp(times[::10], dense_t, dense_env),
+        )
+    },
+    x=times[::10] * 1e3,
+    ylabel="capacitor voltage [V]",
+    title="Series RLC capacitor discharge",
+    ax=fig[0],
+)
+plots.line(
+    times * 1e3,
+    {"loop current": currents},
+    points={"zero crossings": (crossing_times * 1e3, np.zeros_like(crossing_times))},
+    xlabel="time [ms]",
+    ylabel="current [A]",
+    ax=fig[1],
+)
 plots.show()
 
 

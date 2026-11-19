@@ -10,5 +10,7 @@ from onesim.cad.d3 import Cylinder
 
 guide = Cylinder(radius=0.020, length=0.120)
 faces = guide.boundaries
-guide = guide.grouped(port=faces.bottom, exit=faces.top, wall=faces.all - faces.bottom - faces.top)
+guide = guide.grouped(
+    port=faces.bottom, exit=faces.top, wall=faces.all - faces.bottom - faces.top
+)
 guide.save("polarized_circular_waveguide_port.step")

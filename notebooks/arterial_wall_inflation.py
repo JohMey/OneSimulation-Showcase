@@ -7,7 +7,6 @@ incompressible Holzapfel-Gasser-Ogden material in 3D finite strain; the pressure
 compared with the semi-analytical solution of the thick-walled tube on two meshes.
 """
 
-
 # # Inflation of an artery wall
 #
 # The wall of an artery is a fibre-reinforced soft tissue. At low pressure the soft elastin matrix
@@ -47,11 +46,14 @@ compared with the semi-analytical solution of the thick-walled tube on two meshe
 # with $\lambda_\theta=r/R$, $\lambda_r=1/(\lambda_\theta\lambda_z)$ and $I_4=\lambda_\theta^2\cos^2\beta+\lambda_z^2\sin^2\beta$.
 
 import numpy as np
-
 from onesim.cad.exchange import load
 from onesim.meshing import TetrahedralMesher
-from onesim.physics.biophysics import ContinuumTissue, FiberReinforcedTissue, TissueFiberFamily
-from onesim.visualization import theme, plots
+from onesim.physics.biophysics import (
+    ContinuumTissue,
+    FiberReinforcedTissue,
+    TissueFiberFamily,
+)
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -68,9 +70,26 @@ meshes = [TetrahedralMesher(target_size=size).generate(segment) for size in size
 
 view = plots.Camera(elevation=35, azimuth=-60)
 fig = plots.figure(1, 2, size=(13, 6))
-plots.geometry(segment, selection={"lumen": faces.lumen, "symmetry": faces.plane_x | faces.plane_y, "ends": faces.bottom | faces.top},
-               labels=False, camera=view, title="Quarter of the artery segment", ax=fig[0])
-plots.mesh(meshes[-1], groups=("all",), legend=False, camera=view, title=f"Finer mesh: {meshes[-1].cell_count} tetrahedra", ax=fig[1])
+plots.geometry(
+    segment,
+    selection={
+        "lumen": faces.lumen,
+        "symmetry": faces.plane_x | faces.plane_y,
+        "ends": faces.bottom | faces.top,
+    },
+    labels=False,
+    camera=view,
+    title="Quarter of the artery segment",
+    ax=fig[0],
+)
+plots.mesh(
+    meshes[-1],
+    groups=("all",),
+    legend=False,
+    camera=view,
+    title=f"Finer mesh: {meshes[-1].cell_count} tetrahedra",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Model
@@ -79,18 +98,61 @@ plots.show()
 # at every point of the wall. The bulk modulus is $10^4$ times the shear modulus. Two steps
 # stretch the segment, eight raise the pressure.
 
-shear, stiffness, exponent, angle, axial = 3.0e3, 2.3632e3, 0.8393, np.radians(29.0), 1.5
-helix = lambda sign: TissueFiberFamily(stiffness=stiffness, exponent=exponent, direction=lambda x, y, z: np.stack(
-    (-np.cos(angle) * y / np.hypot(x, y), np.cos(angle) * x / np.hypot(x, y), sign * np.sin(angle) * np.ones_like(x)), axis=-1))
-media = ContinuumTissue(material=FiberReinforcedTissue(shear_modulus=shear, bulk_modulus=1e4 * shear, fibers=(helix(1), helix(-1))))
+shear, stiffness, exponent, angle, axial = (
+    3.0e3,
+    2.3632e3,
+    0.8393,
+    np.radians(29.0),
+    1.5,
+)
+helix = lambda sign: TissueFiberFamily(
+    stiffness=stiffness,
+    exponent=exponent,
+    direction=lambda x, y, z: np.stack(
+        (
+            -np.cos(angle) * y / np.hypot(x, y),
+            np.cos(angle) * x / np.hypot(x, y),
+            sign * np.sin(angle) * np.ones_like(x),
+        ),
+        axis=-1,
+    ),
+)
+media = ContinuumTissue(
+    material=FiberReinforcedTissue(
+        shear_modulus=shear, bulk_modulus=1e4 * shear, fibers=(helix(1), helix(-1))
+    )
+)
 times = np.r_[0.0, 0.1, np.linspace(0.2, 1.0, 9)]
 blood_pressure = lambda t: 16e3 * max(0.0, (t - 0.2) / 0.8)
-results = [media.solve(mesh=mesh, times=times, quadrature_order=3, pressures=((faces.lumen, blood_pressure),),
-                       displacements=((faces.plane_x, "x", 0.0), (faces.plane_y, "y", 0.0), (faces.bottom, "z", 0.0),
-                                      (faces.top, "z", lambda t: (axial - 1) * length * min(1.0, t / 0.2))))
-           for mesh in meshes]
-nodes = [int(np.argmin(np.linalg.norm(result.displacement_space.dof_coordinates - (inner, 0.0, length / 2), axis=1))) for result in results]
-radius = [inner + result.displacement[2:, node, 0] for result, node in zip(results, nodes)]
+results = [
+    media.solve(
+        mesh=mesh,
+        times=times,
+        quadrature_order=3,
+        pressures=((faces.lumen, blood_pressure),),
+        displacements=(
+            (faces.plane_x, "x", 0.0),
+            (faces.plane_y, "y", 0.0),
+            (faces.bottom, "z", 0.0),
+            (faces.top, "z", lambda t: (axial - 1) * length * min(1.0, t / 0.2)),
+        ),
+    )
+    for mesh in meshes
+]
+nodes = [
+    int(
+        np.argmin(
+            np.linalg.norm(
+                result.displacement_space.dof_coordinates - (inner, 0.0, length / 2),
+                axis=1,
+            )
+        )
+    )
+    for result in results
+]
+radius = [
+    inner + result.displacement[2:, node, 0] for result, node in zip(results, nodes)
+]
 pressure = np.array([blood_pressure(t) for t in times[2:]])
 
 # ## Reference: the thick-walled tube
@@ -103,8 +165,18 @@ def tube_pressure(r_inner):
     R = np.linspace(inner, inner + wall, 400)
     r = np.sqrt(r_inner**2 + (R**2 - inner**2) / axial)
     hoop, radial = r / R, R / (r * axial)
-    fibre = np.maximum(hoop**2 * np.cos(angle) ** 2 + axial**2 * np.sin(angle) ** 2 - 1, 0.0)
-    difference = shear * (hoop**2 - radial**2) + 4 * stiffness * fibre * np.exp(exponent * fibre**2) * hoop**2 * np.cos(angle) ** 2
+    fibre = np.maximum(
+        hoop**2 * np.cos(angle) ** 2 + axial**2 * np.sin(angle) ** 2 - 1, 0.0
+    )
+    difference = (
+        shear * (hoop**2 - radial**2)
+        + 4
+        * stiffness
+        * fibre
+        * np.exp(exponent * fibre**2)
+        * hoop**2
+        * np.cos(angle) ** 2
+    )
     return np.trapezoid(difference * R / (axial * r**2), R)
 
 
@@ -114,16 +186,39 @@ def tube_pressure(r_inner):
 # inner radius of the reference at the applied pressure against the computed one. Because the
 # collagen stiffens the wall steeply, a small error in the radius is a large one in the pressure.
 
-line = np.linspace(0.97 * radius[-1][0], 1.02 * max(values.max() for values in radius), 300)
+line = np.linspace(
+    0.97 * radius[-1][0], 1.02 * max(values.max() for values in radius), 300
+)
 reference_radius = np.interp(pressure, np.array([tube_pressure(r) for r in line]), line)
-print(f"{'pressure [kPa]':>14s}" + "".join(f" {f'r_i, {mesh.cell_count} tets [mm]':>22s} {'p_ref [kPa]':>11s}" for mesh in meshes))
+print(
+    f"{'pressure [kPa]':>14s}"
+    + "".join(
+        f" {f'r_i, {mesh.cell_count} tets [mm]':>22s} {'p_ref [kPa]':>11s}"
+        for mesh in meshes
+    )
+)
 for k, p in enumerate(pressure):
-    print(f"{p / 1e3:14.2f}" + "".join(f" {1e3 * values[k]:22.4f} {tube_pressure(values[k]) / 1e3:11.3f}" for values in radius))
-print("largest deviation of the inner radius from the reference: "
-      + ", ".join(f"{100 * np.abs(values / reference_radius - 1).max():.2f} % ({mesh.cell_count} tetrahedra)" for mesh, values in zip(meshes, radius)))
-print("largest deviation of the pressure from the reference, relative to 16 kPa: "
-      + ", ".join(f"{100 * max(abs(tube_pressure(r) - p) for r, p in zip(values, pressure)) / 16e3:.2f} % ({mesh.cell_count} tetrahedra)"
-                  for mesh, values in zip(meshes, radius)))
+    print(
+        f"{p / 1e3:14.2f}"
+        + "".join(
+            f" {1e3 * values[k]:22.4f} {tube_pressure(values[k]) / 1e3:11.3f}"
+            for values in radius
+        )
+    )
+print(
+    "largest deviation of the inner radius from the reference: "
+    + ", ".join(
+        f"{100 * np.abs(values / reference_radius - 1).max():.2f} % ({mesh.cell_count} tetrahedra)"
+        for mesh, values in zip(meshes, radius)
+    )
+)
+print(
+    "largest deviation of the pressure from the reference, relative to 16 kPa: "
+    + ", ".join(
+        f"{100 * max(abs(tube_pressure(r) - p) for r, p in zip(values, pressure)) / 16e3:.2f} % ({mesh.cell_count} tetrahedra)"
+        for mesh, values in zip(meshes, radius)
+    )
+)
 
 # ## Figure
 #
@@ -131,12 +226,39 @@ print("largest deviation of the pressure from the reference, relative to 16 kPa:
 # of the computed inner radius from it.
 
 fig = plots.figure(1, 2, size=(15, 6))
-plots.line(points={f"simulation, {mesh.cell_count} tetrahedra": (1e3 * values, pressure / 1e3) for mesh, values in zip(meshes, radius)},
-           reference={"thick-walled tube": (1e3 * line, np.array([tube_pressure(r) for r in line]) / 1e3)},
-           xlabel="inner radius r_i [mm]", ylabel="blood pressure p [kPa]", title="Pressure-radius response", legend="upper left", ax=fig[0])
-plots.line(points={f"{mesh.cell_count} tetrahedra": (pressure / 1e3, 100 * (values / reference_radius - 1)) for mesh, values in zip(meshes, radius)},
-           hlines={"thick-walled tube": 0.0}, markers=True, xlabel="blood pressure p [kPa]", ylabel="deviation of the inner radius [%]",
-           title="Deviation from the tube solution", legend="upper left", ax=fig[1])
+plots.line(
+    points={
+        f"simulation, {mesh.cell_count} tetrahedra": (1e3 * values, pressure / 1e3)
+        for mesh, values in zip(meshes, radius)
+    },
+    reference={
+        "thick-walled tube": (
+            1e3 * line,
+            np.array([tube_pressure(r) for r in line]) / 1e3,
+        )
+    },
+    xlabel="inner radius r_i [mm]",
+    ylabel="blood pressure p [kPa]",
+    title="Pressure-radius response",
+    legend="upper left",
+    ax=fig[0],
+)
+plots.line(
+    points={
+        f"{mesh.cell_count} tetrahedra": (
+            pressure / 1e3,
+            100 * (values / reference_radius - 1),
+        )
+        for mesh, values in zip(meshes, radius)
+    },
+    hlines={"thick-walled tube": 0.0},
+    markers=True,
+    xlabel="blood pressure p [kPa]",
+    ylabel="deviation of the inner radius [%]",
+    title="Deviation from the tube solution",
+    legend="upper left",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Going further

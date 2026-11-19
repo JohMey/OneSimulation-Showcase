@@ -10,8 +10,15 @@ from onesim.cad.d2 import Profile
 from onesim.cad.d3 import Box, Prism
 
 hole, outer_edge, thickness = (2.0, 1.0), (3.25, 2.75), 0.6
-ring = Prism(profile=Profile.ellipse(*outer_edge, name="outer").with_holes(Profile.ellipse(*hole, name="hole")),
-             height=thickness, origin=(0.0, 0.0, -thickness / 2))
+ring = Prism(
+    profile=Profile.ellipse(*outer_edge, name="outer").with_holes(
+        Profile.ellipse(*hole, name="hole")
+    ),
+    height=thickness,
+    origin=(0.0, 0.0, -thickness / 2),
+)
 plate = ring & Box(length=4.0, width=4.0, height=1.0, origin=(0.0, 0.0, -0.5))
-plate = plate.grouped(symmetry_x=plate.boundaries["part.x_min"], symmetry_y=plate.boundaries["part.y_min"])
+plate = plate.grouped(
+    symmetry_x=plate.boundaries["part.x_min"], symmetry_y=plate.boundaries["part.y_min"]
+)
 plate.save("thick_plate_pressure_le10.step")

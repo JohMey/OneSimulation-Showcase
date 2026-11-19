@@ -7,7 +7,6 @@ field is compared with beam theory in the arms and with the handbook stress conc
 of a pin-loaded lug.
 """
 
-
 # # Static stress analysis of a bracket
 #
 # A bracket made of 5 mm steel sheet hangs from a ceiling. Its two vertical **arms** are joined at
@@ -32,7 +31,6 @@ of a pin-loaded lug.
 # concentration factor $K_t=2.85$ on the net-section stress.
 
 import numpy as np
-
 from onesim.cad.d2 import Plane
 from onesim.cad.exchange import load
 from onesim.materials import IsotropicSolid
@@ -40,10 +38,16 @@ from onesim.meshing import LocalRefinement, TetrahedralMesher
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import SparseDirect
-from onesim.physics.solid_mechanics import FixedDisplacement, FixedDisplacementComponents, LinearElasticity, Traction, TractionFree
+from onesim.physics.solid_mechanics import (
+    FixedDisplacement,
+    FixedDisplacementComponents,
+    LinearElasticity,
+    Traction,
+    TractionFree,
+)
 from onesim.results.derived import CylindricalFrame, frame_field
 from onesim.simulation import Problem, Simulation
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -55,14 +59,30 @@ theme.set()
 
 bracket = load("bracket_static_stress.step")
 faces = bracket.boundaries
-mesh = TetrahedralMesher(target_size=0.004, geometry_order=2,
-                         refinements=(LocalRefinement(region=faces.pin, target_size=0.0015),)).generate(bracket)
+mesh = TetrahedralMesher(
+    target_size=0.004,
+    geometry_order=2,
+    refinements=(LocalRefinement(region=faces.pin, target_size=0.0015),),
+).generate(bracket)
 
 view = plots.Camera(elevation=26, azimuth=-128)
 fig = plots.figure(1, 2, size=(15, 6))
-plots.geometry(bracket, selection={"bolts": faces.bolts, "pin": faces.pin, "symmetry": faces.symmetry}, labels=False,
-               camera=view, title="Half bracket with its named faces", ax=fig[0])
-plots.mesh(mesh, groups=("all",), legend=False, camera=view, title=f"{mesh.cell_count} tetrahedra", ax=fig[1])
+plots.geometry(
+    bracket,
+    selection={"bolts": faces.bolts, "pin": faces.pin, "symmetry": faces.symmetry},
+    labels=False,
+    camera=view,
+    title="Half bracket with its named faces",
+    ax=fig[0],
+)
+plots.mesh(
+    mesh,
+    groups=("all",),
+    legend=False,
+    camera=view,
+    title=f"{mesh.cell_count} tetrahedra",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Model
@@ -70,9 +90,21 @@ plots.show()
 # The pin presses on the lower half of the hole with the pressure $p_{max}\cos\varphi$,
 # $p_{max}=F/(\pi r t)$, which adds up to half the load per lug.
 
-load_per_bracket, sheet, height, pin, radius = 2000.0, 0.005, 0.040, (0.115, 0.0225, -0.015), 0.006
-steel = IsotropicSolid(density=7850.0, specific_heat_capacity=470.0, thermal_conductivity=50.0,
-                       youngs_modulus=200e9, poisson_ratio=0.30, thermal_expansion_coefficient=1.2e-5)
+load_per_bracket, sheet, height, pin, radius = (
+    2000.0,
+    0.005,
+    0.040,
+    (0.115, 0.0225, -0.015),
+    0.006,
+)
+steel = IsotropicSolid(
+    density=7850.0,
+    specific_heat_capacity=470.0,
+    thermal_conductivity=50.0,
+    youngs_modulus=200e9,
+    poisson_ratio=0.30,
+    thermal_expansion_coefficient=1.2e-5,
+)
 
 
 def bearing(x, y, z):
@@ -83,14 +115,28 @@ def bearing(x, y, z):
 
 
 model = LinearElasticity(domain=bracket.volume, material=steel)
-problem = Problem(name="Bracket", geometry=bracket, physics=(model,), boundary_conditions=(
-    FixedDisplacement(boundary=faces.bolts, physics=model, value=(0.0, 0.0, 0.0)),
-    FixedDisplacementComponents(boundary=faces.symmetry, physics=model, components=("y",)),
-    Traction(boundary=faces.pin, physics=model, value=bearing),
-    TractionFree(boundary=faces.all - faces.bolts - faces.symmetry - faces.pin, physics=model)))
-numerics = Numerics(spatial=FiniteElement(element=Lagrange(order=2)), linear_solver=SparseDirect())
+problem = Problem(
+    name="Bracket",
+    geometry=bracket,
+    physics=(model,),
+    boundary_conditions=(
+        FixedDisplacement(boundary=faces.bolts, physics=model, value=(0.0, 0.0, 0.0)),
+        FixedDisplacementComponents(
+            boundary=faces.symmetry, physics=model, components=("y",)
+        ),
+        Traction(boundary=faces.pin, physics=model, value=bearing),
+        TractionFree(
+            boundary=faces.all - faces.bolts - faces.symmetry - faces.pin, physics=model
+        ),
+    ),
+)
+numerics = Numerics(
+    spatial=FiniteElement(element=Lagrange(order=2)), linear_solver=SparseDirect()
+)
 result = Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_stationary()
-displacement, stress, mises = (result.field(f) for f in (model.displacement, model.stress, model.von_mises_stress))
+displacement, stress, mises = (
+    result.field(f) for f in (model.displacement, model.stress, model.von_mises_stress)
+)
 
 # ## Results
 #
@@ -99,17 +145,35 @@ displacement, stress, mises = (result.field(f) for f in (model.displacement, mod
 # about the pin axis.
 
 z = np.linspace(1e-6, height - 1e-6, 21)
-bending = stress.evaluate(np.column_stack((np.full_like(z, 0.070), np.full_like(z, pin[1]), z)))[:, 0]
-beam = load_per_bracket / 2 * (pin[0] - 0.070) * (z - height / 2) / (sheet * height**3 / 12)
-wall = frame_field(stress, CylindricalFrame(axis=(0, 1, 0), origin=pin)).sample(along=faces.pin, subdivisions=3)
+bending = stress.evaluate(
+    np.column_stack((np.full_like(z, 0.070), np.full_like(z, pin[1]), z))
+)[:, 0]
+beam = (
+    load_per_bracket
+    / 2
+    * (pin[0] - 0.070)
+    * (z - height / 2)
+    / (sheet * height**3 / 12)
+)
+wall = frame_field(stress, CylindricalFrame(axis=(0, 1, 0), origin=pin)).sample(
+    along=faces.pin, subdivisions=3
+)
 hoop = wall.component("tt")
-angle = np.degrees(np.arctan2(wall.positions[:, 2] - pin[2], wall.positions[:, 0] - pin[0]))
+angle = np.degrees(
+    np.arctan2(wall.positions[:, 2] - pin[2], wall.positions[:, 0] - pin[0])
+)
 net_stress = load_per_bracket / 2 / ((0.030 - 2 * radius) * sheet)
 
-print(f"pin deflection: {1e3 * displacement.evaluate([[pin[0], pin[1], pin[2] - radius]])[0, 2]:.4f} mm")
-print(f"outer-fibre bending stress in the arm: simulation {np.polyfit(z - height / 2, bending, 1)[0] * height / 2 / 1e6:.2f} MPa, "
-      f"beam theory {beam[-1] / 1e6:.2f} MPa")
-print(f"stress concentration at the pin hole: simulation {hoop.max() / net_stress:.2f}, Peterson's chart 2.85")
+print(
+    f"pin deflection: {1e3 * displacement.evaluate([[pin[0], pin[1], pin[2] - radius]])[0, 2]:.4f} mm"
+)
+print(
+    f"outer-fibre bending stress in the arm: simulation {np.polyfit(z - height / 2, bending, 1)[0] * height / 2 / 1e6:.2f} MPa, "
+    f"beam theory {beam[-1] / 1e6:.2f} MPa"
+)
+print(
+    f"stress concentration at the pin hole: simulation {hoop.max() / net_stress:.2f}, Peterson's chart 2.85"
+)
 
 # ## Figure
 #
@@ -118,17 +182,48 @@ print(f"stress concentration at the pin hole: simulation {hoop.max() / net_stres
 
 megapascal = lambda s, position: s / 1e6
 fig = plots.figure(2, 2, size=(15, 11))
-plots.surface(mises, component=megapascal, deformation=displacement, deformation_scale=40.0, limits=(0, 60),
-              symmetry={"planes": [((0, 1, 0), (0, 0, 0))]}, camera=view,
-              label="von Mises stress [MPa]", title="Deformed bracket", ax=fig[0])
-plots.section(mises, plane=Plane(origin=(0, pin[1], 0), normal=(0, 1, 0)), component=megapascal, limits=(0, 32), subdivisions=3,
-              label="von Mises stress [MPa]", title="Lug with the pin hole", xlimits=(0.095, 0.135), ylimits=(-0.05, 0.005),
-              ax=fig[1])
-plots.line(points={"simulation": (bending / 1e6, 1e3 * z)}, reference={"beam theory": (beam / 1e6, 1e3 * z)},
-           xlabel="bending stress [MPa]", ylabel="z [mm]", title="Arm section at x = 70 mm", ax=fig[2])
-plots.line(points={"simulation": (angle, hoop / 1e6)}, hlines={"Peterson's chart": 2.85 * net_stress / 1e6},
-           ylimits=(-10, 36), xlabel="angle around the pin hole [°]", ylabel="hoop stress [MPa]",
-           title="Hoop stress around the pin hole", legend="upper left", ax=fig[3])
+plots.surface(
+    mises,
+    component=megapascal,
+    deformation=displacement,
+    deformation_scale=40.0,
+    limits=(0, 60),
+    symmetry={"planes": [((0, 1, 0), (0, 0, 0))]},
+    camera=view,
+    label="von Mises stress [MPa]",
+    title="Deformed bracket",
+    ax=fig[0],
+)
+plots.section(
+    mises,
+    plane=Plane(origin=(0, pin[1], 0), normal=(0, 1, 0)),
+    component=megapascal,
+    limits=(0, 32),
+    subdivisions=3,
+    label="von Mises stress [MPa]",
+    title="Lug with the pin hole",
+    xlimits=(0.095, 0.135),
+    ylimits=(-0.05, 0.005),
+    ax=fig[1],
+)
+plots.line(
+    points={"simulation": (bending / 1e6, 1e3 * z)},
+    reference={"beam theory": (beam / 1e6, 1e3 * z)},
+    xlabel="bending stress [MPa]",
+    ylabel="z [mm]",
+    title="Arm section at x = 70 mm",
+    ax=fig[2],
+)
+plots.line(
+    points={"simulation": (angle, hoop / 1e6)},
+    hlines={"Peterson's chart": 2.85 * net_stress / 1e6},
+    ylimits=(-10, 36),
+    xlabel="angle around the pin hole [°]",
+    ylabel="hoop stress [MPa]",
+    title="Hoop stress around the pin hole",
+    legend="upper left",
+    ax=fig[3],
+)
 plots.show()
 
 # ## Going further

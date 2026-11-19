@@ -12,9 +12,21 @@ from onesim.cad.d3 import Box, Cylinder, Sphere
 
 disc_radius, thickness, gap = 0.10, 0.005, 0.03
 for radius in (0.15, 0.21, 0.27, 0.33, 0.39):
-    air = Sphere(radius=radius) & Box(length=radius, width=radius, height=radius).named("cut")
-    air = air - Cylinder(radius=disc_radius, length=thickness, origin=(0.0, 0.0, gap / 2)).named("disc")
+    air = Sphere(radius=radius) & Box(length=radius, width=radius, height=radius).named(
+        "cut"
+    )
+    air = air - Cylinder(
+        radius=disc_radius, length=thickness, origin=(0.0, 0.0, gap / 2)
+    ).named("disc")
     faces = air.boundaries
-    air = air.grouped(terminal=faces.disc, midplane=faces["cut.z_min"], symmetry=faces["cut.x_min"] | faces["cut.y_min"],
-                      outer=faces.surface)
-    air.save("fringing_field_capacitor.step" if radius == 0.15 else f"fringing_field_capacitor_{100 * radius:.0f}cm.step")
+    air = air.grouped(
+        terminal=faces.disc,
+        midplane=faces["cut.z_min"],
+        symmetry=faces["cut.x_min"] | faces["cut.y_min"],
+        outer=faces.surface,
+    )
+    air.save(
+        "fringing_field_capacitor.step"
+        if radius == 0.15
+        else f"fringing_field_capacitor_{100 * radius:.0f}cm.step"
+    )

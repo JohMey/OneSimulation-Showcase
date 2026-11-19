@@ -6,7 +6,6 @@ eigenmodes and the driven 3D field are checked against the Bessel-function cutof
 TE11 mode profile and the standing-wave pattern of a shorted guide.
 """
 
-
 # # TE11 cutoff of a circular waveguide
 #
 # An air-filled circular waveguide of radius $a$ is fed through a **waveguide
@@ -38,8 +37,6 @@ TE11 mode profile and the standing-wave pattern of a shorted guide.
 # $|\mathbf{E}_t(z)|\propto|\sin\beta(\ell-z)|$ on its axis.
 
 import numpy as np
-from scipy.special import jv, jvp
-
 from onesim.cad.exchange import load
 from onesim.materials import VACUUM_PERMEABILITY, VACUUM_PERMITTIVITY
 from onesim.materials.electromagnetic import IsotropicElectromagneticMaterial
@@ -47,9 +44,15 @@ from onesim.meshing import TetrahedralMesher
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Nedelec
 from onesim.numerics.linear import ComplexSparseDirect
-from onesim.physics.electromagnetics import FrequencyDomainMaxwell, NumericalWaveguideMode, PerfectElectricConductor, WaveguidePort
+from onesim.physics.electromagnetics import (
+    FrequencyDomainMaxwell,
+    NumericalWaveguideMode,
+    PerfectElectricConductor,
+    WaveguidePort,
+)
 from onesim.simulation import Problem, Simulation
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
+from scipy.special import jv, jvp
 
 theme.set()
 
@@ -63,9 +66,20 @@ a, length = guide.size[0] / 2, guide.size[2]
 mesh = TetrahedralMesher(target_size=0.004).generate(guide)
 
 fig = plots.figure(1, 2, size=(13, 5.5))
-plots.geometry(guide, selection={"port": faces.port, "short": faces.short}, labels=False,
-               title="Air volume of the guide with port and short", ax=fig[0])
-plots.mesh(mesh, groups=("all",), legend=False, title=f"{mesh.cell_count} tetrahedra", ax=fig[1])
+plots.geometry(
+    guide,
+    selection={"port": faces.port, "short": faces.short},
+    labels=False,
+    title="Air volume of the guide with port and short",
+    ax=fig[0],
+)
+plots.mesh(
+    mesh,
+    groups=("all",),
+    legend=False,
+    title=f"{mesh.cell_count} tetrahedra",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Model
@@ -76,14 +90,36 @@ plots.show()
 
 def solve(frequency, mode):
     """Driven field of the shorted guide and the port eigenmode that feeds it."""
-    model = FrequencyDomainMaxwell(domain=guide.volume, frequency=frequency, material=IsotropicElectromagneticMaterial(),
-                                   phasor_convention="exp(-i*omega*t)", amplitude_convention="peak")
-    problem = Problem(name="Circular waveguide with a short", geometry=guide, physics=(model,), boundary_conditions=(
-        WaveguidePort(boundary=faces.port, physics=model, mode=mode, incident_power=1.0),
-        PerfectElectricConductor(boundary=faces.walls | faces.short, physics=model)))
-    numerics = Numerics(spatial=FiniteElement(element=Nedelec(order=2)), linear_solver=ComplexSparseDirect())
-    result = Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_stationary()
-    return result.field(model.electric_field), result.field(model.absorbed_power_density), result.operators[model.model_id].ports[0][1]
+    model = FrequencyDomainMaxwell(
+        domain=guide.volume,
+        frequency=frequency,
+        material=IsotropicElectromagneticMaterial(),
+        phasor_convention="exp(-i*omega*t)",
+        amplitude_convention="peak",
+    )
+    problem = Problem(
+        name="Circular waveguide with a short",
+        geometry=guide,
+        physics=(model,),
+        boundary_conditions=(
+            WaveguidePort(
+                boundary=faces.port, physics=model, mode=mode, incident_power=1.0
+            ),
+            PerfectElectricConductor(boundary=faces.walls | faces.short, physics=model),
+        ),
+    )
+    numerics = Numerics(
+        spatial=FiniteElement(element=Nedelec(order=2)),
+        linear_solver=ComplexSparseDirect(),
+    )
+    result = Simulation(
+        problem=problem, mesh=mesh, numerics=numerics
+    ).solve_stationary()
+    return (
+        result.field(model.electric_field),
+        result.field(model.absorbed_power_density),
+        result.operators[model.model_id].ports[0][1],
+    )
 
 
 frequency = 5.4e9
@@ -112,34 +148,62 @@ fine_r = np.linspace(-a, a, 300)
 x, fine_x = (np.where(np.abs(kc * s) > 1e-12, kc * s, 1e-12) for s in (r, fine_r))
 
 z = np.linspace(0.02 * length, 0.98 * length, 25)
-axis_field = electric_field.evaluate(np.column_stack((np.zeros_like(z), np.zeros_like(z), z)))
+axis_field = electric_field.evaluate(
+    np.column_stack((np.zeros_like(z), np.zeros_like(z), z))
+)
 transverse = np.hypot(np.abs(axis_field[:, 0]), np.abs(axis_field[:, 1]))
 standing_wave = np.abs(np.sin(beta * (length - z)))
 absorbed = absorbed_power.integrate()
 
-print(f"TE11 cutoff: computed {te11.cutoff_frequency / 1e9:.4f} GHz, reference {cutoff_te11 / 1e9:.4f} GHz, "
-      f"deviation {100 * abs(te11.cutoff_frequency / cutoff_te11 - 1):.2f} %")
-print(f"TM01 cutoff: computed {tm01.cutoff_frequency / 1e9:.4f} GHz, reference {cutoff_tm01 / 1e9:.4f} GHz, "
-      f"deviation {100 * abs(tm01.cutoff_frequency / cutoff_tm01 - 1):.2f} %")
-print(f"TE11 mode profile against 2 J1(x)/x and 2 J1'(x): largest deviation "
-      f"{max(np.max(np.abs(along - 2 * jv(1, x) / x)), np.max(np.abs(across - 2 * jvp(1, x)))):.3f} of the centre value")
-print(f"standing wave against |sin(beta (l - z))|: largest deviation "
-      f"{np.max(np.abs(transverse / transverse.max() - standing_wave / standing_wave.max())):.3f} of the peak, "
-      f"|E_z|/|E_t| = {np.max(np.abs(axis_field[:, 2])) / transverse.max():.3f}")
-print(f"absorbed power in the lossless guide: {absorbed.value:.3e} {absorbed.unit} (incident 1 W)")
+print(
+    f"TE11 cutoff: computed {te11.cutoff_frequency / 1e9:.4f} GHz, reference {cutoff_te11 / 1e9:.4f} GHz, "
+    f"deviation {100 * abs(te11.cutoff_frequency / cutoff_te11 - 1):.2f} %"
+)
+print(
+    f"TM01 cutoff: computed {tm01.cutoff_frequency / 1e9:.4f} GHz, reference {cutoff_tm01 / 1e9:.4f} GHz, "
+    f"deviation {100 * abs(tm01.cutoff_frequency / cutoff_tm01 - 1):.2f} %"
+)
+print(
+    f"TE11 mode profile against 2 J1(x)/x and 2 J1'(x): largest deviation "
+    f"{max(np.max(np.abs(along - 2 * jv(1, x) / x)), np.max(np.abs(across - 2 * jvp(1, x)))):.3f} of the centre value"
+)
+print(
+    f"standing wave against |sin(beta (l - z))|: largest deviation "
+    f"{np.max(np.abs(transverse / transverse.max() - standing_wave / standing_wave.max())):.3f} of the peak, "
+    f"|E_z|/|E_t| = {np.max(np.abs(axis_field[:, 2])) / transverse.max():.3f}"
+)
+print(
+    f"absorbed power in the lossless guide: {absorbed.value:.3e} {absorbed.unit} (incident 1 W)"
+)
 
 # ## Figure
 
 fine_z = np.linspace(0, length, 300)
 fig = plots.figure(1, 2, size=(12, 4.8))
-plots.line(points={"along E: 2 J1(k_c r) / (k_c r)": (1e3 * r, along), "across E: 2 J1'(k_c r)": (1e3 * r, across)},
-           reference={"along E: 2 J1(k_c r) / (k_c r)": (1e3 * fine_r, 2 * jv(1, fine_x) / fine_x),
-                      "across E: 2 J1'(k_c r)": (1e3 * fine_r, 2 * jvp(1, fine_x))},
-           xlabel="position through the centre [mm]", ylabel="E / E(centre)", title="TE11 profile at the port", ax=fig[0])
-plots.line(points={"|E_t| on the axis": (1e3 * z, transverse / transverse.max())},
-           reference={"|sin(beta (l - z))|": (1e3 * fine_z, np.abs(np.sin(beta * (length - fine_z))))},
-           xlabel="position z along the guide [mm]", ylabel="|E_t| / max",
-           title=f"Standing wave in the shorted guide at {frequency / 1e9:.1f} GHz", ax=fig[1])
+plots.line(
+    points={
+        "along E: 2 J1(k_c r) / (k_c r)": (1e3 * r, along),
+        "across E: 2 J1'(k_c r)": (1e3 * r, across),
+    },
+    reference={
+        "along E: 2 J1(k_c r) / (k_c r)": (1e3 * fine_r, 2 * jv(1, fine_x) / fine_x),
+        "across E: 2 J1'(k_c r)": (1e3 * fine_r, 2 * jvp(1, fine_x)),
+    },
+    xlabel="position through the centre [mm]",
+    ylabel="E / E(centre)",
+    title="TE11 profile at the port",
+    ax=fig[0],
+)
+plots.line(
+    points={"|E_t| on the axis": (1e3 * z, transverse / transverse.max())},
+    reference={
+        "|sin(beta (l - z))|": (1e3 * fine_z, np.abs(np.sin(beta * (length - fine_z))))
+    },
+    xlabel="position z along the guide [mm]",
+    ylabel="|E_t| / max",
+    title=f"Standing wave in the shorted guide at {frequency / 1e9:.1f} GHz",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Going further

@@ -8,7 +8,6 @@ solution of the network and with the exact selectivity, and shows when gas absor
 rate.
 """
 
-
 # # Ibuprofen synthesis: carbonylation kinetics with gas absorption
 #
 # In the three-step BHC process ibuprofen is made from 1-(4-isobutylphenyl)ethanol (IBPE) and
@@ -42,7 +41,6 @@ rate.
 # $c_\mathrm{IBS} = c_0\,\frac{k_1}{k'-k_1}\big(e^{-k_1t}-e^{-k't}\big)$.
 
 import numpy as np
-
 from onesim.cad.geometry import LumpedDomain
 from onesim.meshing import LumpedMesh
 from onesim.numerics import Numerics
@@ -50,10 +48,15 @@ from onesim.numerics.discretization import LumpedParameters
 from onesim.numerics.linear import SparseDirect
 from onesim.numerics.nonlinear import Newton
 from onesim.numerics.time import BDF, BackwardEuler
-from onesim.physics.chemistry import ReactionIR, ReactionKinetics, ReactionNetworkIR, SpeciesIR
+from onesim.physics.chemistry import (
+    ReactionIR,
+    ReactionKinetics,
+    ReactionNetworkIR,
+    SpeciesIR,
+)
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
-from onesim.visualization import theme, plots
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -66,13 +69,45 @@ theme.set()
 
 c0, saturation = 500.0, 100.0
 k1, k2, k3 = 3.0e-4, 4.8e-5, 2.0e-6
-composition = {"IBPE": {"C": 12, "H": 18, "O": 1}, "IBS": {"C": 12, "H": 16}, "H2O": {"H": 2, "O": 1}, "CO": {"C": 1, "O": 1},
-               "IBU": {"C": 13, "H": 18, "O": 2}, "IPPA": {"C": 13, "H": 18, "O": 2}}
-reactions = (ReactionIR("dehydration", {"IBPE": 1}, {"IBS": 1, "H2O": 1}, {"kind": "constant", "value": k1}),
-             ReactionIR("branched", {"IBS": 1, "CO": 1, "H2O": 1}, {"IBU": 1}, {"kind": "constant", "value": k2}, forward_orders={"H2O": 0}),
-             ReactionIR("linear", {"IBS": 1, "CO": 1, "H2O": 1}, {"IPPA": 1}, {"kind": "constant", "value": k3}, forward_orders={"H2O": 0}))
-species = tuple(SpeciesIR(name, 0, 1e-25, composition=atoms) for name, atoms in composition.items())
-print("element balance of the three reactions:", ReactionNetworkIR("check", "1", species=species, reactions=reactions, strict_balance=True).strict_balance)
+composition = {
+    "IBPE": {"C": 12, "H": 18, "O": 1},
+    "IBS": {"C": 12, "H": 16},
+    "H2O": {"H": 2, "O": 1},
+    "CO": {"C": 1, "O": 1},
+    "IBU": {"C": 13, "H": 18, "O": 2},
+    "IPPA": {"C": 13, "H": 18, "O": 2},
+}
+reactions = (
+    ReactionIR(
+        "dehydration",
+        {"IBPE": 1},
+        {"IBS": 1, "H2O": 1},
+        {"kind": "constant", "value": k1},
+    ),
+    ReactionIR(
+        "branched",
+        {"IBS": 1, "CO": 1, "H2O": 1},
+        {"IBU": 1},
+        {"kind": "constant", "value": k2},
+        forward_orders={"H2O": 0},
+    ),
+    ReactionIR(
+        "linear",
+        {"IBS": 1, "CO": 1, "H2O": 1},
+        {"IPPA": 1},
+        {"kind": "constant", "value": k3},
+        forward_orders={"H2O": 0},
+    ),
+)
+species = tuple(
+    SpeciesIR(name, 0, 1e-25, composition=atoms) for name, atoms in composition.items()
+)
+print(
+    "element balance of the three reactions:",
+    ReactionNetworkIR(
+        "check", "1", species=species, reactions=reactions, strict_balance=True
+    ).strict_balance,
+)
 
 
 # ## Autoclave runs
@@ -82,18 +117,65 @@ print("element balance of the three reactions:", ReactionNetworkIR("check", "1",
 
 domain = LumpedDomain()
 transfer = (1.0, 3e-3, 1e-3, 3e-4)
-networks = {kLa: ReactionNetworkIR("ibuprofen", "1", species=species,
-                                   reactions=reactions + (ReactionIR("desorption", {"CO": 1}, {}, {"kind": "constant", "value": kLa}),))
-            for kLa in transfer}
-models = {kLa: ReactionKinetics(domain=domain.system, network=network, species_sources={"CO": kLa * saturation}) for kLa, network in networks.items()}
-start = {"IBPE": c0, "IBS": 0.0, "H2O": 2000.0, "CO": saturation, "IBU": 0.0, "IPPA": 0.0}
-numerics = Numerics(spatial=LumpedParameters(), time_integrator=BDF(order=2, startup=BackwardEuler()),
-                    nonlinear_solver=Newton(linear_solver=SparseDirect(), jacobian="analytic", absolute_tolerance=1e-10, relative_tolerance=1e-10))
-runs = {kLa: Simulation(problem=Problem(name=f"carbonylation kLa={kLa}", geometry=domain, physics=(model,),
-                                        initial_conditions=tuple(InitialValue(model.concentration(name), value) for name, value in start.items())),
-                        mesh=LumpedMesh(domain), numerics=numerics).run(start_time=0.0, end_time=4 * 3600.0, time_step=10.0)
-        for kLa, model in models.items()}
-history = {kLa: {name: run.field(models[kLa].concentration(name)).time_series()[1] for name in start} for kLa, run in runs.items()}
+networks = {
+    kLa: ReactionNetworkIR(
+        "ibuprofen",
+        "1",
+        species=species,
+        reactions=reactions
+        + (
+            ReactionIR("desorption", {"CO": 1}, {}, {"kind": "constant", "value": kLa}),
+        ),
+    )
+    for kLa in transfer
+}
+models = {
+    kLa: ReactionKinetics(
+        domain=domain.system, network=network, species_sources={"CO": kLa * saturation}
+    )
+    for kLa, network in networks.items()
+}
+start = {
+    "IBPE": c0,
+    "IBS": 0.0,
+    "H2O": 2000.0,
+    "CO": saturation,
+    "IBU": 0.0,
+    "IPPA": 0.0,
+}
+numerics = Numerics(
+    spatial=LumpedParameters(),
+    time_integrator=BDF(order=2, startup=BackwardEuler()),
+    nonlinear_solver=Newton(
+        linear_solver=SparseDirect(),
+        jacobian="analytic",
+        absolute_tolerance=1e-10,
+        relative_tolerance=1e-10,
+    ),
+)
+runs = {
+    kLa: Simulation(
+        problem=Problem(
+            name=f"carbonylation kLa={kLa}",
+            geometry=domain,
+            physics=(model,),
+            initial_conditions=tuple(
+                InitialValue(model.concentration(name), value)
+                for name, value in start.items()
+            ),
+        ),
+        mesh=LumpedMesh(domain),
+        numerics=numerics,
+    ).run(start_time=0.0, end_time=4 * 3600.0, time_step=10.0)
+    for kLa, model in models.items()
+}
+history = {
+    kLa: {
+        name: run.field(models[kLa].concentration(name)).time_series()[1]
+        for name in start
+    }
+    for kLa, run in runs.items()
+}
 times = runs[transfer[0]].field(models[transfer[0]].concentration("IBPE")).times
 
 
@@ -106,14 +188,20 @@ fast = (k2 + k3) * saturation
 styrene = lambda t: c0 * k1 / (fast - k1) * (np.exp(-k1 * t) - np.exp(-fast * t))
 for kLa, c in history.items():
     selectivity = c["IBU"][-1] / (c["IBU"][-1] + c["IPPA"][-1])
-    print(f"kLa = {kLa:g} 1/s: IBPE deviation from c0 exp(-k1 t) {np.max(np.abs(c['IBPE'] - c0 * np.exp(-k1 * times))) / c0:.1e}, "
-          f"selectivity {selectivity:.6f} (exact {k2 / (k2 + k3):.6f}), ibuprofen yield after 1 h {c['IBU'][times <= 3600][-1] / c0:.3f}, after 4 h {c['IBU'][-1] / c0:.3f}, "
-          f"lowest dissolved CO {c['CO'].min() / saturation:.2f} c*")
-print(f"best-stirred run: IBS deviation from the saturated closed form {np.max(np.abs(history[1.0]['IBS'] - styrene(times))) / c0:.1e} of c0, "
-      f"peak IBS {history[1.0]['IBS'].max():.1f} mol/m^3 at {times[np.argmax(history[1.0]['IBS'])] / 60:.0f} min "
-      f"(closed form {styrene(np.log(fast / k1) / (fast - k1)):.1f} at {np.log(fast / k1) / (fast - k1) / 60:.0f} min)")
-print(f"carbon monoxide balance of the starved run: absorbed {np.trapezoid(3e-4 * (saturation - history[3e-4]['CO']), times):.2f} mol/m^3, "
-      f"bound in acids plus dissolved change {history[3e-4]['IBU'][-1] + history[3e-4]['IPPA'][-1] + history[3e-4]['CO'][-1] - saturation:.2f} mol/m^3")
+    print(
+        f"kLa = {kLa:g} 1/s: IBPE deviation from c0 exp(-k1 t) {np.max(np.abs(c['IBPE'] - c0 * np.exp(-k1 * times))) / c0:.1e}, "
+        f"selectivity {selectivity:.6f} (exact {k2 / (k2 + k3):.6f}), ibuprofen yield after 1 h {c['IBU'][times <= 3600][-1] / c0:.3f}, after 4 h {c['IBU'][-1] / c0:.3f}, "
+        f"lowest dissolved CO {c['CO'].min() / saturation:.2f} c*"
+    )
+print(
+    f"best-stirred run: IBS deviation from the saturated closed form {np.max(np.abs(history[1.0]['IBS'] - styrene(times))) / c0:.1e} of c0, "
+    f"peak IBS {history[1.0]['IBS'].max():.1f} mol/m^3 at {times[np.argmax(history[1.0]['IBS'])] / 60:.0f} min "
+    f"(closed form {styrene(np.log(fast / k1) / (fast - k1)):.1f} at {np.log(fast / k1) / (fast - k1) / 60:.0f} min)"
+)
+print(
+    f"carbon monoxide balance of the starved run: absorbed {np.trapezoid(3e-4 * (saturation - history[3e-4]['CO']), times):.2f} mol/m^3, "
+    f"bound in acids plus dissolved change {history[3e-4]['IBU'][-1] + history[3e-4]['IPPA'][-1] + history[3e-4]['CO'][-1] - saturation:.2f} mol/m^3"
+)
 
 
 # ## Figure
@@ -124,14 +212,45 @@ print(f"carbon monoxide balance of the starved run: absorbed {np.trapezoid(3e-4 
 minutes = times / 60
 shown = slice(None, None, 48)
 fig = plots.figure(1, 3, size=(18, 5))
-plots.line(points={name: (minutes[shown], history[1.0][name][shown] / c0) for name in ("IBPE", "IBS", "IBU")},
-           reference={"IBPE": (minutes, np.exp(-k1 * times)), "IBS": (minutes, styrene(times) / c0),
-                      "IBU": (minutes, k2 / (k2 + k3) * (1 - np.exp(-k1 * times) - styrene(times) / c0))},
-           xlabel="time [min]", ylabel="c / c0", title="Saturated liquid, dashed: closed form", legend="center right", ax=fig[0])
-plots.line(y={f"kLa = {kLa} 1/s": (minutes, c["IBU"] / c0) for kLa, c in history.items()}, xlabel="time [min]", ylabel="ibuprofen yield",
-           title="Yield and gas absorption", legend="upper left", ax=fig[1])
-plots.line(y={f"kLa = {kLa} 1/s": (minutes, c["CO"] / saturation) for kLa, c in history.items()}, ylimits=(0, 1.05), xlabel="time [min]",
-           ylabel="dissolved CO / saturation", title="Carbon monoxide in the liquid", legend="center right", ax=fig[2])
+plots.line(
+    points={
+        name: (minutes[shown], history[1.0][name][shown] / c0)
+        for name in ("IBPE", "IBS", "IBU")
+    },
+    reference={
+        "IBPE": (minutes, np.exp(-k1 * times)),
+        "IBS": (minutes, styrene(times) / c0),
+        "IBU": (
+            minutes,
+            k2 / (k2 + k3) * (1 - np.exp(-k1 * times) - styrene(times) / c0),
+        ),
+    },
+    xlabel="time [min]",
+    ylabel="c / c0",
+    title="Saturated liquid, dashed: closed form",
+    legend="center right",
+    ax=fig[0],
+)
+plots.line(
+    y={f"kLa = {kLa} 1/s": (minutes, c["IBU"] / c0) for kLa, c in history.items()},
+    xlabel="time [min]",
+    ylabel="ibuprofen yield",
+    title="Yield and gas absorption",
+    legend="upper left",
+    ax=fig[1],
+)
+plots.line(
+    y={
+        f"kLa = {kLa} 1/s": (minutes, c["CO"] / saturation)
+        for kLa, c in history.items()
+    },
+    ylimits=(0, 1.05),
+    xlabel="time [min]",
+    ylabel="dissolved CO / saturation",
+    title="Carbon monoxide in the liquid",
+    legend="center right",
+    ax=fig[2],
+)
 plots.show()
 
 

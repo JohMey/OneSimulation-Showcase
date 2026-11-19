@@ -7,7 +7,6 @@ volume scheme (HLL flux, MUSCL, SSP-RK3) on three grids and checked against Stok
 dam-break solution, the exact bore-reflection force at impact and mass conservation.
 """
 
-
 # # Dam break on a column (shallow-water equations)
 #
 # A tank 1.60 m long and 0.61 m wide holds a 0.40 m long, 0.30 m deep body of water
@@ -65,14 +64,19 @@ dam-break solution, the exact bore-reflection force at impact and mass conservat
 import time
 from collections import Counter
 from dataclasses import dataclass
-import numpy as np
-from scipy.optimize import brentq
 
-from onesim.physics.hydrodynamics import (CompressibleBoundaryPatch, CompressibleFaceFiniteVolume,
-                                          ImpermeableCompressibleWall, UnstructuredCompressibleGeometry)
-from onesim.physics.hydrodynamics import CompressibleFlowDiscretization, CompressibleNavierStokesSolver
+import numpy as np
 from onesim.numerics.time import DEFAULT_TIME_INTEGRATOR_REGISTRY
-from onesim.visualization import theme, plots
+from onesim.physics.hydrodynamics import (
+    CompressibleBoundaryPatch,
+    CompressibleFaceFiniteVolume,
+    CompressibleFlowDiscretization,
+    CompressibleNavierStokesSolver,
+    ImpermeableCompressibleWall,
+    UnstructuredCompressibleGeometry,
+)
+from onesim.visualization import plots, theme
+from scipy.optimize import brentq
 
 theme.set()
 
@@ -96,19 +100,34 @@ h_mid = brentq(lambda h: f_rare(h) + f_bore(h), h_bed, h_up)
 u_mid = -f_rare(h_mid)
 bore_speed = h_mid * u_mid / (h_mid - h_bed)
 t_arrival = (y0 - y_gate) / bore_speed
-h_reflected = brentq(lambda h: (h - h_mid) * np.sqrt(0.5 * g * (h + h_mid) / (h * h_mid)) - u_mid, h_mid, 1.0)
+h_reflected = brentq(
+    lambda h: (h - h_mid) * np.sqrt(0.5 * g * (h + h_mid) / (h * h_mid)) - u_mid,
+    h_mid,
+    1.0,
+)
 F_impact = rho_w * g * side * (h_reflected**2 - h_bed**2) / 2
-print(f"Stoker middle state h_m = {h_mid:.5f} m, u_m = {u_mid:.5f} m/s, bore speed {bore_speed:.5f} m/s")
-print(f"bore reaches the column at t = {t_arrival:.4f} s; reflected depth {h_reflected:.5f} m, "
-      f"impact force {F_impact:.3f} N")
+print(
+    f"Stoker middle state h_m = {h_mid:.5f} m, u_m = {u_mid:.5f} m/s, bore speed {bore_speed:.5f} m/s"
+)
+print(
+    f"bore reaches the column at t = {t_arrival:.4f} s; reflected depth {h_reflected:.5f} m, "
+    f"impact force {F_impact:.3f} N"
+)
 
 
 def stoker(y, t):
     """Exact depth of the 1D dam break at time t (gate at y_gate, flow towards +y)."""
     c_up, c_mid = np.sqrt(g * h_up), np.sqrt(g * h_mid)
     s = (y - y_gate) / t
-    return np.where(s < -c_up, h_up, np.where(s < u_mid - c_mid, (2 * c_up - s) ** 2 / (9 * g),
-                                               np.where(s < bore_speed, h_mid, h_bed)))
+    return np.where(
+        s < -c_up,
+        h_up,
+        np.where(
+            s < u_mid - c_mid,
+            (2 * c_up - s) ** 2 / (9 * g),
+            np.where(s < bore_speed, h_mid, h_bed),
+        ),
+    )
 
 
 # ## Geometry and mesh
@@ -119,6 +138,7 @@ def stoker(y, t):
 # four walls) and `column` (the four column faces). The grid and its named exterior
 # facets are handed to `UnstructuredCompressibleGeometry`, which builds the face
 # normals, areas, cell volumes and least-squares gradient operators.
+
 
 def axis_nodes(keys, h):
     nodes = [keys[0]]
@@ -137,25 +157,43 @@ def build_grid(h):
     fluid = ~((xc > x0) & (xc < x0 + side) & (yc > y0) & (yc < y0 + side))
     I, J = I[fluid], J[fluid]
     vid = lambda i, j: j * (nx + 1) + i
-    cells = np.stack((vid(I, J), vid(I + 1, J), vid(I + 1, J + 1), vid(I, J + 1)), axis=1)
+    cells = np.stack(
+        (vid(I, J), vid(I + 1, J), vid(I + 1, J + 1), vid(I, J + 1)), axis=1
+    )
     X, Y = np.meshgrid(xs, ys, indexing="xy")
     vertices = np.column_stack((X.ravel(), Y.ravel()))
     used = np.unique(cells)
     renumber = np.full(len(vertices), -1)
     renumber[used] = np.arange(len(used))
     vertices, cells = vertices[used], renumber[cells]
-    edges = Counter(tuple(sorted((int(c[k]), int(c[(k + 1) % 4])))) for c in cells for k in range(4))
+    edges = Counter(
+        tuple(sorted((int(c[k]), int(c[(k + 1) % 4])))) for c in cells for k in range(4)
+    )
     groups = {}
     for edge, count in edges.items():
         if count == 1:
             mx, my = vertices[list(edge)].mean(axis=0)
-            on_column = (x0 - 1e-9 <= mx <= x0 + side + 1e-9) and (y0 - 1e-9 <= my <= y0 + side + 1e-9)
+            on_column = (x0 - 1e-9 <= mx <= x0 + side + 1e-9) and (
+                y0 - 1e-9 <= my <= y0 + side + 1e-9
+            )
             groups[edge] = "column" if on_column else "tank"
-    geometry = UnstructuredCompressibleGeometry(artifact_id=f"dam-break-tank-{h}", vertices=vertices, cells=cells,
-                                                boundary_groups=groups, cell_quadrature_order=2,
-                                                face_quadrature_order=1)
-    return dict(geometry=geometry, cells=geometry(geometry.carrier), xs=xs, ys=ys, I=I, J=J,
-                h_min=min(np.diff(xs).min(), np.diff(ys).min()))
+    geometry = UnstructuredCompressibleGeometry(
+        artifact_id=f"dam-break-tank-{h}",
+        vertices=vertices,
+        cells=cells,
+        boundary_groups=groups,
+        cell_quadrature_order=2,
+        face_quadrature_order=1,
+    )
+    return dict(
+        geometry=geometry,
+        cells=geometry(geometry.carrier),
+        xs=xs,
+        ys=ys,
+        I=I,
+        J=J,
+        h_min=min(np.diff(xs).min(), np.diff(ys).min()),
+    )
 
 
 # ## Model
@@ -219,6 +257,7 @@ def energy_row(h, u, v):
 # **HLL flux.** The normal velocity of each face state follows from its mass flux;
 # the outer wave speeds use the Einfeldt (Roe-average) estimates.
 
+
 def hll_flux(left, right, flux_left, flux_right, wave):
     hl, hr = left[0], right[0]
     ul, ur = flux_left[0] / hl, flux_right[0] / hr
@@ -227,7 +266,9 @@ def hll_flux(left, right, flux_left, flux_right, wave):
     c_roe = np.sqrt(0.5 * g * (hl + hr))
     s_left = np.minimum(np.minimum(ul - cl, u_roe - c_roe), 0.0)
     s_right = np.maximum(np.maximum(ur + cr, u_roe + c_roe), 0.0)
-    return (s_right * flux_left - s_left * flux_right + s_left * s_right * (right - left)) / (s_right - s_left)
+    return (
+        s_right * flux_left - s_left * flux_right + s_left * s_right * (right - left)
+    ) / (s_right - s_left)
 
 
 # **Walls.** A slip wall is a mirror state; the exact Riemann solution between a cell
@@ -236,6 +277,7 @@ def hll_flux(left, right, flux_left, flux_right, wave):
 # $(h^*-h)\sqrt{g(h^*+h)/(2h^*h)}=u_n$ for $u_n>0$ (reflected bore). The wall flux is
 # the hydrostatic thrust $g h^{*2}/2\,\mathbf n$, and the same $h^*$ gives the force on
 # the column.
+
 
 def wall_depth(h, un):
     hs = np.maximum(np.sqrt(g * h) + 0.5 * np.minimum(un, 0.0), 0.0) ** 2 / g
@@ -262,13 +304,20 @@ def wall_flux(interior, trace, normal, points, time, turbulence, default):
 # the range of the cell and its face neighbours. Cells touching a nearly dry cell
 # ($h<1$ mm) use first-order (piecewise-constant) values.
 
+
 def muscl(cells, pressure, *, balance):
     geo, inside = balance.geometry, balance.internal
     owner, neighbour = geo.owner[inside], geo.neighbour[inside]
     h = cells[0]
     prim = np.stack((h, velocity(h, cells[1]), velocity(h, cells[2])))
-    grads = np.stack([np.stack(balance.solver.operators.gradient(q.reshape(geo.shape))).reshape(2, -1)
-                      for q in prim])
+    grads = np.stack(
+        [
+            np.stack(balance.solver.operators.gradient(q.reshape(geo.shape))).reshape(
+                2, -1
+            )
+            for q in prim
+        ]
+    )
     lo, hi = prim.copy(), prim.copy()
     for k in range(3):
         np.minimum.at(lo[k], owner, prim[k, neighbour])
@@ -281,7 +330,9 @@ def muscl(cells, pressure, *, balance):
     for idx, offset in ((owner, d_owner), (neighbour, d_neighbour)):
         for k in range(3):
             delta = np.einsum("dq,qd->q", grads[k][:, idx], offset)
-            room = np.where(delta > 0, hi[k, idx] - prim[k, idx], lo[k, idx] - prim[k, idx])
+            room = np.where(
+                delta > 0, hi[k, idx] - prim[k, idx], lo[k, idx] - prim[k, idx]
+            )
             with np.errstate(divide="ignore", invalid="ignore"):
                 ratio = np.where(np.abs(delta) > 1e-300, room / delta, 1.0)
             np.minimum.at(limiter[k], idx, np.clip(ratio, 0.0, 1.0))
@@ -291,7 +342,10 @@ def muscl(cells, pressure, *, balance):
     def face_state(idx, offset):
         hh, uu, vv = prim[:, idx] + np.einsum("kdq,qd->kq", grads[:, :, idx], offset)
         hh = np.maximum(hh, 1e-300)
-        return np.stack((hh, hh * uu, hh * vv, energy_row(hh, uu, vv))), 0.5 * g * hh * hh
+        return (
+            np.stack((hh, hh * uu, hh * vv, energy_row(hh, uu, vv))),
+            0.5 * g * hh * hh,
+        )
 
     left, p_left = face_state(owner, d_owner)
     right, p_right = face_state(neighbour, d_neighbour)
@@ -302,21 +356,39 @@ def cfl_step(cfl, h_min):
     def step(state, *, time, species=None, balance):
         h = state[0]
         c = np.sqrt(g * h)
-        rate = (np.abs(velocity(h, state[1])) + c + np.abs(velocity(h, state[2])) + c) / h_min
+        rate = (
+            np.abs(velocity(h, state[1])) + c + np.abs(velocity(h, state[2])) + c
+        ) / h_min
         return cfl / np.max(rate)
+
     return step
 
 
 def make_solver(grid, second_order=True, cfl=0.45):
-    wall = CompressibleBoundaryPatch(ImpermeableCompressibleWall(), advective_flux=wall_flux)
+    wall = CompressibleBoundaryPatch(
+        ImpermeableCompressibleWall(), advective_flux=wall_flux
+    )
     balance = CompressibleFaceFiniteVolume(
-        geometry_factory=grid["geometry"], boundaries={"tank": wall, "column": wall}, numerical_flux=hll_flux,
-        reconstruction=muscl if second_order else None, stability=cfl_step(cfl, grid["h_min"]), cfl=0.5)
+        geometry_factory=grid["geometry"],
+        boundaries={"tank": wall, "column": wall},
+        numerical_flux=hll_flux,
+        reconstruction=muscl if second_order else None,
+        stability=cfl_step(cfl, grid["h_min"]),
+        cfl=0.5,
+    )
     return CompressibleNavierStokesSolver(
-        mesh=grid["cells"], spatial=CompressibleFlowDiscretization(derivatives=None, balance=balance),
-        time_integrator=DEFAULT_TIME_INTEGRATOR_REGISTRY.resolve_id("ssprk3"), viscosity=0.0, thermal_conductivity=0.0,
-        density=1.0, pressure=1.0, final_time=0.01, time_step=1.0, equation_of_state=HydrostaticClosure(),
-        spatial_carrier=grid["geometry"].carrier)
+        mesh=grid["cells"],
+        spatial=CompressibleFlowDiscretization(derivatives=None, balance=balance),
+        time_integrator=DEFAULT_TIME_INTEGRATOR_REGISTRY.resolve_id("ssprk3"),
+        viscosity=0.0,
+        thermal_conductivity=0.0,
+        density=1.0,
+        pressure=1.0,
+        final_time=0.01,
+        time_step=1.0,
+        equation_of_state=HydrostaticClosure(),
+        spatial_carrier=grid["geometry"].carrier,
+    )
 
 
 def initial_state(grid):
@@ -329,7 +401,11 @@ def column_force(grid, state):
     """y-force on the column from the wall depth h* on its four faces (N)."""
     cg = grid["cells"]
     on_column = np.array([key == "column" for key in cg.boundary_ids])
-    owner, normal, area = cg.owner[on_column], cg.normals[on_column], cg.areas[on_column]
+    owner, normal, area = (
+        cg.owner[on_column],
+        cg.normals[on_column],
+        cg.areas[on_column],
+    )
     h = state[0][owner]
     un = velocity(h, normal[:, 0] * state[1][owner] + normal[:, 1] * state[2][owner])
     return rho_w * np.sum(0.5 * g * wall_depth(h, un) ** 2 * area * normal[:, 1])
@@ -342,8 +418,17 @@ def column_force(grid, state):
 # $t=0.20$ s for the comparison with Stoker's solution and at four display times on
 # the finest grid.
 
-t_out = np.unique(np.round(np.r_[np.arange(0.0, t_end + 1e-9, 0.005), np.arange(0.255, 0.330, 0.001),
-                                 np.arange(1.250, 1.450, 0.001), 0.20], 9))
+t_out = np.unique(
+    np.round(
+        np.r_[
+            np.arange(0.0, t_end + 1e-9, 0.005),
+            np.arange(0.255, 0.330, 0.001),
+            np.arange(1.250, 1.450, 0.001),
+            0.20,
+        ],
+        9,
+    )
+)
 t_maps = (0.22, 0.38, 0.76, 1.44)
 
 
@@ -362,21 +447,32 @@ def run(h, second_order=True, until=t_end):
         forces.append(column_force(grid, state))
         if any(abs(t - m) < 1e-9 for m in (0.20, *t_maps)):
             maps[round(t, 3)] = state[0].copy()
-    return dict(grid=grid, times=np.array(times), force=np.array(forces), maps=maps, steps=steps,
-                volume_error=np.sum(state[0] * grid["cells"].volumes) / volume0 - 1.0, seconds=time.time() - start,
-                cells=len(grid["cells"].volumes))
+    return dict(
+        grid=grid,
+        times=np.array(times),
+        force=np.array(forces),
+        maps=maps,
+        steps=steps,
+        volume_error=np.sum(state[0] * grid["cells"].volumes) / volume0 - 1.0,
+        seconds=time.time() - start,
+        cells=len(grid["cells"].volumes),
+    )
 
 
 runs = []
 for h in grids:
     out = run(h)
     runs.append(out)
-    print(f"grid {h * 1e3:4.1f} mm: {out['cells']:6d} cells, {out['steps']:5d} SSP-RK3 steps, "
-          f"peak force {out['force'].max():6.2f} N, relative volume change {out['volume_error']:+.1e} "
-          f"({out['seconds']:.0f} s)")
+    print(
+        f"grid {h * 1e3:4.1f} mm: {out['cells']:6d} cells, {out['steps']:5d} SSP-RK3 steps, "
+        f"peak force {out['force'].max():6.2f} N, relative volume change {out['volume_error']:+.1e} "
+        f"({out['seconds']:.0f} s)"
+    )
 first_order = run(0.01, second_order=False, until=0.6)
-print(f"first-order Godunov (no MUSCL) on the 10 mm grid up to 0.6 s: {first_order['steps']} steps "
-      f"({first_order['seconds']:.0f} s)")
+print(
+    f"first-order Godunov (no MUSCL) on the 10 mm grid up to 0.6 s: {first_order['steps']} steps "
+    f"({first_order['seconds']:.0f} s)"
+)
 
 
 # ## Comparison with the reference
@@ -385,6 +481,7 @@ print(f"first-order Godunov (no MUSCL) on the 10 mm grid up to 0.6 s: {first_ord
 # tank, $\sum|h_i-h_\mathrm{exact}(y_i)|A_i/A$, contains the rarefaction (smooth) and
 # the bore (a discontinuity, first-order in $L^1$ at best), so an observed order
 # between 1 and 2 is expected.
+
 
 def stoker_error(out):
     cg = out["grid"]["cells"]
@@ -396,9 +493,13 @@ errors = [stoker_error(out) for out in runs]
 print("Depth at t = 0.20 s vs Stoker's exact dam-break solution (L1 error, m)")
 for h, err in zip(grids, errors):
     print(f"  grid {h * 1e3:4.1f} mm: {err:.3e}")
-print(f"  observed orders {np.log2(errors[0] / errors[1]):.2f} and {np.log2(errors[1] / errors[2]):.2f}")
-print(f"  first-order Godunov on the 10 mm grid: {stoker_error(first_order):.3e} "
-      f"({stoker_error(first_order) / errors[1]:.1f} x the MUSCL error)")
+print(
+    f"  observed orders {np.log2(errors[0] / errors[1]):.2f} and {np.log2(errors[1] / errors[2]):.2f}"
+)
+print(
+    f"  first-order Godunov on the 10 mm grid: {stoker_error(first_order):.3e} "
+    f"({stoker_error(first_order) / errors[1]:.1f} x the MUSCL error)"
+)
 
 # **Impact force.** When the straight bore meets the flat front face, the depth there
 # jumps to the exact reflected depth while the back face still sees the 1 cm layer,
@@ -421,14 +522,20 @@ def window_impulse(out, t0, t1):
     return np.trapezoid(F[keep], t[keep])
 
 
-print(f"Peak force at the first impact (closed form {F_impact:.3f} N at t = {t_arrival:.4f} s)")
+print(
+    f"Peak force at the first impact (closed form {F_impact:.3f} N at t = {t_arrival:.4f} s)"
+)
 for h, out in zip(grids, runs):
     i = np.argmax(out["force"])
-    print(f"  grid {h * 1e3:4.1f} mm: {out['force'][i]:7.3f} N at t = {out['times'][i]:.3f} s, "
-          f"deviation {100 * (out['force'][i] / F_impact - 1):+.2f} %")
+    print(
+        f"  grid {h * 1e3:4.1f} mm: {out['force'][i]:7.3f} N at t = {out['times'][i]:.3f} s, "
+        f"deviation {100 * (out['force'][i] / F_impact - 1):+.2f} %"
+    )
 i = np.argmax(first_order["force"])
-print(f"  first-order Godunov, 10 mm: {first_order['force'][i]:7.3f} N "
-      f"({100 * (first_order['force'][i] / F_impact - 1):+.2f} %)")
+print(
+    f"  first-order Godunov, 10 mm: {first_order['force'][i]:7.3f} N "
+    f"({100 * (first_order['force'][i] / F_impact - 1):+.2f} %)"
+)
 
 # **Grid study of the force history.** The impulse of the first impact is a smooth
 # functional of the solution. The second impact is caused by bores that travel round
@@ -443,14 +550,26 @@ def second_impact(out):
 
 
 print("Grid study of the force history")
-quantities = (("impulse of the first impact, 0.25-0.80 s (N s)", [window_impulse(out, 0.25, 0.80) for out in runs]),
-              ("extreme force of the second impact (N)", [second_impact(out)[0] for out in runs]),
-              ("onset of the second impact (s)", [second_impact(out)[1] for out in runs]))
+quantities = (
+    (
+        "impulse of the first impact, 0.25-0.80 s (N s)",
+        [window_impulse(out, 0.25, 0.80) for out in runs],
+    ),
+    ("extreme force of the second impact (N)", [second_impact(out)[0] for out in runs]),
+    ("onset of the second impact (s)", [second_impact(out)[1] for out in runs]),
+)
 for label, vals in quantities:
     p, ext = richardson(vals)
-    trend = f"order {p:4.2f}, Richardson {ext:9.4f}" if np.isfinite(p) else "not in the asymptotic range, no extrapolation"
-    print(f"  {label:50s} " + "  ".join(f"{v:9.4f}" for v in vals)
-          + f"; {trend}, change between the last two grids {100 * abs(vals[2] / vals[1] - 1):.2f} %")
+    trend = (
+        f"order {p:4.2f}, Richardson {ext:9.4f}"
+        if np.isfinite(p)
+        else "not in the asymptotic range, no extrapolation"
+    )
+    print(
+        f"  {label:50s} "
+        + "  ".join(f"{v:9.4f}" for v in vals)
+        + f"; {trend}, change between the last two grids {100 * abs(vals[2] / vals[1] - 1):.2f} %"
+    )
 
 print("Mass conservation (relative change of the water volume at t = 2 s)")
 for h, out in zip(grids, runs):
@@ -466,28 +585,64 @@ for h, out in zip(grids, runs):
 
 fine = runs[-1]
 grid = fine["grid"]
-xc, yc = 0.5 * (grid["xs"][:-1] + grid["xs"][1:]), 0.5 * (grid["ys"][:-1] + grid["ys"][1:])
+xc, yc = 0.5 * (grid["xs"][:-1] + grid["xs"][1:]), 0.5 * (
+    grid["ys"][:-1] + grid["ys"][1:]
+)
 y_line = np.linspace(0.0, y0, 600)
 depth_lines, force_lines = {}, {}
 for out, h in zip(runs, grids):
     cells = out["grid"]["cells"]
     strip = np.abs(cells.coordinates[:, 0] - 0.5 * width) < 0.6 * h + 1e-9
     along = np.argsort(cells.coordinates[strip, 1])
-    depth_lines[f"MUSCL-HLL, {h * 1e3:.0f} mm"] = (cells.coordinates[strip, 1][along], out["maps"][0.2][strip][along])
+    depth_lines[f"MUSCL-HLL, {h * 1e3:.0f} mm"] = (
+        cells.coordinates[strip, 1][along],
+        out["maps"][0.2][strip][along],
+    )
     force_lines[f"MUSCL-HLL, {h * 1e3:.0f} mm"] = (out["times"], out["force"])
 force_lines["first-order Godunov, 10 mm"] = (first_order["times"], first_order["force"])
-fig = plots.figure(layout=[[f"map {k}" for k in range(len(t_maps))], ["stoker"] * (len(t_maps) // 2) + ["force"] * (len(t_maps) - len(t_maps) // 2)],
-                   size=(16, 10.5))
+fig = plots.figure(
+    layout=[
+        [f"map {k}" for k in range(len(t_maps))],
+        ["stoker"] * (len(t_maps) // 2) + ["force"] * (len(t_maps) - len(t_maps) // 2),
+    ],
+    size=(16, 10.5),
+)
 for k, t in enumerate(t_maps):
     depth = np.full((len(xc), len(yc)), np.nan)
     depth[grid["I"], grid["J"]] = fine["maps"][t]
-    plots.heatmap(xc, yc, depth, limits=(0.0, 0.30), contours=8, label="water depth h [m]", xlabel="x [m]",
-                  ylabel="y [m] (gate at 0.40 m)", title=f"t = {t:.2f} s", ax=fig[f"map {k}"])
-plots.line(y=depth_lines, reference={"Stoker, exact": (y_line, stoker(y_line, 0.20))}, markers=True, xlimits=(0, y0),
-           xlabel="y [m]", ylabel="h [m]", title="Depth along the tank at t = 0.20 s (before impact)", ax=fig["stoker"])
-plots.line(y=force_lines, styles={"first-order Godunov, 10 mm": "dashed"},
-           points={f"exact impact force {F_impact:.1f} N": ([t_arrival], [F_impact])}, hlines=0.0, xlimits=(0, t_end),
-           xlabel="t [s]", ylabel="F_y on the column [N]", title="Pressure force on the column", ax=fig["force"])
+    plots.heatmap(
+        xc,
+        yc,
+        depth,
+        limits=(0.0, 0.30),
+        contours=8,
+        label="water depth h [m]",
+        xlabel="x [m]",
+        ylabel="y [m] (gate at 0.40 m)",
+        title=f"t = {t:.2f} s",
+        ax=fig[f"map {k}"],
+    )
+plots.line(
+    y=depth_lines,
+    reference={"Stoker, exact": (y_line, stoker(y_line, 0.20))},
+    markers=True,
+    xlimits=(0, y0),
+    xlabel="y [m]",
+    ylabel="h [m]",
+    title="Depth along the tank at t = 0.20 s (before impact)",
+    ax=fig["stoker"],
+)
+plots.line(
+    y=force_lines,
+    styles={"first-order Godunov, 10 mm": "dashed"},
+    points={f"exact impact force {F_impact:.1f} N": ([t_arrival], [F_impact])},
+    hlines=0.0,
+    xlimits=(0, t_end),
+    xlabel="t [s]",
+    ylabel="F_y on the column [N]",
+    title="Pressure force on the column",
+    ax=fig["force"],
+)
 plots.show()
 
 

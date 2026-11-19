@@ -8,7 +8,6 @@ transmission loss is compared with the classical plane-wave formula, and the fie
 first cross mode of the chamber takes over.
 """
 
-
 # # Transmission loss of an expansion-chamber muffler
 #
 # The simplest reactive muffler is a sudden widening of the exhaust pipe: a chamber of length
@@ -39,15 +38,21 @@ first cross mode of the chamber takes over.
 # three-dimensional field departs from the formula.
 
 import numpy as np
-from scipy.sparse.linalg import spsolve
-
 from onesim.cad.exchange import load
 from onesim.meshing import TetrahedralMesher
 from onesim.numerics.fem import FiniteElement, Lagrange
-from onesim.physics.acoustics import (AcousticHarmonicPressure, ComplexPressurePencil, ConstantPressureForms,
-                                      PressureAdmittanceBoundary, PressureTraceSamples, SampledPressureAdmittanceForms,
-                                      SampledPressureVolumeForms, pressure_space_volume_samples)
-from onesim.visualization import theme, plots
+from onesim.physics.acoustics import (
+    AcousticHarmonicPressure,
+    ComplexPressurePencil,
+    ConstantPressureForms,
+    PressureAdmittanceBoundary,
+    PressureTraceSamples,
+    SampledPressureAdmittanceForms,
+    SampledPressureVolumeForms,
+    pressure_space_volume_samples,
+)
+from onesim.visualization import plots, theme
+from scipy.sparse.linalg import spsolve
 
 theme.set()
 
@@ -65,13 +70,34 @@ frequencies = np.arange(20.0, 2001.0, 15.0)
 muffler = load("expansion_chamber_muffler.step")
 faces = muffler.boundaries
 sizes = (0.020, 0.014)
-meshes = {h: TetrahedralMesher(target_size=h, geometry_order=2).generate(muffler) for h in sizes}
+meshes = {
+    h: TetrahedralMesher(target_size=h, geometry_order=2).generate(muffler)
+    for h in sizes
+}
 
 view = plots.Camera(elevation=25, azimuth=-60)
 fig = plots.figure(1, 2, size=(15, 7))
-plots.geometry(muffler, selection={"inlet": faces.inlet, "outlet": faces.outlet, "walls": faces.walls, "symmetry plane": faces.symmetry},
-               labels=False, camera=view, title="Half of the muffler (STEP)", ax=fig[0])
-plots.mesh(meshes[0.020], groups=("all",), legend=False, camera=view, title=f"{meshes[0.020].cell_count} curved quadratic tetrahedra", ax=fig[1])
+plots.geometry(
+    muffler,
+    selection={
+        "inlet": faces.inlet,
+        "outlet": faces.outlet,
+        "walls": faces.walls,
+        "symmetry plane": faces.symmetry,
+    },
+    labels=False,
+    camera=view,
+    title="Half of the muffler (STEP)",
+    ax=fig[0],
+)
+plots.mesh(
+    meshes[0.020],
+    groups=("all",),
+    legend=False,
+    camera=view,
+    title=f"{meshes[0.020].cell_count} curved quadratic tetrahedra",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Model
@@ -86,20 +112,50 @@ def solve_muffler(h):
     """Pressure over the sweep on one mesh, and the transmission loss."""
     mesh = meshes[h]
     space = FiniteElement(element=Lagrange(order=2)).bind_space(mesh)
-    volume = ConstantPressureForms(*SampledPressureVolumeForms(
-        size=space.dof_count, samples=lambda: pressure_space_volume_samples(space),
-        inverse_density=lambda omega, sample: 1 / rho0, compressibility=lambda omega, sample: 1 / impedance / c0)(0.0))
-    ports = {face: SampledPressureAdmittanceForms(size=space.dof_count, admittance=lambda omega, sample: 1.0, samples=lambda face=face: iter(
-        [PressureTraceSamples(space.cell_dofs[owner], points, weights, basis)
-         for owner, points, weights, _, basis, _ in map(space.trace_data, mesh.facets(getattr(faces, face)))]))(0.0)
-        for face in ("inlet", "outlet")}
-    boundary = PressureAdmittanceBoundary(lambda omega: (ports["inlet"] + ports["outlet"]) / impedance)
+    volume = ConstantPressureForms(
+        *SampledPressureVolumeForms(
+            size=space.dof_count,
+            samples=lambda: pressure_space_volume_samples(space),
+            inverse_density=lambda omega, sample: 1 / rho0,
+            compressibility=lambda omega, sample: 1 / impedance / c0,
+        )(0.0)
+    )
+    ports = {
+        face: SampledPressureAdmittanceForms(
+            size=space.dof_count,
+            admittance=lambda omega, sample: 1.0,
+            samples=lambda face=face: iter(
+                [
+                    PressureTraceSamples(space.cell_dofs[owner], points, weights, basis)
+                    for owner, points, weights, _, basis, _ in map(
+                        space.trace_data, mesh.facets(getattr(faces, face))
+                    )
+                ]
+            ),
+        )(0.0)
+        for face in ("inlet", "outlet")
+    }
+    boundary = PressureAdmittanceBoundary(
+        lambda omega: (ports["inlet"] + ports["outlet"]) / impedance
+    )
     drive = ports["inlet"] @ np.ones(space.dof_count)
-    result = AcousticHarmonicPressure(operator=ComplexPressurePencil(volume, boundary=boundary), angular_frequencies=2 * np.pi * frequencies,
-                                      load=lambda omega: 2j * omega * incident / impedance * drive, linear_solver=spsolve).run()
-    transmitted = np.real(np.sum(result.pressure.conj() * (ports["outlet"] @ result.pressure.T).T, axis=1)) / (2 * impedance)
+    result = AcousticHarmonicPressure(
+        operator=ComplexPressurePencil(volume, boundary=boundary),
+        angular_frequencies=2 * np.pi * frequencies,
+        load=lambda omega: 2j * omega * incident / impedance * drive,
+        linear_solver=spsolve,
+    ).run()
+    transmitted = np.real(
+        np.sum(result.pressure.conj() * (ports["outlet"] @ result.pressure.T).T, axis=1)
+    ) / (2 * impedance)
     supplied = incident**2 * drive.sum() / (2 * impedance)
-    return dict(space=space, mesh=mesh, pressure=result.pressure, dofs=space.dof_count, tl=10 * np.log10(supplied / transmitted))
+    return dict(
+        space=space,
+        mesh=mesh,
+        pressure=result.pressure,
+        dofs=space.dof_count,
+        tl=10 * np.log10(supplied / transmitted),
+    )
 
 
 runs = {h: solve_muffler(h) for h in sizes}
@@ -111,24 +167,45 @@ runs = {h: solve_muffler(h) for h in sizes}
 
 m = (chamber_radius / pipe_radius) ** 2
 k = 2 * np.pi * frequencies / c0
-plane_wave = 10 * np.log10(1 + 0.25 * (m - 1 / m) ** 2 * np.sin(k * chamber_length) ** 2)
+plane_wave = 10 * np.log10(
+    1 + 0.25 * (m - 1 / m) ** 2 * np.sin(k * chamber_length) ** 2
+)
 cut_on = 1.8412 * c0 / (2 * np.pi * chamber_radius)
 below = frequencies < 1000
 fine = runs[sizes[-1]]
 for h, run in runs.items():
-    print(f"mesh {1e3 * h:.0f} mm, {run['dofs']} unknowns: largest |TL - plane-wave TL| below 1 kHz "
-          f"{np.max(np.abs(run['tl'] - plane_wave)[below]):.2f} dB")
-print(f"largest change between the meshes over the whole sweep {np.max(np.abs(runs[sizes[0]]['tl'] - fine['tl'])):.2f} dB")
+    print(
+        f"mesh {1e3 * h:.0f} mm, {run['dofs']} unknowns: largest |TL - plane-wave TL| below 1 kHz "
+        f"{np.max(np.abs(run['tl'] - plane_wave)[below]):.2f} dB"
+    )
+print(
+    f"largest change between the meshes over the whole sweep {np.max(np.abs(runs[sizes[0]]['tl'] - fine['tl'])):.2f} dB"
+)
 for low, high in ((0, 572), (572, 1143)):
     band = (frequencies > low) & (frequencies < high)
-    print(f"dome {low}-{high} Hz: peak TL simulation {fine['tl'][band].max():.2f} dB at {frequencies[band][np.argmax(fine['tl'][band])]:.0f} Hz, "
-          f"plane-wave formula {plane_wave[band].max():.2f} dB at {frequencies[band][np.argmax(plane_wave[band])]:.0f} Hz")
-passes = [f for f, previous, current, following in zip(frequencies[1:-1], fine["tl"][:-2], fine["tl"][1:-1], fine["tl"][2:])
-          if current < min(previous, following) and f < cut_on]
-print("pass bands (TL minima) below the cut-on [Hz]:", ", ".join(f"{f:.0f}" for f in passes), "| plane wave: n c / (2L) =",
-      ", ".join(f"{n * c0 / (2 * chamber_length):.0f}" for n in range(1, len(passes) + 1)))
-print(f"first cross mode cuts on at {cut_on:.0f} Hz; above it the largest |TL - plane-wave TL| is "
-      f"{np.max(np.abs(fine['tl'] - plane_wave)[frequencies > cut_on]):.1f} dB")
+    print(
+        f"dome {low}-{high} Hz: peak TL simulation {fine['tl'][band].max():.2f} dB at {frequencies[band][np.argmax(fine['tl'][band])]:.0f} Hz, "
+        f"plane-wave formula {plane_wave[band].max():.2f} dB at {frequencies[band][np.argmax(plane_wave[band])]:.0f} Hz"
+    )
+passes = [
+    f
+    for f, previous, current, following in zip(
+        frequencies[1:-1], fine["tl"][:-2], fine["tl"][1:-1], fine["tl"][2:]
+    )
+    if current < min(previous, following) and f < cut_on
+]
+print(
+    "pass bands (TL minima) below the cut-on [Hz]:",
+    ", ".join(f"{f:.0f}" for f in passes),
+    "| plane wave: n c / (2L) =",
+    ", ".join(
+        f"{n * c0 / (2 * chamber_length):.0f}" for n in range(1, len(passes) + 1)
+    ),
+)
+print(
+    f"first cross mode cuts on at {cut_on:.0f} Hz; above it the largest |TL - plane-wave TL| is "
+    f"{np.max(np.abs(fine['tl'] - plane_wave)[frequencies > cut_on]):.1f} dB"
+)
 
 # ## Figure
 #
@@ -137,14 +214,31 @@ print(f"first cross mode cuts on at {cut_on:.0f} Hz; above it the largest |TL - 
 
 i = int(np.argmin(np.abs(frequencies - 1700)))
 points = np.asarray(fine["mesh"].coordinates)
-level = 20 * np.log10(np.abs(np.asarray(fine["space"].evaluate(fine["pressure"][i], points))) / 2e-5)
+level = 20 * np.log10(
+    np.abs(np.asarray(fine["space"].evaluate(fine["pressure"][i], points))) / 2e-5
+)
 fig = plots.figure(1, 2, size=(17, 7))
-plots.trisurface(points, np.asarray(fine["mesh"].facets(faces.walls | faces.symmetry)), level, camera=view,
-                 limits=(level.max() - 30, level.max()), label="sound pressure level [dB]",
-                 title=f"{frequencies[i]:.0f} Hz, incoming wave 1 Pa", ax=fig[0])
-plots.line(frequencies, {f"simulation, {1e3 * h:.0f} mm mesh": run["tl"] for h, run in runs.items()},
-           reference={"plane-wave formula": plane_wave}, vlines={"cut-on of the first cross mode": cut_on},
-           xlabel="frequency [Hz]", ylabel="transmission loss [dB]", title="Transmission loss", legend="upper left", ax=fig[1])
+plots.trisurface(
+    points,
+    np.asarray(fine["mesh"].facets(faces.walls | faces.symmetry)),
+    level,
+    camera=view,
+    limits=(level.max() - 30, level.max()),
+    label="sound pressure level [dB]",
+    title=f"{frequencies[i]:.0f} Hz, incoming wave 1 Pa",
+    ax=fig[0],
+)
+plots.line(
+    frequencies,
+    {f"simulation, {1e3 * h:.0f} mm mesh": run["tl"] for h, run in runs.items()},
+    reference={"plane-wave formula": plane_wave},
+    vlines={"cut-on of the first cross mode": cut_on},
+    xlabel="frequency [Hz]",
+    ylabel="transmission loss [dB]",
+    title="Transmission loss",
+    legend="upper left",
+    ax=fig[1],
+)
 plots.show()
 
 # ## Going further

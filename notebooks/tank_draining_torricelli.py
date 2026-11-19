@@ -4,7 +4,6 @@ Requires the installed, activated OneSimulation runtime.
 The OneSimulation solution is checked against the closed-form square-root law.
 """
 
-
 # # Tank draining through an orifice
 #
 # An open tank of cross-section $A$ is filled to the level $h_0$ and drains through
@@ -29,9 +28,12 @@ The OneSimulation solution is checked against the closed-form square-root law.
 # volume equals the integrated orifice flow.
 
 import numpy as np
-
-from onesim.physics.systems import HydraulicBranch, HydraulicNode, HydraulicSystemsProvider
-from onesim.visualization import theme, plots
+from onesim.physics.systems import (
+    HydraulicBranch,
+    HydraulicNode,
+    HydraulicSystemsProvider,
+)
+from onesim.visualization import plots, theme
 
 theme.set()
 
@@ -51,12 +53,16 @@ orifice_area = np.pi * (orifice_diameter / 2.0) ** 2
 discharge_coefficient = 0.62
 initial_level = 1.2
 
-drain_rate = discharge_coefficient * orifice_area * np.sqrt(2.0 * gravity) / (2.0 * tank_area)
+drain_rate = (
+    discharge_coefficient * orifice_area * np.sqrt(2.0 * gravity) / (2.0 * tank_area)
+)
 empty_time = np.sqrt(initial_level) / drain_rate
 end_time = 0.9 * empty_time
 time_step = 1.0
-print(f"orifice area = {orifice_area * 1e4:.3f} cm^2,  initial outflow = "
-      f"{discharge_coefficient * orifice_area * np.sqrt(2 * gravity * initial_level) * 1e3:.3f} L/s")
+print(
+    f"orifice area = {orifice_area * 1e4:.3f} cm^2,  initial outflow = "
+    f"{discharge_coefficient * orifice_area * np.sqrt(2 * gravity * initial_level) * 1e3:.3f} L/s"
+)
 print(f"emptying time t_e = {empty_time:.1f} s ({empty_time / 60:.1f} min)")
 
 compliance = tank_area / (density * gravity)
@@ -65,12 +71,20 @@ compliance = tank_area / (density * gravity)
 def orifice_flow(upstream_pressure, downstream_pressure, time, parameters):
     """Torricelli outflow q = C_d a sqrt(2 (p_up - p_down) / rho); no reverse flow."""
     head = max(upstream_pressure - downstream_pressure, 0.0)
-    return parameters["discharge_coefficient"] * parameters["area"] * np.sqrt(2.0 * head / parameters["density"])
+    return (
+        parameters["discharge_coefficient"]
+        * parameters["area"]
+        * np.sqrt(2.0 * head / parameters["density"])
+    )
 
 
 network = HydraulicSystemsProvider(
     nodes=(
-        HydraulicNode("tank", compliance=compliance, initial_pressure=density * gravity * initial_level),
+        HydraulicNode(
+            "tank",
+            compliance=compliance,
+            initial_pressure=density * gravity * initial_level,
+        ),
         HydraulicNode("atmosphere", imposed_pressure=0.0),
     ),
     branches=(
@@ -105,14 +119,20 @@ outflows = np.asarray(run.flows["orifice"])
 
 reference_levels = (np.sqrt(initial_level) - drain_rate * times) ** 2
 max_level_error = float(np.max(np.abs(levels - reference_levels)))
-print(f"Maximum level error: {max_level_error:.3e} m  (h0 = {initial_level} m, final level {levels[-1] * 1e2:.2f} cm)")
+print(
+    f"Maximum level error: {max_level_error:.3e} m  (h0 = {initial_level} m, final level {levels[-1] * 1e2:.2f} cm)"
+)
 
 slope, intercept = np.polyfit(times, np.sqrt(levels), 1)
 fitted_empty_time = -intercept / slope
-print(f"Emptying time: extrapolated {fitted_empty_time:.2f} s, exact {empty_time:.2f} s")
+print(
+    f"Emptying time: extrapolated {fitted_empty_time:.2f} s, exact {empty_time:.2f} s"
+)
 drained_volume = tank_area * (initial_level - levels[-1])
 integrated_outflow = float(np.trapezoid(outflows, times))
-print(f"Drained volume: {drained_volume * 1e3:.2f} L, integrated orifice flow: {integrated_outflow * 1e3:.2f} L")
+print(
+    f"Drained volume: {drained_volume * 1e3:.2f} L, integrated orifice flow: {integrated_outflow * 1e3:.2f} L"
+)
 
 
 # ## Figure
@@ -121,12 +141,21 @@ dense_t = np.linspace(0.0, empty_time, 600)
 dense_h = (np.sqrt(initial_level) - drain_rate * dense_t) ** 2
 stride = max(1, len(times) // 40)
 fig = plots.figure(2, 1, size=(8, 7))
-plots.line(points={"OneSimulation RK4": (times[::stride] / 60, levels[::stride])},
-           reference={"Torricelli closed form": (dense_t / 60, dense_h)}, vlines={"emptying time": empty_time / 60},
-           ylabel="liquid level [m]", title="Tank draining through an orifice", ax=fig[0])
-plots.line(points={"OneSimulation RK4": (times[::stride] / 60, np.sqrt(levels[::stride]))},
-           reference={"closed form (straight line)": (dense_t / 60, np.sqrt(dense_h))},
-           xlabel="time [min]", ylabel="sqrt(h) [m^1/2]", ax=fig[1])
+plots.line(
+    points={"OneSimulation RK4": (times[::stride] / 60, levels[::stride])},
+    reference={"Torricelli closed form": (dense_t / 60, dense_h)},
+    vlines={"emptying time": empty_time / 60},
+    ylabel="liquid level [m]",
+    title="Tank draining through an orifice",
+    ax=fig[0],
+)
+plots.line(
+    points={"OneSimulation RK4": (times[::stride] / 60, np.sqrt(levels[::stride]))},
+    reference={"closed form (straight line)": (dense_t / 60, np.sqrt(dense_h))},
+    xlabel="time [min]",
+    ylabel="sqrt(h) [m^1/2]",
+    ax=fig[1],
+)
 plots.show()
 
 

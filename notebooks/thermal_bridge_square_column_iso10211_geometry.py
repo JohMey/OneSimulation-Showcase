@@ -10,5 +10,7 @@ from onesim.cad.d3 import Box
 
 column = Box(length=1.0, width=2.0, height=0.1)
 faces = column.boundaries
-column = column.grouped(warm=faces.y_max, cold=faces.x_min | faces.y_min, symmetry=faces.x_max)
+column = column.grouped(
+    warm=faces.y_max, cold=faces.x_min | faces.y_min, symmetry=faces.x_max
+)
 column.save("thermal_bridge_square_column_iso10211.step")
