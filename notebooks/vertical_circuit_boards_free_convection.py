@@ -2,40 +2,45 @@
 Requires the installed, activated OneSimulation runtime.
 
 Vertical circuit boards in a rack are cooled by the air that their own heat sets in motion: the
-chips warm the air in the channel between two boards, it rises and draws cool air in from below.
-The air channel is read from a STEP file and cut to its cross-section; the Navier-Stokes equations
-with the Boussinesq buoyancy force and the heat transport are solved together in the air. The heat
-balance is checked against the enthalpy leaving the channel, the chip temperatures against the
-textbook correlation for vertical channels, and the solution against a second mesh.
+chips warm the boards and the air in the channel between two boards, the air rises and draws cool
+air in from below. Channel, boards and chips are read from STEP files and cut to their
+cross-section; the Navier-Stokes equations with the Boussinesq buoyancy force hold in the air, the
+heat transport in air, boards and chips together (conjugate heat transfer). The heat balance is
+checked against the enthalpy leaving the channel, the chip temperatures against the textbook
+correlation for vertical channels, and the solution against a second mesh.
 """
 
 # # Free-convection cooling of vertical circuit boards
 #
 # Two vertical circuit boards (1.6 mm thick, 100 mm high) stand 10 mm apart in a rack. The left
 # board carries three chips (2 mm thick, 12 mm high) on the side facing the channel; each chip
-# gives off 3 W per metre of board depth through its three faces in the air. Without a fan the
-# air (25 °C) is driven by buoyancy alone. The steady Boussinesq equations hold in the air,
+# produces 3 W per metre of board depth inside its volume. Without a fan the air (25 °C) is driven by
+# buoyancy alone. The steady Boussinesq equations hold in the air,
 #
 # $$\rho(\mathbf u\cdot\nabla)\mathbf u=-\nabla p+\mu\nabla^2\mathbf u-\rho\beta(T-T_0)\mathbf g,
-#   \qquad \nabla\cdot\mathbf u=0,\qquad \rho c_p\,\mathbf u\cdot\nabla T=k\nabla^2T ,$$
+#   \qquad \nabla\cdot\mathbf u=0,$$
 #
-# for air at 25 °C ($\rho=1.184$ kg/m³, $\mu=1.849\cdot10^{-5}$ Pa s, $k=0.02551$ W/(m K),
-# $c_p=1007$ J/(kg K), $\beta=1/T_0$). The board faces take up no heat (their other sides face
-# neighbouring channels of the same rack). The model includes 20 mm of air below and 30 mm above the
-# boards, so that the air enters and leaves the channel freely.
+# and one heat balance $\rho c_p\,\mathbf u\cdot\nabla T=\nabla\cdot(k\nabla T)+\dot q$ holds everywhere,
+# with $\mathbf u=0$ in the solids and the chip heat $\dot q$ in the chips. Air at 25 °C:
+# $\rho=1.184$ kg/m³, $\mu=1.849\cdot10^{-5}$ Pa s, $k=0.02551$ W/(m K), $c_p=1007$ J/(kg K),
+# $\beta=1/T_0$; boards of glass-fibre epoxy, $k=0.3$ W/(m K); chip packages $k=1$ W/(m K). The
+# heat spreads from the chips into the board and leaves through all faces in the air. The outer
+# faces of the boards face neighbouring channels of the same rack and take up no heat. The model
+# includes 20 mm of air below and 30 mm above the boards, so that the air enters and leaves the
+# channel freely.
 #
 # The geometry comes from the CAD files `vertical_circuit_boards_free_convection*.step`, written by
 # `vertical_circuit_boards_free_convection_geometry.py` with the CAD objects of OneSimulation: the
-# air channel (`_air.step`, with the faces of every board and chip named after them), and the
-# boards and chips as parts of their own.
+# whole channel (domain of the heat transport), the air (domain of the flow, with the faces of every
+# board and chip named after them), and the boards and chips as parts of their own.
 #
-# | face | flow | heat |
+# | boundary | flow | heat |
 # |---|---|---|
 # | `inlet` (bottom) | open, no traction | $T=25$ °C |
 # | `outlet` (top) | open, no traction (backflow damped) | no conduction |
 # | `sides` | free slip | no flux |
-# | chip faces | no slip | heat flux 3 W/m per chip |
-# | board faces | no slip | no flux |
+# | board and chip faces in the air | no slip | continuous temperature and heat flux |
+# | outer board faces | – | no flux |
 #
 # **Reference.** In the steady state the 9 W/m of the chips leave with the air: the enthalpy flow
 # through the top plus the heat conducted back through the inlet. For a vertical channel with one
@@ -46,19 +51,20 @@ textbook correlation for vertical channels, and the solution against a second me
 # $$Nu_{S,L}=\frac{q''S}{k\,(T_{s,L}-T_0)}=\left[\frac{48}{Ra_S^*S/L}+\frac{2.51}{(Ra_S^*S/L)^{2/5}}\right]^{-1/2},
 #   \qquad Ra_S^*=\frac{g\beta q''S^4}{k\alpha\nu},$$
 #
-# with the gap $S$, the board height $L$ and the mean flux $q''=9\,\mathrm{W/m}/L$. The chips
-# concentrate the heat, so the correlation estimates the temperature of the top chip.
+# with the gap $S$, the board height $L$ and the mean flux $q''=9\,\mathrm{W/m}/L$. The conducting
+# board spreads the chip heat along its height, much closer to the uniform flux of the correlation
+# than chips on an insulating board.
 
 import numpy as np
 from onesim.cad.exchange import load
-from onesim.materials import ThermalFluid
-from onesim.meshing import TriangularMesher
+from onesim.materials import ThermalFluid, regionwise
+from onesim.meshing import TriangularMesher, region_mesh
 from onesim.numerics import Numerics
-from onesim.numerics.coupled_systems import StationaryPartitionedCoupling
+from onesim.numerics.coupled_systems import MonolithicStationaryCoupling
 from onesim.numerics.fem import FiniteElement, GalerkinAdvection, Lagrange, TaylorHood
 from onesim.numerics.field_transfer import FieldInterpolation
 from onesim.numerics.linear import SparseDirect
-from onesim.numerics.nonlinear import FixedPoint, Newton
+from onesim.numerics.nonlinear import Newton
 from onesim.physics.heat_transfer import (
     BoussinesqBuoyancy,
     ConvectiveHeatTransfer,
@@ -81,43 +87,36 @@ from onesim.visualization import plots, theme
 
 theme.set()
 
-# ## Geometry and mesh
+# ## Geometry and meshes
 #
-# The air channel is cut at half depth; its outline keeps the face names, so each chip is the group
-# of its three faces in the air. The triangles are 0.5 mm along boards and chips, where the thermal
-# boundary layers sit, and grow to 2.5 mm in the open air; a second mesh is coarser by a factor 1.4.
+# Every part is cut at half depth. The whole channel is meshed with boards and chips as embedded
+# regions, so that the triangles follow every interface (0.7 mm in boards and chips, growing to
+# 3.5 mm in the open air; a second mesh is coarser by a factor 1.4). `region_mesh` takes the air
+# cells out of it for the flow, with the face names of the air part.
 
 slug = "vertical_circuit_boards_free_convection"
-parts = {
-    name: load(f"{slug}_{name}.step")
-    for name in ("air", "board_left", "board_right", "chip_1", "chip_2", "chip_3")
-}
-air = parts["air"].section((0, 0, 1), origin=(0, 0, parts["air"].size[2] / 2))
-faces = air.boundaries
-chips = [
-    faces[f"chip_{index}.x_max"]
-    | faces[f"chip_{index}.y_min"]
-    | faces[f"chip_{index}.y_max"]
-    for index in (1, 2, 3)
-]
+names = ("air", "board_left", "board_right", "chip_1", "chip_2", "chip_3")
+cut = lambda part: part.section((0, 0, 1), origin=(0, 0, part.size[2] / 2))
+channel = cut(load(f"{slug}.step"))
+regions = {name: cut(load(f"{slug}_{name}.step")).named(name) for name in names}
+air, faces = regions["air"], channel.boundaries
 meshes = [
     TriangularMesher(
-        target_size=2.5e-3 * scale, local_sizes={"solids": 5e-4 * scale}, grading=0.25
-    ).generate(air)
-    for scale in (1.4, 1.0)
+        target_size=2.5e-3 * scale,
+        embedded_regions=tuple(regions[name] for name in names[1:]),
+        grading=0.25,
+        region_sizes={name: 5e-4 * scale for name in names[1:]},
+    ).generate(channel)
+    for scale in (2.0, 1.4)
 ]
+air_meshes = [region_mesh(mesh, air) for mesh in meshes]
 
 fig = plots.figure(1, 2, size=(12, 8))
 plots.geometry(
-    parts["air"],
-    selection={
-        "inlet": parts["air"].boundaries.inlet,
-        "outlet": parts["air"].boundaries.outlet,
-        "boards and chips": parts["air"].boundaries.solids,
-    },
+    [load(f"{slug}_{name}.step").named(name) for name in names],
     labels=False,
     camera=plots.Camera(elevation=60, azimuth=-75),
-    title="Air channel between the boards",
+    title="Air channel, boards and chips",
     ax=fig[0],
 )
 plots.mesh(
@@ -131,53 +130,60 @@ plots.show()
 
 # ## Model
 #
-# The flow (Taylor-Hood elements) and the heat transport (quadratic elements) share each mesh.
-# `BoussinesqBuoyancy` turns the temperature into the body force, with $\rho$ and $\beta$ from the
-# `ThermalFluid`; the solved velocity carries the heat, and `StationaryPartitionedCoupling` iterates
-# the two to their common steady state. The sweeps start with the heat transport in an assumed
-# uniform updraught of 5 cm/s: a first heat solve in still air would have to conduct the whole chip
-# power down to the inlet and would start the iteration from absurd temperatures. Inlet and outlet are open boundaries; `BackflowTraction` controls the energy
-# of any air re-entering through them.
+# The flow (Taylor-Hood elements) lives on the air, the heat transport (quadratic elements) on the
+# whole channel, with region-wise conductivity and the chip heat as region-wise source.
+# `BoussinesqBuoyancy` turns the temperature into the body force of the air; the air velocity
+# carries the heat, and `FieldInterpolation(outside=0.0)` makes it zero in boards and chips, where
+# the heat model meets no air. `MonolithicStationaryCoupling` solves flow and heat together with one
+# Newton method whose Jacobian holds both coupling blocks; it starts from one sweep of the two
+# solvers with the heat carried by an assumed uniform updraught of 5 cm/s. Inlet and outlet are
+# open boundaries; `BackflowTraction` controls the energy of any air re-entering through them.
 
 ambient, gravity, power = 298.15, 9.81, 3.0
-chip_faces = 12e-3 + 2 * 2e-3
-air_properties = ThermalFluid(
+chip_area = 2e-3 * 12e-3
+properties = dict(
     density=1.184,
     dynamic_viscosity=1.849e-5,
-    thermal_conductivity=0.02551,
     specific_heat_capacity=1007.0,
     thermal_expansion_coefficient=1 / ambient,
 )
+air_properties = ThermalFluid(thermal_conductivity=0.02551, **properties)
+channel_properties = ThermalFluid(
+    thermal_conductivity=regionwise(
+        tuple((regions[name], 0.3) for name in ("board_left", "board_right"))
+        + tuple((regions[f"chip_{index}"], 1.0) for index in (1, 2, 3)),
+        default=0.02551,
+        unit="W/m/K",
+    ),
+    **properties,
+)
 flow = IncompressibleNavierStokes(domain=air.domain(), material=air_properties)
 heat = ConvectiveHeatTransfer(
-    domain=air.domain(), material=air_properties, velocity=None
+    domain=channel.domain(),
+    material=channel_properties,
+    velocity=None,
+    heating=regionwise(
+        tuple((regions[f"chip_{index}"], power / chip_area) for index in (1, 2, 3)),
+        default=0.0,
+        unit="W/m^3",
+    ),
 )
 problem = Problem(
     name="Vertical circuit boards",
-    geometry=air,
+    geometry=channel,
+    additional_geometries=(air,),
     physics=(flow, heat),
     boundary_conditions=(
         OpenBoundaryTraction(
             physics=flow,
-            boundary=faces.inlet | faces.outlet,
+            boundary=air.boundaries.inlet | air.boundaries.outlet,
             value=0.0,
             law=BackflowTraction(),
         ),
-        WallShear(physics=flow, boundary=faces.sides, law=FreeSlipLaw()),
-        NoSlipWall(physics=flow, boundary=faces.solids),
+        WallShear(physics=flow, boundary=air.boundaries.sides, law=FreeSlipLaw()),
+        NoSlipWall(physics=flow, boundary=air.boundaries.solids),
         FixedTemperature(physics=heat, boundary=faces.inlet, value=ambient),
-        HeatFlux(
-            physics=heat,
-            boundary=chips[0] | chips[1] | chips[2],
-            value=-power / chip_faces,
-        ),
-        HeatFlux(
-            physics=heat,
-            boundary=faces.outlet
-            | faces.sides
-            | (faces.solids - chips[0] - chips[1] - chips[2]),
-            value=0.0,
-        ),
+        HeatFlux(physics=heat, boundary=faces.outlet | faces.sides, value=0.0),
     ),
     initial_conditions=(
         InitialValue(heat.temperature, ambient),
@@ -194,7 +200,7 @@ problem = Problem(
         FieldCoupling(
             source=flow.velocity,
             target=heat.advecting_velocity,
-            transfer=FieldInterpolation(),
+            transfer=FieldInterpolation(outside=0.0),
         ),
     ),
 )
@@ -219,26 +225,26 @@ numerics = {
 results = [
     Simulation(
         problem=problem,
-        mesh={flow: mesh, heat: mesh},
+        mesh={flow: air_mesh, heat: mesh},
         numerics=numerics,
-        coupling_solver=StationaryPartitionedCoupling(
-            stationary_systems=(flow, heat),
-            order=(heat, flow),
-            iteration=FixedPoint(
-                relative_tolerance=1e-6,
-                absolute_tolerance=1e-9,
-                maximum_iterations=250,
-                relaxation=0.4,
+        coupling_solver=MonolithicStationaryCoupling(
+            stationary_systems=(heat, flow),
+            nonlinear_solver=Newton(
+                linear_solver=SparseDirect(),
+                relative_tolerance=1e-8,
+                absolute_tolerance=1e-12,
+                maximum_iterations=30,
             ),
         ),
     ).solve_stationary()
-    for mesh in meshes
+    for air_mesh, mesh in zip(air_meshes, meshes)
 ]
 
-# ## Heat balance and chip temperatures
+# ## Heat balance and temperatures
 #
 # `derived_field` forms the enthalpy flux $\rho c_p v\,(T-T_0)$ of the air, integrated over the
-# outlet; the chip temperature is the largest value on the chip face towards the channel.
+# outlet; a chip temperature is the largest value in the chip, the board temperature is read along
+# its face towards the channel.
 
 gap, height = 10e-3, 0.1
 nu, alpha = (
@@ -275,39 +281,37 @@ for name, mesh, result in zip(("coarser", "finer"), meshes, results):
         unit="W/m^2",
     )
     carried, back = enthalpy.integrate(
-        boundary=faces.outlet
+        boundary=air.boundaries.outlet
     ).value, temperature.boundary_flux(faces.inlet)
-    inflow = (
-        derived_field(
-            velocity, lambda u, points: u[:, 1], name="vertical_velocity", unit="m/s"
-        )
-        .integrate(boundary=faces.inlet)
-        .value
-    )
+    inflow = velocity.integrate(
+        boundary=air.boundaries.inlet, normal_component=True
+    ).value
     hottest.append(
         [
             temperature.evaluate(
-                np.column_stack(
-                    (
-                        np.full(61, box[1][0] + 1e-7),
-                        np.linspace(box[0][1], box[1][1], 61),
-                    )
+                np.array(
+                    [
+                        [x, y]
+                        for x in np.linspace(box[0][0], box[1][0], 9)
+                        for y in np.linspace(box[0][1], box[1][1], 25)
+                    ]
                 )
             ).max()
             - 273.15
-            for box in (parts[f"chip_{index}"].bounding_box for index in (1, 2, 3))
+            for box in (regions[f"chip_{index}"].bounding_box for index in (1, 2, 3))
         ]
     )
-    print(
-        f"{name} mesh ({mesh.cell_count} triangles, {len(result.result_set.solver_report['coupling']['scaled_changes'])} coupling sweeps)"
-    )
+    steps = result.result_set.solver_report["coupling"]["continuation"][-1][
+        "iterations"
+    ]
+    print(f"{name} mesh ({mesh.cell_count} triangles, {steps} Newton steps)")
     print(
         f"  chip power {3 * power:.3f} W/m; enthalpy through the outlet {carried:.4f} W/m, conducted back through the inlet "
         f"{back:.4f} W/m; balance {100 * (carried + back - 3 * power) / (3 * power):+.3f} %"
     )
     print(
-        f"  air drawn through the channel {1e3 * inflow:.4f} l/(s m), mean speed in the gap {1e3 * inflow / gap:.1f} mm/s, mixed outlet "
-        f"temperature rise {3 * power / (air_properties.density * air_properties.specific_heat_capacity * inflow):.2f} K"
+        f"  air drawn through the channel {-1e3 * inflow:.4f} l/(s m), mean speed in the gap {-1e3 * inflow / gap:.1f} mm/s, mixed outlet "
+        f"temperature rise {3 * power / (air_properties.density * air_properties.specific_heat_capacity * -inflow):.2f} K"
     )
     print(
         "  chip temperatures (bottom to top): "
@@ -323,14 +327,15 @@ print(
 
 # ## Figure
 #
-# Temperature and speed of the air (the chips on the left board are the hot spots), and the
-# temperature along the channel face of the left board and of the right board.
+# Temperature in air, boards and chips (the heat spreads up and down the left board) and speed of
+# the air, and the temperature along the channel faces of the left board (with its chips) and of the
+# right board.
 
 temperature, velocity = results[-1].field(heat.temperature), results[-1].field(
     flow.velocity
 )
-(bx0, by0, _), (bx1, by1, _) = parts["board_left"].bounding_box
-right_face = parts["board_right"].bounding_box[0][0]
+(bx0, by0, _), (bx1, by1, _) = regions["board_left"].bounding_box
+right_face = regions["board_right"].bounding_box[0][0]
 along = np.linspace(by0, by1, 500)
 fig = plots.figure(
     layout=[["temperature", "speed", "profiles", "profiles"]], size=(15, 9)
@@ -344,7 +349,7 @@ plots.surface(
     label="T [°C]",
     xlabel="x [m]",
     ylabel="y [m]",
-    title="Air temperature",
+    title="Temperature",
     ax=fig["temperature"],
 )
 plots.surface(
@@ -360,16 +365,16 @@ plots.surface(
 )
 plots.line(
     y={
-        "left board with chips": (
+        "left board, channel face": (
             temperature.evaluate(
-                np.column_stack((np.full_like(along, bx1 + 2.1e-3), along))
+                np.column_stack((np.full_like(along, bx1 - 1e-7), along))
             ).ravel()
             - 273.15,
             1e3 * (along - by0),
         ),
-        "right board": (
+        "right board, channel face": (
             temperature.evaluate(
-                np.column_stack((np.full_like(along, right_face - 1e-7), along))
+                np.column_stack((np.full_like(along, right_face + 1e-7), along))
             ).ravel()
             - 273.15,
             1e3 * (along - by0),
@@ -379,7 +384,7 @@ plots.line(
     vlines={"ambient": 25.0},
     xlabel="temperature [°C]",
     ylabel="height along the board [mm]",
-    title="Temperature 2.1 mm off the left board and on the right board",
+    title="Temperature of the board faces towards the channel",
     legend="lower right",
     ax=fig["profiles"],
 )
@@ -390,4 +395,4 @@ plots.show()
 # Change the board spacing in `vertical_circuit_boards_free_convection_geometry.py` and look for
 # the spacing with the coolest chips (too narrow chokes the flow, too wide wastes rack space); move
 # the hottest chip to the bottom of the board; or impose an inflow at the inlet, as a fan would, to
-# compare free and forced cooling.
+# compare free and forced cooling; or give the boards a copper layer (a larger conductivity) and watch the chips cool down.

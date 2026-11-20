@@ -8,7 +8,9 @@ air in the channel and 20 mm below and 30 mm above the boards. Writes
 - vertical_circuit_boards_free_convection_air.step: the air, the domain of the model, with the
   groups inlet (bottom), outlet (top), sides and solids (every face touching a board or a chip),
 - vertical_circuit_boards_free_convection_board_left.step, ..._board_right.step and
-  ..._chip_1.step, ..._chip_2.step, ..._chip_3.step (from the bottom up): the boards and chips.
+  ..._chip_1.step, ..._chip_2.step, ..._chip_3.step (from the bottom up): the boards and chips,
+- vertical_circuit_boards_free_convection.step: the whole channel (air, boards and chips), the
+  domain of the heat transport, with the groups inlet, outlet and sides.
 """
 
 from onesim.cad.d3 import Box
@@ -49,5 +51,10 @@ air = air.grouped(
     solids=named(*solids),
 )
 air.save(f"{slug}_air.step")
+whole.grouped(
+    inlet=whole.boundaries.y_min,
+    outlet=whole.boundaries.y_max,
+    sides=whole.boundaries.x_min | whole.boundaries.x_max,
+).save(f"{slug}.step")
 for name, solid in solids.items():
     solid.save(f"{slug}_{name}.step")

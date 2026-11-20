@@ -3,7 +3,7 @@ ISO-10303-21;
 min", "y_max"], "bottom": ["z_min"], "top": ["z_max"]}, "annotations": []} */
 HEADER;
 FILE_DESCRIPTION(('Open CASCADE Model'),'2;1');
-FILE_NAME('Open CASCADE Shape Model','2026-11-19T13:12:09',('Author'),(
+FILE_NAME('Open CASCADE Shape Model','2026-11-20T00:42:42',('Author'),(
     'Open CASCADE'),'Open CASCADE STEP processor 7.9','Open CASCADE 7.9'
   ,'Unknown');
 FILE_SCHEMA((

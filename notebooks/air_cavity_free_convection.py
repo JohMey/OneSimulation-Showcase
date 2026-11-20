@@ -4,7 +4,7 @@ Requires the installed, activated OneSimulation runtime.
 Air fills the 20 mm gap between a warm and a cool vertical plate; the temperature differences are
 kept small enough for a laminar flow. The gap is read from a STEP file and cut to its
 cross-section; the Navier-Stokes equations with the Boussinesq buoyancy force and the heat
-transport are solved in SI units for three temperature differences. The heat flux between the
+transport are solved in SI units for four temperature differences. The heat flux between the
 plates is compared with the benchmark solution of de Vahl Davis, with the textbook correlation for
 enclosures and between two meshes.
 """
@@ -23,7 +23,9 @@ enclosures and between two meshes.
 # with air at 20 °C: $\rho=1.204$ kg/m³, $\mu=1.825\cdot10^{-5}$ Pa s, $k=0.02587$ W/(m K),
 # $c_p=1006$ J/(kg K) ($Pr=0.71$) and $\beta=1/T_0$. The temperature differences are chosen for
 # Rayleigh numbers $Ra=g\beta\Delta T L^3/(\nu\alpha)$ of $10^3$, $3\cdot10^3$ and $10^4$: from
-# about 1 K to 12 K.
+# about 1 K to 12 K. A fourth case at $Ra=10^5$ needs $\Delta T\approx121$ K in this small gap;
+# with $\beta\Delta T\approx0.4$ real air would ask for the variable-density equations, so this case
+# only serves the comparison with the Boussinesq benchmark at strong convection.
 #
 # The gap comes from the CAD file `air_cavity_free_convection.step`, written by
 # `air_cavity_free_convection_geometry.py` with the CAD objects of OneSimulation.
@@ -35,8 +37,9 @@ enclosures and between two meshes.
 # | `floor`, `ceiling` | no slip | insulated |
 #
 # **Reference.** The square cavity at $Pr=0.71$ is the benchmark of G. de Vahl Davis, *Int. J.
-# Numer. Methods Fluids* 3, 249-264 (1983): mean Nusselt numbers 1.118 at $Ra=10^3$ and 2.243 at
-# $Ra=10^4$, largest vertical velocity 19.617 $\alpha/L$ at $Ra=10^4$. The engineering correlation
+# Numer. Methods Fluids* 3, 249-264 (1983): mean Nusselt numbers 1.118 at $Ra=10^3$, 2.243 at
+# $Ra=10^4$ and 4.519 at $Ra=10^5$, largest vertical velocity 19.617 $\alpha/L$ at $Ra=10^4$ and
+# 68.59 $\alpha/L$ at $Ra=10^5$. The engineering correlation
 # for enclosures with $1<H/L<2$ (Catton; F. P. Incropera et al., *Fundamentals of Heat and Mass
 # Transfer*, Eq. 9.51), $\overline{Nu}=0.18\,\big(Pr\,Ra/(0.2+Pr)\big)^{0.29}$, holds for
 # $Pr\,Ra/(0.2+Pr)>10^3$, i.e. above $Ra\approx1300$.
@@ -46,7 +49,11 @@ from onesim.cad.exchange import load
 from onesim.materials import ThermalFluid
 from onesim.meshing import TriangularMesher
 from onesim.numerics import Numerics
-from onesim.numerics.coupled_systems import StationaryPartitionedCoupling
+from onesim.numerics.coupled_systems import (
+    CouplingContinuation,
+    MonolithicStationaryCoupling,
+    StationaryPartitionedCoupling,
+)
 from onesim.numerics.fem import FiniteElement, GalerkinAdvection, Lagrange, TaylorHood
 from onesim.numerics.field_transfer import FieldInterpolation
 from onesim.numerics.linear import SparseDirect
@@ -70,7 +77,7 @@ theme.set()
 #
 # The cross-section at half depth keeps the face names. Two meshes refine towards the plates and
 # the insulated faces, where the boundary layers sit: from 1.6 mm to 0.4 mm and from 2.4 mm to
-# 0.6 mm.
+# 0.6 mm; a third one for the thin layers at $Ra=10^5$ goes from 1.2 mm to 0.24 mm.
 
 part = load("air_cavity_free_convection.step")
 gap = part.section((0, 0, 1), origin=(0, 0, part.size[2] / 2))
@@ -89,7 +96,11 @@ meshes = {
             ),
         ),
     ).generate(gap)
-    for name, core, wall in (("coarser", 2.4e-3, 6e-4), ("finer", 1.6e-3, 4e-4))
+    for name, core, wall in (
+        ("coarser", 2.4e-3, 6e-4),
+        ("finer", 1.6e-3, 4e-4),
+        ("layers", 1.2e-3, 2.4e-4),
+    )
 }
 
 fig = plots.figure(1, 2, size=(13, 6))
@@ -119,8 +130,11 @@ plots.show()
 # The flow (Taylor-Hood elements) and the heat transport (quadratic elements) share the mesh.
 # `BoussinesqBuoyancy` turns the temperature into the body force of the flow, taking $\rho$ and
 # $\beta$ from the `ThermalFluid`; the solved velocity carries the heat back.
-# `StationaryPartitionedCoupling` alternates the two stationary solvers until both fields settle.
-# All three temperature differences are solved on the finer mesh, the largest also on the coarser.
+# Up to $Ra=10^4$ `StationaryPartitionedCoupling` alternates the two stationary solvers until both
+# fields settle. At $Ra=10^5$ `MonolithicStationaryCoupling` solves flow and heat together with one
+# Newton method (both coupling blocks in its Jacobian), reaching the case through $Ra=10^4$ with
+# `CouplingContinuation`. The three small temperature differences are solved on the finer mesh, the
+# largest of them also on the coarser, $Ra=10^5$ on the boundary-layer mesh.
 
 ambient, gravity = 293.15, 9.81
 air = ThermalFluid(
@@ -158,6 +172,7 @@ for rayleigh, name in (
     (3e3, "finer"),
     (1e4, "finer"),
     (1e4, "coarser"),
+    (1e5, "layers"),
 ):
     delta = (
         rayleigh * nu * alpha / (gravity * air.thermal_expansion_coefficient * width**3)
@@ -199,14 +214,26 @@ for rayleigh, name in (
             problem=problem,
             mesh={flow: meshes[name], heat: meshes[name]},
             numerics=numerics,
-            coupling_solver=StationaryPartitionedCoupling(
-                stationary_systems=(flow, heat),
-                iteration=FixedPoint(
-                    relative_tolerance=1e-6,
-                    absolute_tolerance=1e-9,
-                    maximum_iterations=150,
-                    relaxation=0.7,
-                ),
+            coupling_solver=(
+                MonolithicStationaryCoupling(
+                    stationary_systems=(flow, heat),
+                    continuation=CouplingContinuation(factors=(0.1, 1.0)),
+                    nonlinear_solver=Newton(
+                        linear_solver=SparseDirect(),
+                        relative_tolerance=1e-8,
+                        absolute_tolerance=1e-12,
+                    ),
+                )
+                if rayleigh > 1e4
+                else StationaryPartitionedCoupling(
+                    stationary_systems=(flow, heat),
+                    iteration=FixedPoint(
+                        relative_tolerance=1e-6,
+                        absolute_tolerance=1e-9,
+                        maximum_iterations=150,
+                        relaxation=0.7,
+                    ),
+                )
             ),
         ).solve_stationary(),
     )
@@ -218,7 +245,7 @@ for rayleigh, name in (
 # $\alpha/L$ for the benchmark.
 
 catton = lambda ra: 0.18 * (nu / alpha / (0.2 + nu / alpha) * ra) ** 0.29
-benchmark = {1e3: 1.118, 1e4: 2.243}
+benchmark = {1e3: 1.118, 1e4: 2.243, 1e5: 4.519}
 line = np.linspace(0.0, 1.0, 2001)
 nusselt = {}
 print(f"Pr = {nu / alpha:.4f}")
@@ -238,22 +265,25 @@ for (rayleigh, name), (delta, result) in results.items():
         f"{temperature.boundary_flux(faces.cold_plate):16.5f} {-temperature.boundary_flux(faces.hot_plate) / height:13.2f} "
         f"{nusselt[rayleigh, name]:9.4f} {benchmark[rayleigh] if rayleigh in benchmark else '-':>11} {catton(rayleigh):13.3f} {1e3 * v.max():14.3f}"
     )
+finest = {rayleigh: name for rayleigh, name in results if name != "coarser"}
 for rayleigh in benchmark:
     print(
-        f"Ra = {rayleigh:.0e}: Nusselt number {100 * (nusselt[rayleigh, 'finer'] / benchmark[rayleigh] - 1):+.2f} % from the benchmark"
+        f"Ra = {rayleigh:.0e}: Nusselt number {100 * (nusselt[rayleigh, finest[rayleigh]] / benchmark[rayleigh] - 1):+.2f} % from the benchmark"
     )
-for rayleigh in (3e3, 1e4):
+for rayleigh in (3e3, 1e4, 1e5):
     print(
-        f"Ra = {rayleigh:.0e}: Nusselt number {100 * (nusselt[rayleigh, 'finer'] / catton(rayleigh) - 1):+.1f} % from the correlation"
+        f"Ra = {rayleigh:.0e}: Nusselt number {100 * (nusselt[rayleigh, finest[rayleigh]] / catton(rayleigh) - 1):+.1f} % from the correlation"
     )
-v = (
-    results[1e4, "finer"][1]
-    .field(flow.velocity)
-    .evaluate(np.column_stack((line * width, np.full_like(line, height / 2))))[:, 1]
-)
-print(
-    f"Ra = 1e4: largest vertical velocity {v.max() * width / alpha:.3f} alpha/L at x = {line[v.argmax()]:.3f} L, benchmark 19.617 at 0.119 L"
-)
+for rayleigh, reference, position in ((1e4, 19.617, 0.119), (1e5, 68.59, 0.066)):
+    v = (
+        results[rayleigh, finest[rayleigh]][1]
+        .field(flow.velocity)
+        .evaluate(np.column_stack((line * width, np.full_like(line, height / 2))))[:, 1]
+    )
+    print(
+        f"Ra = {rayleigh:.0e}: largest vertical velocity {v.max() * width / alpha:.3f} alpha/L at x = {line[v.argmax()]:.3f} L, "
+        f"benchmark {reference} at {position} L ({100 * (v.max() * width / alpha / reference - 1):+.2f} %)"
+    )
 print(
     f"mesh study, Ra = 1e4: Nusselt number {nusselt[1e4, 'coarser']:.4f} ({meshes['coarser'].cell_count} triangles) and "
     f"{nusselt[1e4, 'finer']:.4f} ({meshes['finer'].cell_count} triangles)"
@@ -263,14 +293,14 @@ print(
 #
 # Temperature with isotherms and the streamlines coloured by speed at $\Delta T$ for $Ra=10^4$,
 # the Nusselt number over the Rayleigh number against the references, and the vertical velocity
-# across the gap at mid-height for the three temperature differences.
+# across the gap at mid-height for the four temperature differences.
 
 delta, result = results[1e4, "finer"]
 grid_x, grid_y = np.linspace(0.0, width, 61), np.linspace(0.0, height, 61)
 flow_samples = 1e3 * result.field(flow.velocity).evaluate(
     np.array([[a, b] for a in grid_x for b in grid_y])
 ).reshape(61, 61, 2)
-sweep = np.geomspace(1.3e3, 1.2e4, 100)
+sweep = np.geomspace(1.3e3, 1.2e5, 100)
 fig = plots.figure(2, 2, size=(17, 12.5))
 plots.surface(
     result.field(heat.temperature),
@@ -297,14 +327,14 @@ plots.line(
     {"enclosure correlation (Catton)": catton(sweep)},
     points={
         "OneSimulation": (
-            [1e3, 3e3, 1e4],
-            [nusselt[ra, "finer"] for ra in (1e3, 3e3, 1e4)],
+            list(finest),
+            [nusselt[ra, name] for ra, name in finest.items()],
         ),
         "de Vahl Davis (1983)": (list(benchmark), list(benchmark.values())),
     },
     hlines={"conduction only": 1.0},
     scale="logx",
-    ylimits=(0.8, 2.6),
+    ylimits=(0.8, 5.0),
     xlabel="Rayleigh number",
     ylabel="mean Nusselt number",
     title="Heat transfer across the gap",
@@ -319,7 +349,7 @@ plots.line(
             np.column_stack((line * width, np.full_like(line, height / 2)))
         )[:, 1]
         for (ra, name), (d, r) in results.items()
-        if name == "finer"
+        if name != "coarser"
     },
     hlines=0.0,
     xlabel="distance from the warm plate [mm]",

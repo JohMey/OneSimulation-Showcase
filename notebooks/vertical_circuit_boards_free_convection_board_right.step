@@ -3,7 +3,7 @@ ISO-10303-21;
 002, 0.02, 0.0025], 0.005], ["edge_10", [0.013200000000000002, 0.07, 0.0], 0.1], ["edge_11", [0.013200000000000002, 0.07, 0.005], 0.1], ["edge_12", [0.013200000000000002, 0.12000000000000001, 0.0025], 0.005]], "groups": {"side": ["x_min", "x_max", "y_min", "y_max"], "bottom": ["z_min"], "top": ["z_max"]}, "annotations": []} */
 HEADER;
 FILE_DESCRIPTION(('Open CASCADE Model'),'2;1');
-FILE_NAME('Open CASCADE Shape Model','2026-11-19T13:12:09',('Author'),(
+FILE_NAME('Open CASCADE Shape Model','2026-11-20T00:42:41',('Author'),(
     'Open CASCADE'),'Open CASCADE STEP processor 7.9','Open CASCADE 7.9'
   ,'Unknown');
 FILE_SCHEMA((

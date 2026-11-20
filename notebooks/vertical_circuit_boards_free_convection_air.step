@@ -8,7 +8,7 @@ edge_61", [0.012400000000000001, 0.02, 0.0], 0.0016], ["edge_62", [0.01240000000
 ": ["board_left.x_max", "board_left.y_max", "board_left.y_min", "board_right.x_min", "board_right.y_max", "board_right.y_min", "chip_1.x_max", "chip_1.y_max", "chip_1.y_min", "chip_2.x_max", "chip_2.y_max", "chip_2.y_min", "chip_3.x_max", "chip_3.y_max", "chip_3.y_min"]}, "annotations": []} */
 HEADER;
 FILE_DESCRIPTION(('Open CASCADE Model'),'2;1');
-FILE_NAME('Open CASCADE Shape Model','2026-11-19T13:12:08',('Author'),(
+FILE_NAME('Open CASCADE Shape Model','2026-11-20T00:42:41',('Author'),(
     'Open CASCADE'),'Open CASCADE STEP processor 7.9','Open CASCADE 7.9'
   ,'Unknown');
 FILE_SCHEMA((

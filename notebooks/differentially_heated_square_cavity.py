@@ -21,8 +21,9 @@ and compared with the benchmark solution of de Vahl Davis (1983).
 #
 # In units of $L$, $T_h-T_c$ and the thermal diffusivity $\alpha$ the only parameters are $Pr$ and
 # the Rayleigh number $Ra=g\beta(T_h-T_c)L^3/(\nu\alpha)$; the example solves $Ra=10^3$, where
-# conduction still dominates, and $Ra=10^4$, where the circulation bends the isotherms and
-# concentrates the heat transfer at the lower end of the hot wall.
+# conduction still dominates, $Ra=10^4$, where the circulation bends the isotherms and concentrates
+# the heat transfer at the lower end of the hot wall, and $Ra=10^5$ and $10^6$, where the flow
+# gathers in thin boundary layers along the side walls around a stratified, almost still core.
 #
 # The cavity comes from the CAD file `differentially_heated_square_cavity.step`, written by
 # `differentially_heated_square_cavity_geometry.py` with the CAD objects of OneSimulation; the model
@@ -45,7 +46,11 @@ from onesim.cad.exchange import load
 from onesim.materials import ThermalFluid
 from onesim.meshing import TriangularMesher
 from onesim.numerics import Numerics
-from onesim.numerics.coupled_systems import StationaryPartitionedCoupling
+from onesim.numerics.coupled_systems import (
+    CouplingContinuation,
+    MonolithicStationaryCoupling,
+    StationaryPartitionedCoupling,
+)
 from onesim.numerics.fem import FiniteElement, GalerkinAdvection, Lagrange, TaylorHood
 from onesim.numerics.field_transfer import FieldInterpolation
 from onesim.numerics.linear import SparseDirect
@@ -69,7 +74,8 @@ theme.set()
 #
 # `section` cuts the slab at half thickness; the cross-section keeps the face names. Two meshes
 # whose triangles shrink towards the walls, where the thermal and viscous boundary layers sit:
-# from 1/8 to 1/33 of the side and from 1/12 to 1/50.
+# from 1/8 to 1/33 of the side and from 1/12 to 1/50, and a third one for the thin layers of the two
+# high Rayleigh numbers, from 1/20 to 1/125 of the side.
 
 part = load("differentially_heated_square_cavity.step")
 cavity = part.section((0, 0, 1), origin=(0, 0, part.size[2] / 2))
@@ -88,6 +94,17 @@ meshes = {
     ).generate(cavity)
     for name, core, wall in (("coarser", 0.12, 0.03), ("finer", 0.08, 0.02))
 }
+meshes["layers"] = TriangularMesher(
+    target_size=0.05,
+    size_field=lambda p: np.minimum(
+        0.05,
+        0.008
+        + 0.3
+        * np.minimum(
+            np.minimum(p[:, 0], 1 - p[:, 0]), np.minimum(p[:, 1], 1 - p[:, 1])
+        ),
+    ),
+).generate(cavity)
 mesh = meshes["finer"]
 
 fig = plots.figure(1, 2, size=(13, 6))
@@ -104,10 +121,10 @@ plots.geometry(
     ax=fig[0],
 )
 plots.mesh(
-    mesh,
+    meshes["layers"],
     groups=("all",),
     legend=False,
-    title=f"Finer mesh: {mesh.cell_count} triangles",
+    title=f"Boundary-layer mesh: {meshes['layers'].cell_count} triangles",
     ax=fig[1],
 )
 plots.show()
@@ -116,10 +133,16 @@ plots.show()
 #
 # One flow model (Taylor-Hood elements) and one heat model (quadratic elements) on the same mesh.
 # Two `FieldCoupling`s close the loop: `BoussinesqBuoyancy` turns the temperature into the body
-# force of the flow, and the solved velocity carries the heat. `StationaryPartitionedCoupling`
-# alternates the two stationary solvers with under-relaxation until both fields stop changing.
-# In the dimensionless units $\rho=c_p=k=\beta=1$, $\mu=Pr$ and $g=Ra\,Pr$. Both Rayleigh numbers
-# are solved on the finer mesh, $Ra=10^4$ also on the coarser one.
+# force of the flow, and the solved velocity carries the heat. Up to $Ra=10^4$
+# `StationaryPartitionedCoupling` alternates the two stationary solvers with under-relaxation until
+# both fields stop changing. At high Rayleigh numbers the buoyancy feeds back too strongly for that:
+# at $Ra=10^6$ the flow solver alone no longer converges with the temperature of the previous sweep.
+# There `MonolithicStationaryCoupling` solves flow and heat together with one Newton method whose
+# Jacobian holds both coupling blocks, and `CouplingContinuation` reaches the target through
+# smaller Rayleigh numbers ($10^4\to10^5\to10^6$, as factors of the buoyancy).
+# In the dimensionless units $\rho=c_p=k=\beta=1$, $\mu=Pr$ and $g=Ra\,Pr$. $Ra=10^3$ and $10^4$ are
+# solved on the finer mesh, $Ra=10^4$ also on the coarser one, $Ra=10^5$ and $10^6$ on the
+# boundary-layer mesh.
 
 prandtl = 0.71
 fluid = ThermalFluid(
@@ -149,7 +172,14 @@ numerics = {
     ),
 }
 results, coarse = {}, {}
-for rayleigh, name in ((1e3, "finer"), (1e4, "coarser"), (1e4, "finer")):
+continuation = {1e5: (0.1, 1.0), 1e6: (0.01, 0.1, 1.0)}
+for rayleigh, name in (
+    (1e3, "finer"),
+    (1e4, "coarser"),
+    (1e4, "finer"),
+    (1e5, "layers"),
+    (1e6, "layers"),
+):
     problem = Problem(
         name=f"Heated cavity, Ra = {rayleigh:.0e}",
         geometry=cavity,
@@ -177,18 +207,30 @@ for rayleigh, name in ((1e3, "finer"), (1e4, "coarser"), (1e4, "finer")):
             ),
         ),
     )
-    (results if name == "finer" else coarse)[rayleigh] = Simulation(
+    (coarse if name == "coarser" else results)[rayleigh] = Simulation(
         problem=problem,
         mesh={flow: meshes[name], heat: meshes[name]},
         numerics=numerics,
-        coupling_solver=StationaryPartitionedCoupling(
-            stationary_systems=(flow, heat),
-            iteration=FixedPoint(
-                relative_tolerance=1e-6,
-                absolute_tolerance=1e-9,
-                maximum_iterations=150,
-                relaxation=0.7,
-            ),
+        coupling_solver=(
+            MonolithicStationaryCoupling(
+                stationary_systems=(flow, heat),
+                continuation=CouplingContinuation(factors=continuation[rayleigh]),
+                nonlinear_solver=Newton(
+                    linear_solver=SparseDirect(),
+                    relative_tolerance=1e-8,
+                    absolute_tolerance=1e-10,
+                ),
+            )
+            if rayleigh in continuation
+            else StationaryPartitionedCoupling(
+                stationary_systems=(flow, heat),
+                iteration=FixedPoint(
+                    relative_tolerance=1e-6,
+                    absolute_tolerance=1e-9,
+                    maximum_iterations=150,
+                    relaxation=0.7,
+                ),
+            )
         ),
     ).solve_stationary()
 
@@ -196,11 +238,16 @@ for rayleigh, name in ((1e3, "finer"), (1e4, "coarser"), (1e4, "finer")):
 #
 # The mean Nusselt number is the heat flowing in through the hot wall (it equals the heat leaving
 # through the cold wall). The velocity extrema are read on the centre lines, the local Nusselt
-# number $-\partial T/\partial x$ on the hot wall from the heat flux field.
+# number $-\partial T/\partial x$ on the hot wall from the heat flux field. At $Ra=10^6$ the 1983
+# values came from extrapolated finite differences; later spectral solutions (P. Le Quéré,
+# *Computers & Fluids* 20, 29-41, 1991) put the mean Nusselt number at 8.825 and the largest local
+# value near 17.5, where the results here lie.
 
 benchmark = {
     1e3: (1.118, 3.649, 0.813, 3.697, 0.178, 1.505, 0.092),
     1e4: (2.243, 16.178, 0.823, 19.617, 0.119, 3.528, 0.143),
+    1e5: (4.519, 34.73, 0.855, 68.59, 0.066, 7.717, 0.081),
+    1e6: (8.800, 64.63, 0.850, 219.36, 0.0379, 17.925, 0.0378),
 }
 line = np.linspace(0.0, 1.0, 2001)
 measured = {}
@@ -220,9 +267,16 @@ for rayleigh, result in results.items():
         local.max(),
         line[local.argmax()],
     )
+    report = result.result_set.solver_report["coupling"]
     print(
-        f"Ra = {rayleigh:.0e}: {len(result.result_set.solver_report['coupling']['scaled_changes'])} coupling sweeps, "
-        f"heat in {-temperature.boundary_flux(faces.hot):.5f}, heat out {temperature.boundary_flux(faces.cold):.5f}"
+        f"Ra = {rayleigh:.0e}: "
+        + (
+            f"{report['sweeps']} coupling sweeps"
+            if "sweeps" in report
+            else "Newton steps "
+            + " + ".join(str(step["iterations"]) for step in report["continuation"])
+        )
+        + f", heat in {-temperature.boundary_flux(faces.hot):.5f}, heat out {temperature.boundary_flux(faces.cold):.5f}"
     )
 names = (
     "mean Nusselt number",
@@ -263,14 +317,15 @@ print(
 
 # ## Figure
 #
-# Temperature with isotherms and the streamlines for both Rayleigh numbers: at $Ra=10^4$ the
-# isotherms turn from vertical (conduction) towards horizontal in the core, and the circulation
-# moves into layers along the side walls. Below, the local Nusselt number on the hot wall and the horizontal
-# velocity on the vertical centre line.
+# Temperature with isotherms and the streamlines for the four Rayleigh numbers: with growing $Ra$
+# the isotherms turn from vertical (conduction) to horizontal in a stratified core, and the
+# circulation moves into thin layers along the side walls, with secondary eddies in the core at
+# $Ra=10^6$. Below, the local Nusselt number on the hot wall and the horizontal velocity on the
+# vertical centre line.
 
 grid = np.linspace(0.0, 1.0, 61)
 points = np.array([[a, b] for a in grid for b in grid])
-fig = plots.figure(2, 2, size=(13, 12))
+fig = plots.figure(2, 4, size=(22, 11))
 for column, (rayleigh, result) in enumerate(results.items()):
     plots.surface(
         result.field(heat.temperature),
@@ -296,11 +351,11 @@ for column, (rayleigh, result) in enumerate(results.items()):
         xlabel="x / L",
         ylabel="y / L",
         title=f"Streamlines, Ra = {rayleigh:.0e}",
-        ax=fig[2 + column],
+        ax=fig[4 + column],
     )
 plots.show()
 
-fig = plots.figure(1, 2, size=(14, 5.5))
+fig = plots.figure(1, 2, size=(14, 6))
 plots.line(
     y={
         f"Ra = {ra:.0e}": (
@@ -344,8 +399,9 @@ plots.show()
 
 # ## Going further
 #
-# Raise the Rayleigh number to $10^6$ (benchmark $Nu=8.800$) with a finer wall spacing in the mesh;
-# change the Prandtl number to that of water; or make the cavity taller in
+# Continue to $Ra=10^7$ and $10^8$ (benchmark $Nu=16.52$ and $30.23$, Le Quéré 1991) with a wall
+# spacing of about 1/300 of the side and one more continuation factor; change the Prandtl number to
+# that of water; or make the cavity taller in
 # `differentially_heated_square_cavity_geometry.py` and follow the Nusselt number with the aspect
 # ratio. The same coupling in dimensional units for air between two plates is the example
 # `air_cavity_free_convection`.
