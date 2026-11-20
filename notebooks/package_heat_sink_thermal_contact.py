@@ -6,7 +6,7 @@ fins, cooled by an air stream along the fins. The two rough surfaces touch only 
 contact conductance combines the solid spots (Cooper-Mikic-Yovanovich) and the gas in the gap. One
 sixteenth of the device is read from a STEP file and solved in 3D; the temperature jump at the
 contact, the energy balance and the mean sink temperature are compared with the correlation and a
-resistance estimate, for two contact pressures.
+resistance estimate, for three contact pressures.
 """
 
 # # Thermal contact between a package and a finned heat sink
@@ -61,11 +61,10 @@ from onesim.meshing import TetrahedralMesher, interface
 from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import SparseDirect
-from onesim.numerics.nonlinear import Newton
 from onesim.physics.heat_transfer import (
+    ConvectiveHeatFlux,
     HeatConduction,
     HeatFlux,
-    NonlinearHeatFlux,
     ThermalContact,
 )
 from onesim.simulation import Problem, Simulation
@@ -76,14 +75,14 @@ theme.set()
 # ## Geometry and mesh
 #
 # `load` returns the sector with the parts package and sink as material regions and their named
-# faces. Tetrahedra of 1.8 mm, 0.9 mm at the contact, fill it.
+# faces. Tetrahedra of 1.2 mm, 0.6 mm at the contact, fill it.
 
 device = load("package_heat_sink_thermal_contact.step")
 faces = device.boundaries
 mesh = TetrahedralMesher(
-    target_size=0.0018,
+    target_size=0.0012,
     size_field=lambda p: np.where(
-        np.abs(np.hypot(p[:, 0], p[:, 1]) - 0.01) < 0.002, 0.0009, 0.0018
+        np.abs(np.hypot(p[:, 0], p[:, 1]) - 0.01) < 0.002, 0.0006, 0.0012
     ),
 ).generate(device)
 contact = interface(mesh, "package_sink")
@@ -116,14 +115,14 @@ plots.show()
 # ## Contact conductance
 #
 # `asperity_contact_conductance` gives the solid-spot part; the gas gap and the microhardness are
-# the short formulas above. Two contact pressures, 15 and 35 kPa, are compared.
+# the short formulas above. Three contact pressures, 15, 25 and 35 kPa, are compared.
 
 k_si, k_al, power, length, radius = 130.0, 238.0, 5.0, 0.05, 0.01
 sigma, slope, k_gap = 2e-6, 0.12, 0.031
 hardness = 6.23e9 * (1.62 * sigma / (1e-6 * slope)) ** -0.23
 free_path = 0.064e-6 * (300.0 / 288.0) * (760.0 / 50.0)
 rarefaction = (2 - 0.78) / 0.78 * (2 * 1.4 / 2.4) * free_path / 0.707
-pressures = (15e3, 35e3)
+pressures = (15e3, 25e3, 35e3)
 conductance = {
     p: asperity_contact_conductance(
         pressure=p,
@@ -145,12 +144,11 @@ for p, h in conductance.items():
 #
 # `regionwise` gives each part its conductivity and the package its heat source; `ThermalContact`
 # acts on the faces between the two parts, which `interface` returns. The local air-side
-# coefficient varies along the fins, so the convective flux is a `NonlinearHeatFlux` of the
-# temperature and the position, solved with Newton's method.
+# coefficient varies along the fins: `ConvectiveHeatFlux` takes it as a function of the position.
 
 air, speed, nu_air, k_air, prandtl = 293.15, 8.5, 1.59e-5, 0.0263, 0.707
 h_air = (
-    lambda z: 0.332
+    lambda x, y, z: 0.332
     * k_air
     * prandtl ** (1 / 3)
     * np.sqrt(speed / (nu_air * np.maximum(z, 1e-3)))
@@ -179,11 +177,11 @@ for p, h in conductance.items():
         geometry=device,
         physics=(model,),
         boundary_conditions=(
-            NonlinearHeatFlux(
+            ConvectiveHeatFlux(
                 boundary=faces["sink.cooled"],
                 physics=model,
-                flux=lambda temperature, z: h_air(z) * (temperature - air),
-                derivative=lambda temperature, z: h_air(z) + 0.0 * temperature,
+                heat_transfer_coefficient=h_air,
+                ambient_temperature=air,
             ),
             HeatFlux(
                 boundary=faces.all - faces["sink.cooled"], physics=model, value=0.0
@@ -193,16 +191,7 @@ for p, h in conductance.items():
     )
     models[p] = model
     temperatures[p] = (
-        Simulation(
-            problem=problem,
-            mesh=mesh,
-            numerics=Numerics(
-                spatial=numerics.spatial,
-                linear_solver=SparseDirect(),
-                nonlinear_solver=Newton(),
-                initial_guess={model.temperature: air},
-            ),
-        )
+        Simulation(problem=problem, mesh=mesh, numerics=numerics)
         .solve_stationary()
         .field(model.temperature)
     )
@@ -260,7 +249,7 @@ for p, field in temperatures.items():
 # ## Figure
 #
 # The temperature on the surface of the sector at 35 kPa, and the temperature along the radius
-# through the fin at mid-length for both pressures.
+# through the fin at mid-length for the three pressures.
 
 fig = plots.figure(1, 2, size=(15, 6))
 plots.surface(
