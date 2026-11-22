@@ -6,7 +6,7 @@ https://johmey.github.io/OneSimulation-Showcase/examples/notebooks.html
 
 # # 09 · CAD aus STEP: Hülse unter Zug
 #
-# **OneSimulation Runtime Alpha 0.2.1a5 · STEP-Import · Tetraedernetz · lineare Elastizität · Q2-FEM**
+# **OneSimulation Runtime Alpha 0.2.1a6 · STEP-Import · Tetraedernetz · lineare Elastizität · Q2-FEM**
 #
 # Dieses Beispiel nimmt eine Geometrie aus einer **STEP-Datei**, vernetzt sie mit
 # `TetrahedralMesher` und löst darauf eine stationäre lineare Elastizitätsrechnung.
@@ -51,7 +51,7 @@ from onesim.physics.solid_mechanics import (
 )
 from onesim.simulation import Problem, Simulation
 
-assert version("onesimulation") == "0.2.1a5"
+assert version("onesimulation") == "0.2.1a6"
 STEP_DATEI = None  # Pfad der eigenen STEP-Datei eintragen, um sie zu rechnen.
 PROFILE = "SCHNELL"  # Alternativ bewusst "HOCHAUFGELOEST" wählen.
 PROFILES = {"SCHNELL": {"target_size": 0.006}, "HOCHAUFGELOEST": {"target_size": 0.003}}
