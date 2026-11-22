@@ -1,0 +1,107 @@
+OneSimulation – Proprietäre Softwarelizenz / Proprietary Software License
+
+Copyright (c) 2026 Johannes Meyer. Alle Rechte vorbehalten. All rights reserved.
+
+Die deutsche Fassung ist maßgeblich. Die englische Fassung am Ende dient der
+Information.
+
+1. Gegenstand
+   Diese Lizenz gilt für die Software OneSimulation einschließlich der Python-
+   Pakete (Wheels), der Runtime, der Werkzeuge zur Lizenzaktivierung, der
+   Dokumentation und der mitgelieferten Beispiel-Notebooks (zusammen: die
+   „Software“). Rechteinhaber ist Johannes Meyer (der „Lizenzgeber“).
+
+2. Nutzungsrecht
+   Der Lizenzgeber räumt dem Erwerber eines gültigen Abonnements oder einer
+   sonstigen gültigen Berechtigung (der „Lizenznehmer“) ein einfaches, nicht
+   übertragbares und nicht unterlizenzierbares Recht ein, die Software für die
+   Dauer der Berechtigung zu installieren und zu nutzen. Der Umfang
+   (insbesondere Anzahl der Geräte und Benutzerkonten) richtet sich nach dem
+   erworbenen Angebot; ohne abweichende Vereinbarung gilt: eine Person, ein
+   Gerät, ein lokales Benutzerkonto. Private, wissenschaftliche und
+   gewerbliche Nutzung sind erlaubt, soweit das erworbene Angebot nichts
+   anderes bestimmt.
+
+3. Beschränkungen
+   Soweit nicht gesetzlich zwingend erlaubt oder in dieser Lizenz ausdrücklich
+   gestattet, ist es nicht gestattet,
+   a) die Software oder Teile davon zu vervielfältigen, zu verbreiten, zu
+      veröffentlichen, zu vermieten, zu verkaufen oder Dritten zugänglich zu
+      machen, auch nicht über Paketverzeichnisse, Repositorys oder Container;
+   b) die Lizenzprüfung, Aktivierung oder Zertifikate zu umgehen, zu
+      entfernen, zu verändern oder zu deaktivieren;
+   c) die Software zu dekompilieren, zu disassemblieren oder anderweitig
+      zurückzuentwickeln, ausgenommen in den Grenzen der §§ 69d und 69e UrhG;
+   d) Urheberrechts-, Marken- und Lizenzhinweise zu entfernen.
+   Sicherungskopien sind im Rahmen von § 69d Abs. 2 UrhG zulässig.
+
+4. Beispiel-Notebooks und Ergebnisse
+   Die mitgelieferten Notebooks dürfen für eigene Berechnungen verändert und
+   zusammen mit der lizenzierten Software genutzt werden. Mit der Software
+   erzeugte Rechenergebnisse, Daten und Grafiken stehen dem Lizenznehmer zu.
+
+5. Komponenten Dritter
+   Abhängigkeiten und Komponenten Dritter (siehe THIRD_PARTY_NOTICES.txt)
+   unterliegen ausschließlich ihren eigenen Lizenzen. Diese Lizenz schränkt
+   Rechte aus jenen Lizenzen nicht ein.
+
+6. Frühere BSD-Ausgaben
+   Kopien früherer Ausgaben, die vor dem 10. November 2026 unter der
+   BSD-3-Clause-Lizenz weitergegeben wurden, behalten für ihre Empfänger die
+   Rechte aus jener Lizenz. Für alle späteren Ausgaben, Änderungen und
+   Erweiterungen gilt ausschließlich diese Lizenz.
+
+7. Laufzeit und Beendigung
+   Das Nutzungsrecht endet mit dem Ende der Berechtigung, insbesondere mit dem
+   wirksamen Ende des Abonnements, oder bei einem erheblichen Verstoß gegen
+   diese Lizenz. Danach ist die Nutzung einzustellen.
+
+8. Gewährleistung und Haftung
+   Die Software ist eine Alpha-Version. Gesetzliche Gewährleistungsrechte
+   bleiben unberührt. Der Lizenzgeber haftet unbeschränkt bei Vorsatz und
+   grober Fahrlässigkeit, bei Verletzung von Leben, Körper oder Gesundheit
+   sowie nach dem Produkthaftungsgesetz. Bei leichter Fahrlässigkeit haftet er
+   nur bei Verletzung einer wesentlichen Vertragspflicht und begrenzt auf den
+   vorhersehbaren, vertragstypischen Schaden. Im Übrigen ist die Haftung
+   ausgeschlossen. Die Software ersetzt keine technische, wissenschaftliche
+   oder sicherheitsrelevante Validierung durch den Lizenznehmer.
+
+9. Schlussbestimmungen
+   Es gilt deutsches Recht unter Ausschluss des UN-Kaufrechts. Für
+   Verbraucher bleiben zwingende Schutzvorschriften ihres Aufenthaltsstaats
+   unberührt. Sollte eine Bestimmung unwirksam sein, bleibt der Rest wirksam.
+   Kontakt: über die Bestellbestätigung des Kaufs.
+
+--------------------------------------------------------------------------------
+English translation (for information only)
+
+1. Subject. This license covers the OneSimulation software, including its
+   Python wheels, runtime, license activation tools, documentation and example
+   notebooks (the "Software"). The rights holder is Johannes Meyer.
+2. Grant. Holders of a valid subscription or other valid entitlement receive a
+   non-exclusive, non-transferable, non-sublicensable right to install and use
+   the Software for the duration of that entitlement, within the scope of the
+   purchased offer (by default: one person, one device, one local user
+   account). Private, academic and commercial use are permitted unless the
+   offer states otherwise.
+3. Restrictions. Except as mandatorily permitted by law or expressly allowed
+   here, you may not copy, distribute, publish, rent, sell or otherwise make
+   the Software available to third parties; circumvent, remove, modify or
+   disable license checks, activation or certificates; decompile or reverse
+   engineer the Software beyond Sections 69d and 69e of the German Copyright
+   Act; or remove copyright, trademark or license notices.
+4. Notebooks and results. Example notebooks may be modified for your own work.
+   Results, data and figures you produce belong to you.
+5. Third-party components remain under their own licenses.
+6. Earlier BSD editions. Copies of earlier editions distributed under the
+   BSD-3-Clause license before 10 November 2026 keep the rights of that license
+   for their recipients. All later editions, changes and extensions are
+   governed exclusively by this license.
+7. Term. Rights end when the entitlement ends or upon material breach.
+8. Warranty and liability. Alpha software. Statutory warranty rights are
+   unaffected. Liability is unlimited for intent, gross negligence, injury to
+   life, body or health and under the Product Liability Act; for slight
+   negligence only for breach of essential obligations, limited to foreseeable,
+   typical damage; otherwise excluded.
+9. German law applies, excluding the CISG; mandatory consumer protection of
+   the consumer's country of residence remains unaffected.
