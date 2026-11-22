@@ -4,7 +4,7 @@
 
 **[Documentation](https://johmey.github.io/OneSimulation-Showcase/)** · **[Quickstart](https://johmey.github.io/OneSimulation-Showcase/quickstart.html)** · **[Examples](https://johmey.github.io/OneSimulation-Showcase/examples/index.html)** · **[API reference](https://johmey.github.io/OneSimulation-Showcase/reference/a-physics-api-reference/index.html)** · **[Free books](https://johmey.github.io/OneSimulation-Showcase/books.html)** · **[Plans](https://johmey.gumroad.com/l/onesimulation-runtime-abo)**
 
-**Currently not available.** New subscriptions, Education access and notebook orders are paused. [Get notified when it is available again](https://johmey.gumroad.com/subscribe).
+**Runtime Alpha 0.2.1a8 is available** for macOS (Apple Silicon), Ubuntu 22.04 (x86-64), and Windows x64 with CPython 3.13. [Start the seven-day Focus trial on Gumroad](https://johmey.gumroad.com/l/onesimulation-runtime-abo?variant=Focus+%E2%80%93+Structures+%26+Mechanics&monthly=true&wanted=true&utm_source=github&utm_medium=repository&utm_campaign=engineering_pilot&utm_content=github_readme) for commercial STEP and thermomechanics workflows. Focus renews at €39/month before applicable tax. [STEP example](https://johmey.github.io/OneSimulation-Showcase/examples/notebooks/step-import.html#engineering-pilot) · [Circuit-board warpage](https://johmey.github.io/OneSimulation-Showcase/examples/notebooks/pcb_thermal_warpage.html#engineering-pilot) · [Contact OneSimulation](https://onesimulation-contact.yummy-bee-0467.chatgpt.site/)
 
 <p>
 <a href="https://johmey.github.io/OneSimulation-Showcase/examples/magnetostatics.html"><img src="https://johmey.github.io/OneSimulation-Showcase/thumbs/hero-magnetostatics.jpg" width="24%" alt="Computed magnetic field of a coil"></a>
@@ -13,7 +13,7 @@
 <a href="https://johmey.github.io/OneSimulation-Showcase/examples/multiphysics.html"><img src="https://johmey.github.io/OneSimulation-Showcase/thumbs/hero-multiphysics.jpg" width="24%" alt="Computed Joule heating around a hole in a copper plate"></a>
 </p>
 
-Every picture is a real calculation. The [example library](https://johmey.github.io/OneSimulation-Showcase/examples/index.html) holds more than 200 worked notebooks, each compared with a reference, next to one page for each of the sixteen physics modules with the model, its resolution and its limits.
+Every picture is a real calculation. The [example library](https://johmey.github.io/OneSimulation-Showcase/examples/index.html) holds 355 worked examples, each compared with a reference, next to one page for each of the sixteen physics modules with the model, its resolution and its limits.
 
 ## One model, five discretizations
 
@@ -43,19 +43,11 @@ Same 3D Poisson problem, same mesh of 16 × 16 × 16 hexahedra. [The full exampl
 
 ## Install
 
-OneSimulation is delivered as a binary wheel for CPython 3.13 on macOS (Apple Silicon), Linux (x86_64) and Windows (AMD64). The runtime is currently not available for download.
-
-```bash
-python3.13 -m venv .venv-onesimulation
-.venv-onesimulation/bin/python -m pip install './onesimulation-0.2.1a2-cp313-cp313-macosx_11_0_arm64.whl[meshing,compute,visualization]'
-.venv-onesimulation/bin/onesimulation-license activate-gumroad
-```
-
-The [Quickstart](https://johmey.github.io/OneSimulation-Showcase/quickstart.html) has the commands for all three platforms and a first 3D model.
+Choose the current ZIP for your platform on Gumroad. The [Quickstart](https://johmey.github.io/OneSimulation-Showcase/quickstart.html) covers installation, activation and the first STEP run on all three platforms.
 
 ## Getting it
 
-**Currently not available.** New subscriptions, Education access and notebook orders are paused. The [plans](https://johmey.gumroad.com/l/onesimulation-runtime-abo) are shown for reference. [Get notified when it is available again](https://johmey.gumroad.com/subscribe).
+[Compare plans, trial and cancellation terms](https://johmey.github.io/OneSimulation-Showcase/plans.html) or [open the Gumroad offer](https://johmey.gumroad.com/l/onesimulation-runtime-abo?utm_source=github&utm_medium=repository&utm_campaign=engineering_pilot&utm_content=all_plans).
 
 OneSimulation is an alpha and a closed binary package. The results shown are numerically verified against references ([verification](https://johmey.github.io/OneSimulation-Showcase/verification.html)); they are not experimentally validated.
 
