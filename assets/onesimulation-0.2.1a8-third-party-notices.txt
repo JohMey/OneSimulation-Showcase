@@ -1,0 +1,69 @@
+# Third-party notices
+
+OneSimulation's own code, documentation and notebooks are proprietary software
+(Copyright (c) 2026 Johannes Meyer, see LICENSE). That license does not apply to
+third-party source material, scientific datasets or dependencies, which remain
+under their own terms. Copies of earlier editions distributed under the
+BSD-3-Clause license before 10 November 2026 keep that license for their
+recipients.
+
+## Dependencies
+
+Dependencies are resolved and installed separately by pip, not vendored in the
+OneSimulation wheel. Their own distributions contain the applicable licenses
+and notices. The release verification writes a complete installed distribution
+inventory including versions and declared license metadata.
+
+Direct dependencies include NumPy (BSD-3-Clause, with additional bundled-code
+notices in its distribution), Numba (BSD-2-Clause), SciPy (BSD-3-Clause, with
+additional native dependency notices), h5py (BSD-3-Clause), RFC 8785
+(Apache-2.0), and cadquery-ocp (Apache-2.0, with separate native dependency terms).
+Open CASCADE Technology, used by OCP, is LGPL-2.1 with the OCCT exception.
+An installation or desktop bundle containing native libraries must retain their
+licenses and satisfy their distribution conditions separately.
+The optional cryptography verifier uses Apache-2.0 OR BSD-3-Clause and includes
+additional native dependency notices in its own distribution.
+
+## Scientific catalogs
+
+`onesim/physics/plasma/data/chemistry`, `data/transport`, `data/materials` and
+generated Python catalogs contain literature citations, data-source records and
+per-record provenance. Keep those records with redistributed catalogs. A
+citation or a `license` value in project metadata alone is not evidence that a
+publisher licensed every cited table for redistribution.
+
+The release tool exports the exact catalog paths, hashes and all provenance
+records to `scientific-data-inventory.json`. Publication requires a reviewed
+rights record for every catalog. Unreviewed records block the upload gate;
+they are not silently treated as covered by the project license. The same rule applies to data
+embedded in generated Python modules.
+
+This notice makes no blanket claim of third-party redistribution clearance.
+
+## Scientific facts and mathematical implementations
+
+`LicenseRef-Scientific-Facts` identifies scientific constants, coefficients,
+reaction stoichiometry and mathematical relations encoded in the project's own
+schema or executable implementation. It is a provenance/review category, not a
+claim that the cited publisher granted open or Creative Commons rights to an
+article or database. Publication text, illustrations, table layouts, creative
+compilations and source-specific database rights remain separate.
+
+Project-authored schema, annotations and code are proprietary (see LICENSE). Keep the original
+scientific citations, units, source locations and stated model limitations.
+A restricted license on an article does not itself relicense scientific facts;
+this category does not permit copying protected parts of that article. The
+hash-bound release review must establish the actual scope separately for each
+file. Changing a record's license marker alone does not clear an upload.
+
+Raw LXCat/IST-Lisbon catalog extractions remain excluded. No LXCat database,
+article PDF, publisher table image or bulk source-database download is bundled.
+
+WarpX helium PIC-MCC cross sections
+----------------------------------
+The six helium scattering, excitation and ionization tables are unmodified
+members of the compressed runtime resource helium-turner.v1.zip, taken from
+BLAST-WarpX/warpx-data revision b59a35f8d2d10592b2ea0ea18608dc2a12bc1380
+(MCC_cross_sections/He). Their source and individual SHA-256 digests are
+recorded in the loader. The upstream copyright, conditions and disclaimer
+are reproduced verbatim in onesim/physics/plasma/data/collisions/warpx/LICENSE.txt.
