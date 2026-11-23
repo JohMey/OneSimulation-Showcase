@@ -60,18 +60,21 @@ theme.set()
 
 # ## Geometry and meshes
 #
-# Curved quadratic tetrahedra of 6 mm, refined at the hole to 0.8 mm and, for the check, to 0.5 mm.
+# Curved quadratic tetrahedra of 5 mm, with local resolutions of 0.5 mm and 0.35 mm at the hole.
 
 shaft = load("cylinder_hole_neuber_notch_fatigue.step")
 faces = shaft.boundaries
-meshes = [TetrahedralMesher(target_size=0.006, geometry_order=2, refinements=(LocalRefinement(region=faces.hole, target_size=size),)).generate(shaft)
-          for size in (0.0008, 0.0005)]
+meshes = [TetrahedralMesher(target_size=0.005, geometry_order=2, refinements=(LocalRefinement(region=faces.hole, target_size=size),)).generate(shaft)
+          for size in (0.0005, 0.00035)]
+
+for mesh in meshes:
+    print(f"Mesh: {len(mesh.coordinates):,} nodes, {mesh.cell_count:,} elements")
 
 view = plots.Camera(elevation=30, azimuth=-60)
 fig = plots.figure(1, 2, size=(15, 5.5))
 plots.geometry(shaft, selection={"clamped": faces.clamped, "loaded": faces.loaded, "hole": faces.hole}, labels=False, camera=view,
                title="Shaft with a transverse hole", ax=fig[0])
-plots.mesh(meshes[0], groups=("all",), legend=False, camera=view, title=f"{meshes[0].cell_count} curved quadratic tetrahedra", ax=fig[1])
+plots.mesh(meshes[-1], groups=("all",), legend=False, camera=view, title=f"{meshes[-1].cell_count} curved quadratic tetrahedra", ax=fig[1])
 plots.show()
 
 # ## Linear-elastic analysis at the load amplitude
@@ -92,7 +95,7 @@ problem = Problem(name="Shaft with a hole", geometry=shaft, physics=(model,), bo
 numerics = Numerics(spatial=FiniteElement(element=Lagrange(order=2)), linear_solver=SparseDirect())
 results = [Simulation(problem=problem, mesh=mesh, numerics=numerics).solve_stationary() for mesh in meshes]
 mises = [result.field(model.von_mises_stress) for result in results]
-stress = results[0].field(model.stress)
+stress = results[-1].field(model.stress)
 
 # ## Nominal stresses and the peak at the hole
 #
@@ -116,11 +119,11 @@ print(f"peak von Mises stress at the hole: {peaks[0] / 1e6:.1f} MPa on {meshes[0
 cyclic = RambergOsgood(youngs_modulus=modulus, strength_coefficient=1258e6, hardening_exponent=0.208)
 life_curve = StrainLifeCurve(youngs_modulus=modulus, fatigue_strength_coefficient=948e6, fatigue_strength_exponent=-0.092,
                              fatigue_ductility_coefficient=0.26, fatigue_ductility_exponent=-0.445)
-elastic = np.asarray(samples[0].values, dtype=float)
+elastic = np.asarray(samples[-1].values, dtype=float)
 local = {name: rule(elastic, cyclic) for name, rule in (("Neuber", neuber_notch), ("Glinka", glinka_notch))}
 lives = {name: life_curve.cycles_from_smith_watson_topper(s * e) for name, (s, e) in local.items()}
 hot = int(np.argmax(elastic))
-spot = samples[0].positions[hot]
+spot = samples[-1].positions[hot]
 print(f"hot spot at x = {1e3 * spot[0]:.2f} mm, y = {1e3 * spot[1]:.2f} mm, z = {1e3 * spot[2]:.2f} mm; elastic amplitude {elastic[hot] / 1e6:.1f} MPa "
       f"(elastic strain {100 * elastic[hot] / modulus:.4f} %)")
 for name, (s, e) in local.items():
@@ -137,9 +140,9 @@ print(f"shortest lives over the hole surface: Neuber {np.min(lives['Neuber']):,.
 # hole against the angle around it.
 
 curve_stress = np.linspace(1e6, 1.2 * elastic[hot], 300)
-angle = np.degrees(np.arctan2(samples[0].positions[:, 1], samples[0].positions[:, 0] - length / 2))
+angle = np.degrees(np.arctan2(samples[-1].positions[:, 1], samples[-1].positions[:, 0] - length / 2))
 fig = plots.figure(1, 3, size=(20, 6))
-plots.surface(mises[0], camera=plots.Camera(elevation=60, azimuth=-90), title="Elastic von Mises stress amplitude", ax=fig[0])
+plots.surface(mises[-1], camera=plots.Camera(elevation=60, azimuth=-90), title="Elastic von Mises stress amplitude", ax=fig[0])
 plots.line(y={"cyclic Ramberg-Osgood curve": (100 * cyclic.strain(curve_stress), curve_stress / 1e6),
               "Neuber hyperbola σε = σ_e²/E": (100 * elastic[hot] ** 2 / modulus / curve_stress, curve_stress / 1e6),
               "linear-elastic line": (100 * curve_stress / modulus, curve_stress / 1e6)},
