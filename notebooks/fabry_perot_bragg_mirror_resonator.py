@@ -26,15 +26,16 @@ theme.set()
 
 # ## Mirror geometry and mesh
 #
-# The three STEP files use micrometres. A common section cuts the strip and the mirror layers. Matching periodic boundaries along its long edges represent mirrors of infinite transverse extent.
+# The three STEP files use micrometres. A common section cuts the strip and the mirror layers. Matching periodic boundaries along its long edges represent mirrors of infinite transverse extent. The target edge length is 12.5 nm, about one eighth of the thinnest 104 nm layer. Refining from 20 nm increases the mesh from 5,114 to 12,706 triangles (3,003 to 7,062 vertices).
 
 stem = "fabry_perot_bragg_mirror_resonator"
 strip = load(stem + ".step").section((0, 0, 1), origin=(0, 0, 0.025))
 indices = {"high": 2.4, "low": 1.45}
 parts = {name: load(f"{stem}_{name}.step") for name in indices}
 layers = [s.named(name) for name, part in parts.items() for s in part.sections((0, 0, 1), origin=(0, 0, 0.025))]
-mesh = scaled(TriangularMesher(target_size=0.02, embedded_regions=tuple(layers),
-                               hard_sizes={"y_min": 0.02, "y_max": 0.02}).generate(strip), "um")
+mesh = scaled(TriangularMesher(target_size=0.0125, embedded_regions=tuple(layers),
+                               hard_sizes={"y_min": 0.0125, "y_max": 0.0125}).generate(strip), "um")
+print(f"Mesh: {mesh.cell_count:,} triangles, {len(mesh.coordinates):,} vertices")
 window = Box(length=0.55, width=0.1, height=0.05, origin=(0.5, 0, 0))
 fig = plots.figure(1, 2, size=(12, 4.3))
 plots.geometry([(part & window).named(name) for name, part in parts.items()],

@@ -54,13 +54,16 @@ theme.set()
 # ## Geometry and meshes
 #
 # The cross-section at half depth keeps the face names. Three uniform meshes of quadratic triangles
-# with 1/20, 1/28 and 1/40 m target size form the mesh study.
+# with 1/28, 1/40 and 1/64 m target size form the mesh study.
 
 part = load("rising_bubble_benchmark.step")
 column = part.section((0, 0, 1), origin=(0, 0, part.size[2] / 2))
 faces = column.boundaries
-sizes = (1 / 20, 1 / 28, 1 / 40)
+sizes = (1 / 28, 1 / 40, 1 / 64)
 meshes = {size: TriangularMesher(target_size=size).generate(column) for size in sizes}
+
+for h, mesh in meshes.items():
+    print(f"h = 1/{round(1/h)}: {len(mesh.coordinates):,} nodes, {mesh.cell_count:,} triangles")
 
 fig = plots.figure(1, 2, size=(11, 7))
 plots.geometry(part, selection={"no slip": part.boundaries.floor | part.boundaries.lid, "free slip": part.boundaries.sides},
@@ -87,7 +90,7 @@ problem = Problem(name="Rising bubble", geometry=column, physics=(flow,), bounda
 numerics = Numerics(spatial=FiniteElement(element=TaylorHood()), time_integrator=BDF(order=2), linear_solver=SparseDirect())
 keep = ExecutionOptions(result_retention=ResultRetentionPolicy(mode="stride", stride=2))
 results = {size: Simulation(problem=problem, mesh=meshes[size], numerics=numerics).run(
-    start_time=0.0, end_time=3.0, time_step=0.01 if size > 1 / 30 else 0.008, execution_options=keep) for size in sizes}
+    start_time=0.0, end_time=3.0, time_step=min(0.01, 0.32 * size), execution_options=keep) for size in sizes}
 
 # ## Results
 #
