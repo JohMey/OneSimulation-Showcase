@@ -27,7 +27,12 @@ The measured front speed is checked against the shallow-water celerity sqrt(g*h)
 # produces one left-going and one right-going pulse.
 
 import numpy as np
-from onesim.physics.hydrodynamics import ShallowWater2DSolver
+from onesim.meshing import TensorCollocationMesh
+from onesim.numerics.time import ForwardEulerTimeIntegrator
+from onesim.physics.hydrodynamics import (
+    PeriodicShallowWaterRusanov,
+    ShallowWater2DSolver,
+)
 from onesim.visualization import plots, theme
 
 theme.set()
@@ -59,8 +64,14 @@ def initial_state(x, y):
     return depth, np.zeros_like(x), np.zeros_like(y)
 
 
+axis = (np.arange(n) + 0.5) / n
+mesh = TensorCollocationMesh(
+    axes=(axis, axis), coordinate_system="cartesian", periodic=(True, True)
+)
 result = ShallowWater2DSolver(
-    mesh_size=n,
+    mesh=mesh,
+    spatial=PeriodicShallowWaterRusanov(),
+    time_integrator=ForwardEulerTimeIntegrator(),
     gravity=g,
     final_time=final_time,
     cfl=0.4,
@@ -76,7 +87,6 @@ print(f"Integrated {result.step_count} explicit steps to t = {result.time:.4f} s
 # Dividing the travelled distance by the elapsed time gives the measured speed,
 # which we compare with $c=\sqrt{g h}$.
 
-axis = (np.arange(n) + 0.5) / n
 delta_h = result.depth.mean(axis=1) - h
 weight = np.abs(delta_h)
 

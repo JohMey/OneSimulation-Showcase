@@ -31,7 +31,7 @@ import numpy as np
 from onesim.physics.systems import (
     HydraulicBranch,
     HydraulicNode,
-    HydraulicSystemsProvider,
+    DEFAULT_SYSTEMS_PROVIDER_REGISTRY,
 )
 from onesim.visualization import plots, theme
 
@@ -78,7 +78,8 @@ def orifice_flow(upstream_pressure, downstream_pressure, time, parameters):
     )
 
 
-network = HydraulicSystemsProvider(
+network = DEFAULT_SYSTEMS_PROVIDER_REGISTRY.create(
+    "systems.hydraulic_systems",
     nodes=(
         HydraulicNode(
             "tank",

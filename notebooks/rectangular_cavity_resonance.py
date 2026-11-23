@@ -34,8 +34,11 @@ from math import pi, sqrt
 
 import numpy as np
 from onesim.materials import VACUUM_PERMEABILITY, VACUUM_PERMITTIVITY
+from onesim.meshing.meshes import staggered
 from onesim.numerics.discretization import StaggeredLocation
+from onesim.numerics.time import StaggeredVerlet
 from onesim.physics.electromagnetics import DEFAULT_ELECTROMAGNETICS_PROVIDER_REGISTRY
+from onesim.physics.electromagnetics.waves import YeeDiscretization
 from onesim.visualization import plots, theme
 from scipy.signal import find_peaks
 
@@ -82,8 +85,9 @@ samples = 2000
 def yee_solver(final_time):
     return DEFAULT_ELECTROMAGNETICS_PROVIDER_REGISTRY.create(
         "electromagnetics.maxwell_time_domain",
-        node_axes=node_axes,
-        periodic=(False, False, False),
+        mesh=staggered(node_axes=node_axes, periodic=False),
+        spatial=YeeDiscretization(),
+        time_integrator=StaggeredVerlet(),
         permittivity=VACUUM_PERMITTIVITY,
         permeability=VACUUM_PERMEABILITY,
         final_time=final_time,
