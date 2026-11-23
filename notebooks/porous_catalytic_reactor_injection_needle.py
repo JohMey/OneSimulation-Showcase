@@ -70,15 +70,15 @@ theme.set()
 
 # ## Geometry and mesh
 #
-# `load` returns the bed with its named faces. Tetrahedra of 4.5 mm and 3.5 mm, refined towards the
-# needle and down to 0.32 mm and 0.23 mm at its tip, where the injected jet enters; cells with all
+# `load` returns the bed with its named faces. Tetrahedra of 3.5 mm and 2 mm, refined towards the
+# needle and down to 0.23 mm and 0.12 mm at its tip, where the injected jet enters; cells with all
 # corners on walls are split so that the Taylor-Hood flow elements stay stable.
 
 bed = load("porous_catalytic_reactor_injection_needle.step")
 face = bed.boundaries
 radius, length = bed.size[0] / 2, bed.size[2]
 needle_radius, needle_position = 0.6e-3, 20e-3
-sizes = {"coarse": (4.5e-3, 0.95e-3, 0.32e-3), "fine": (3.5e-3, 0.75e-3, 0.23e-3)}
+sizes = {"coarse": (3.5e-3, 0.75e-3, 0.23e-3), "fine": (2.0e-3, 0.40e-3, 0.12e-3)}
 meshes = {name: TetrahedralMesher(target_size=h, split_boundary_cells=True, refinements=(
     DistanceRefinement(source=face.needle_wall, target_size=hn, far=2.5e-3, far_size=h),
     DistanceRefinement(source=face.needle_tip, target_size=ht, far=0.85e-3, far_size=hn))).generate(bed)
@@ -111,7 +111,7 @@ jet = lambda x, y, z: np.column_stack((-profile(y*y + (z - needle_position)**2, 
 reaction = ReactionIR("A+B->C", {"A": 1, "B": 1}, {"C": 1}, {"kind": "constant", "unit": "m^3/mol/s", "value": rate_constant})
 results = {}
 for name, mesh in meshes.items():
-    print(f"Solving {name} mesh with {mesh.cell_count} tetrahedra", flush=True)
+    print(f"Solving {name} mesh with {len(mesh.coordinates):,} nodes and {mesh.cell_count:,} tetrahedra", flush=True)
     flow = IncompressibleNavierStokes(domain=bed.volume, material=water, porous_resistance=viscosity / permeability)
     species = SpeciesTransport(domain=bed.volume, reactions=(reaction,), advection_form="convective",
                                species=tuple(TransportSpecies(s, diffusivity=dispersion) for s in ("A", "B", "C")))
