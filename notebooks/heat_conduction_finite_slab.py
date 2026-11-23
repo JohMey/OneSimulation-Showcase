@@ -35,7 +35,7 @@ method = Numerics(spatial=FiniteElement(element=Lagrange(order=1)),
 
 # ## Check the full temperature profile
 #
-# For an instantaneous change at both faces, Bird, Stewart and Lightfoot give the exact cosine series in *Transport Phenomena*, 2nd ed., Eq. 12.1-31. Its modes have wave numbers $q_n=(n+\\tfrac12)\\pi$ and decay at rates $q_n^2$. Compare the profiles at six times on two meshes, using the relative $L^2$ error over the whole slab.
+# For an instantaneous change at both faces, Bird, Stewart and Lightfoot give the exact cosine series in *Transport Phenomena*, 2nd ed., Eq. 12.1-31. Its modes have wave numbers $q_n=(n+\\tfrac12)\\pi$ and decay at rates $q_n^2$. Compare the profiles at six times on three meshes, using the relative $L^2$ error over the whole slab.
 
 times = np.array([0.01, 0.04, 0.1, 0.2, 0.4, 0.6])
 x = np.linspace(-1, 1, 201)
@@ -45,7 +45,7 @@ q = (n + 0.5) * np.pi
 modes = (2 * (-1.)**n / q)[:, None] * np.cos(q[:, None] * x)
 reference = np.exp(-times[:, None] * q**2) @ modes
 errors = {}
-for cells in (64, 128):
+for cells in (64, 128, 512):
     faces = 1 - np.cos(np.linspace(0, np.pi, cells + 1))
     mesh = NonuniformLineMesher(arclength_faces=tuple(faces)).generate(slab)
     steps = AdaptiveTimeStep(initial=2e-7, minimum=1e-10, maximum=0.005,
@@ -54,7 +54,7 @@ for cells in (64, 128):
     history = result.field(heat.temperature).time_interpolant()
     profile = np.array([history(probes, t) for t in times])
     errors[cells] = np.linalg.norm(profile-reference, axis=1) / np.linalg.norm(reference, axis=1)
-    print(f"{cells} cells: maximum relative profile error {errors[cells].max():.3%}")
+    print(f"{len(mesh.faces)} nodes, {cells} cells: maximum relative profile error {errors[cells].max():.3%}")
 print(f"Core at τ = 0.6: computed {profile[-1, len(x)//2]:.5f}, series {reference[-1, len(x)//2]:.5f}")
 
 fig = plots.figure(1, 2, size=(11.5, 4.8))
