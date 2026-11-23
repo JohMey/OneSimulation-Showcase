@@ -54,6 +54,8 @@ import numpy as np
 from onesim.cad.exchange import load
 from onesim.materials.solids import CombinedHardening, IsotropicHardening, J2Plasticity, KinematicHardening
 from onesim.meshing import LocalRefinement, TetrahedralMesher
+from onesim.numerics.fem import FiniteElement, Lagrange
+from onesim.numerics.fem.kernels.tet4_source_quadrature import TET4_SOURCE_BARYCENTRIC, TET4_SOURCE_WEIGHTS
 from onesim.physics.solid_mechanics import (BilinearStressStrain, SmallStrainSolid, StrainLifeCurve,
                                             glinka_notch, masing, neuber_notch)
 from onesim.visualization import plots, theme
@@ -62,11 +64,14 @@ theme.set()
 
 # ## Geometry and mesh
 #
-# Quadratic tetrahedra of 8 mm, refined to 1 mm at the hole.
+# The straight-sided tetrahedra span 5.5 mm away from the hole and 0.65 mm at the hole.
+# Each displacement component has a quadratic shape function.
 
 shaft = load("cylinder_hole_low_cycle_fatigue_swt.step")
 faces = shaft.boundaries
-mesh = TetrahedralMesher(target_size=0.008, refinements=(LocalRefinement(region=faces.hole, target_size=0.001),)).generate(shaft)
+mesh = TetrahedralMesher(target_size=0.0055, refinements=(LocalRefinement(region=faces.hole, target_size=0.00065),)).generate(shaft)
+
+print(f"Mesh: {len(mesh.coordinates):,} nodes, {mesh.cell_count:,} elements")
 
 view = plots.Camera(elevation=30, azimuth=-60)
 fig = plots.figure(1, 2, size=(15, 5.5))
@@ -78,9 +83,23 @@ plots.show()
 # ## Elastic-plastic cycles
 #
 # `SmallStrainSolid` with a `J2Plasticity` law updates all quadrature points of the mesh in one
-# vectorized call per iteration; a quadrature rule of order 3 (27 points per tetrahedron) is exact
-# for the stiffness of straight quadratic elements. A purely elastic solution at $\lambda=1$ serves
-# the notch rules.
+# vectorized call per iteration. The four symmetric volume points integrate quadratic polynomials
+# exactly, including the elastic stiffness of these straight-sided P2 elements. Surface tractions
+# use the standard third-order Gauss rule. A purely elastic solution at $\lambda=1$ serves the notch rules.
+
+class FourPointTetrahedra:
+    def __init__(self, mesh, order, kinematics):
+        self.space = FiniteElement(element=Lagrange(order), quadrature_order=3).bind_space(mesh)
+
+    def __getattr__(self, name):
+        return getattr(self.space, name)
+
+    def element_data(self, cell):
+        geometry = self.space.geometry
+        barycentric = np.asarray(TET4_SOURCE_BARYCENTRIC)
+        points = barycentric @ geometry.coordinates[geometry.cells[cell]]
+        weights = geometry.volumes[cell] * np.asarray(TET4_SOURCE_WEIGHTS)
+        return points, weights, (self.space.basis(barycentric), self.space.gradients(cell, barycentric), None)
 
 radius, length, hole = 0.015, 0.120, 0.003
 modulus, poisson = 206e9, 0.3
@@ -93,13 +112,14 @@ steel = J2Plasticity(shear_modulus=modulus / (2 * (1 + poisson)),
                      hardening=CombinedHardening(isotropic=IsotropicHardening(initial_yield_stress=310e6), kinematic=KinematicHardening(modulus=17.3e9)))
 times = np.r_[np.linspace(1 / 3, 1.0, 3), np.linspace(4 / 3, 3.0, 6), np.linspace(10 / 3, 5.0, 6)]
 result = SmallStrainSolid(youngs_modulus=modulus, poisson_ratio=poisson, kinematics="volume", material=steel).solve(
-    mesh=mesh, times=times, order=2, quadrature_order=3, displacements=supports, tractions=((faces.loaded, traction),))
+    mesh=mesh, times=times, order=2, space_factory=FourPointTetrahedra, displacements=supports, tractions=((faces.loaded, traction),))
 elastic = SmallStrainSolid(youngs_modulus=modulus, poisson_ratio=poisson, kinematics="volume").solve(
-    mesh=mesh, times=(1.0,), order=2, quadrature_order=3, displacements=supports, tractions=((faces.loaded, traction),))
+    mesh=mesh, times=(1.0,), order=2, space_factory=FourPointTetrahedra, displacements=supports, tractions=((faces.loaded, traction),))
 points = result.quadrature_coordinates
-plastic = np.array([[p.equivalent_plastic_strain for cell in history for p in cell] for history in result.material_history])
-print(f"{len(points)} quadrature points; yielded at the first peak: {np.sum(plastic[2] > 0)}, largest equivalent plastic strain "
-      f"{100 * plastic[2].max():.3f} % at the first peak and {100 * plastic[-1].max():.3f} % after 1.5 cycles")
+peak_plastic = [np.fromiter((p.equivalent_plastic_strain for cell in result.material_history[k] for p in cell), float)
+                for k in (2, -1)]
+print(f"{len(points)} quadrature points; yielded at the first peak: {np.sum(peak_plastic[0] > 0)}, largest equivalent plastic strain "
+      f"{100 * peak_plastic[0].max():.3f} % at the first peak and {100 * peak_plastic[1].max():.3f} % after 1.5 cycles")
 
 # ## Equilibrium of the reactions
 #
@@ -133,10 +153,15 @@ normals = np.column_stack((np.sqrt(1 - (count / 2000) ** 2) * np.cos(np.pi * (1 
 distance = np.hypot(points[:, 0] - length / 2, points[:, 1])
 near = np.flatnonzero(distance < hole + 0.0006)
 cycle = slice(8, 15)
-normal_strain = np.einsum("ni,kqij,nj->kqn", normals, result.strain[cycle][:, near], normals, optimize=True)
-normal_stress = np.einsum("ni,kqij,nj->kqn", normals, result.stress[cycle][:, near], normals, optimize=True)
-swt_planes = 0.5 * np.ptp(normal_strain, axis=0) * normal_stress.max(axis=0)
-swt = swt_planes.max(axis=1)
+swt = np.empty(len(near))
+critical = np.empty(len(near), dtype=int)
+for first in range(0, len(near), 64):
+    block = slice(first, first + 64)
+    q = near[block]
+    strain = np.einsum("ni,kqij,nj->kqn", normals, result.strain[cycle][:, q], normals, optimize=True)
+    stress = np.einsum("ni,kqij,nj->kqn", normals, result.stress[cycle][:, q], normals, optimize=True)
+    planes = 0.5 * np.ptp(strain, axis=0) * stress.max(axis=0)
+    swt[block], critical[block] = planes.max(axis=1), planes.argmax(axis=1)
 hot = int(np.argmax(swt))
 life_curve = StrainLifeCurve(youngs_modulus=modulus, fatigue_strength_coefficient=948e6, fatigue_strength_exponent=-0.092,
                              fatigue_ductility_coefficient=0.26, fatigue_ductility_exponent=-0.445)
@@ -145,7 +170,7 @@ spot = points[near[hot]]
 angle = np.degrees(np.arctan2(points[near, 1], points[near, 0] - length / 2))
 print(f"hot spot at x = {1e3 * spot[0]:.2f} mm, y = {1e3 * spot[1]:.2f} mm, z = {1e3 * spot[2]:.2f} mm "
       f"(angle around the hole {angle[hot]:.0f}°, {1e3 * (distance[near[hot]] - hole):.2f} mm below the hole surface)")
-print(f"critical plane normal {np.round(normals[int(np.argmax(swt_planes[hot]))], 3)}; SWT parameter {swt[hot] / 1e6:.4f} MPa "
+print(f"critical plane normal {np.round(normals[critical[hot]], 3)}; SWT parameter {swt[hot] / 1e6:.4f} MPa "
       f"→ crack initiation after {life:,.0f} cycles")
 
 # ## Notch rules at the hot spot
@@ -158,7 +183,8 @@ print(f"critical plane normal {np.round(normals[int(np.argmax(swt_planes[hot]))]
 
 mises = lambda t: np.sqrt(np.maximum(0.5 * ((t[..., 0, 0] - t[..., 1, 1]) ** 2 + (t[..., 1, 1] - t[..., 2, 2]) ** 2 + (t[..., 2, 2] - t[..., 0, 0]) ** 2)
                                      + 3 * (t[..., 0, 1] ** 2 + t[..., 1, 2] ** 2 + t[..., 0, 2] ** 2), 0.0))
-spot_plastic = np.array([np.asarray([p for cell in history for p in cell][near[hot]].plastic_strain or np.zeros((3, 3))) for history in result.material_history])
+hot_cell, hot_point = divmod(int(near[hot]), len(TET4_SOURCE_WEIGHTS))
+spot_plastic = np.array([history[hot_cell][hot_point].plastic_strain or np.zeros((3, 3)) for history in result.material_history])
 loop_stress = mises(result.stress[cycle, near[hot]] - result.stress[8, near[hot]])
 loop_plastic = np.sqrt(2 / 3 * np.sum((spot_plastic[cycle] - spot_plastic[8]) ** 2, axis=(1, 2)))
 loop_strain = loop_stress / modulus + loop_plastic
