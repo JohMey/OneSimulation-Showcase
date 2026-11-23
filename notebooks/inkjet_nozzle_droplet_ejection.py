@@ -64,14 +64,16 @@ theme.set()
 #
 # The STEP file holds half of the nozzle as a solid of revolution, drawn in micrometres;
 # `section((0, 1, 0))` cuts it in the plane through the axis ($x\to r$, $y\to z$). The triangles
-# are 2.5 µm along the path of the jet ($r<35$ µm) and 10 µm elsewhere; `scaled` turns the mesh
+# are about 1.25 µm along the path of the jet ($r<35$ µm) and about 5 µm elsewhere; `scaled` turns the mesh
 # into metres.
 
 part = load("inkjet_nozzle_droplet_ejection.step")
 section = part.section((0, 1, 0))
 faces = section.boundaries
-mesh = scaled(TriangularMesher(target_size=10.0, size_field=lambda p: np.where((p[:, 0] < 35) & (p[:, 1] > -40), 2.5, 10.0),
+mesh = scaled(TriangularMesher(target_size=10.0, refinements=1, size_field=lambda p: np.where((p[:, 0] < 35) & (p[:, 1] > -40), 2.5, 10.0),
                                grading=0.2).generate(section), "um")
+
+print(f"Mesh: {len(mesh.coordinates):,} nodes, {mesh.cell_count:,} elements")
 
 fig = plots.figure(1, 2, size=(12, 7))
 plots.geometry(part, selection={"actuator inlet": part.boundaries.inlet, "nozzle": part.boundaries.nozzle,
