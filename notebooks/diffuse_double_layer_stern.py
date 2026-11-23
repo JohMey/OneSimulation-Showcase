@@ -37,14 +37,13 @@ epsilon, capacitance = 78.5 * epsilon_0, 10 * epsilon_0 / 0.3e-9
 thermal = gas_constant * temperature / faraday
 debye = np.sqrt(epsilon * thermal / (2 * faraday * bulk))
 stern = epsilon / capacitance
-half_length, cells = 8 * debye, 80
+half_length = 8 * debye
 line = Line(start=(0, 0, 0), end=(2 * half_length, 0, 0))
-mesh = cartesian(shape=(cells,), extents=(2 * half_length,), geometry=line, periodic=False).build()
 numerics = Numerics(
     spatial=ScharfetterGummelFiniteVolume(),
     time_integrator=BDF(order=2, startup=BackwardEuler()),
     nonlinear_solver=Newton(
-        linear_solver=GMRES(relative_tolerance=1e-7, restart=120, maximum_iterations=400),
+        linear_solver=GMRES(relative_tolerance=1e-7, restart=220, maximum_iterations=650),
         absolute_tolerance=1e-8,
     ),
 )
@@ -64,9 +63,8 @@ numerics = Numerics(
 bias = np.arange(1, 11) * 1e-3
 species = (TransportSpecies("cation", diffusivity), TransportSpecies("anion", diffusivity))
 tau = debye**2 / diffusivity
-charge, charge_from_ions, centre, drift = [], [], [], []
-half = cells // 2
-for voltage in bias:
+def equilibrium(voltage, mesh, cells):
+    half = cells // 2
     walls = (
         SternLayer(potential=voltage, thickness=stern),
         SternLayer(potential=-voltage, thickness=stern),
@@ -97,10 +95,28 @@ for voltage in bias:
     phi = np.asarray(field.values)
     x = np.asarray(field.space.dof_coordinates)[:half, 0]
     width = 2 * half_length / cells
-    charge.append(epsilon * (voltage - phi[0]) / (stern + width / 2))
-    charge_from_ions.append(-faraday * width * np.sum(cp[:half] - cm[:half]))
+    charge = epsilon * (voltage - phi[0]) / (stern + width / 2)
+    ionic_charge = -faraday * width * np.sum(cp[:half] - cm[:half])
+    residual = np.max(np.abs(phi - np.asarray(field.at(224 * tau).values)))
+    return charge, ionic_charge, measured, residual, x, phi, cp, cm
+
+
+def line_mesh(cells):
+    return cartesian(shape=(cells,), extents=(2 * half_length,), geometry=line, periodic=False).build()
+
+
+coarse_cells, fine_cells = 80, 160
+coarse_mesh, mesh = line_mesh(coarse_cells), line_mesh(fine_cells)
+coarse_charge = equilibrium(bias[-1], coarse_mesh, coarse_cells)[0]
+charge, charge_from_ions, centre, drift = [], [], [], []
+half = fine_cells // 2
+for voltage in bias:
+    sigma, ions, measured, residual, x, phi, cp, cm = equilibrium(voltage, mesh, fine_cells)
+    charge.append(sigma)
+    charge_from_ions.append(ions)
     centre.append(measured)
-    drift.append(np.max(np.abs(phi - np.asarray(field.at(224 * tau).values))))
+    drift.append(residual)
+print(f"Refinement from {coarse_cells} to {len(phi)} potential cells: charge at 10 mV changes from {1000 * coarse_charge:.5f} to {1000 * charge[-1]:.5f} mC/m²")
 
 # ## Compare against Gouy–Chapman–Stern theory
 #
