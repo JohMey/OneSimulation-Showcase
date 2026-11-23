@@ -65,7 +65,8 @@ theme.set()
 # ## Geometry and mesh
 #
 # Four strips with solid fractions of 10 % to 70 %, cut at mid-thickness; quadratic triangles
-# with 0.04 mm edges, refined to 0.015 mm on the grain surfaces.
+# with 26 µm bulk and 10 µm grain-edge targets. The 50 % strip also retains the
+# 40/15 µm mesh for a direct comparison of the stationary flux.
 
 fractions = (0.1, 0.3, 0.5, 0.7)
 files = {f: f"porous_effective_diffusivity_{round(100 * f)}.step" for f in fractions}
@@ -73,9 +74,10 @@ files[0.5] = "porous_effective_diffusivity.step"
 parts = {f: load(name) for f, name in files.items()}
 planes = {f: part.section((0, 0, 1), origin=(0, 0, 5e-5)) for f, part in parts.items()}
 meshes = {
-    f: TriangularMesher(target_size=4e-5, local_sizes={"grains": 1.5e-5}).generate(plane)
+    f: TriangularMesher(target_size=2.6e-5, local_sizes={"grains": 1e-5}).generate(plane)
     for f, plane in planes.items()
 }
+coarse = TriangularMesher(target_size=4e-5, local_sizes={"grains": 1.5e-5}).generate(planes[0.5])
 length, height = planes[0.5].size[:2]
 fig = plots.figure(1, 2, size=(15, 5))
 plots.geometry(
@@ -121,6 +123,13 @@ for fraction, plane in planes.items():
         numerics=Numerics(spatial=spatial, linear_solver=SparseDirect()),
     )
     fields[fraction] = simulation.solve_stationary().field(model.field("A"))
+    print(f"Solid fraction {fraction:g}: {meshes[fraction].cell_count} triangles, {len(fields[fraction].space.dof_coordinates)} concentration nodes")
+    if fraction == 0.5:
+        reference = Simulation(problem=problem, mesh=coarse, numerics=Numerics(spatial=spatial, linear_solver=SparseDirect()))
+        coarse_field = reference.solve_stationary().field(model.field("A"))
+        coarse_flux = coarse_field.boundary_flux(plane.boundaries.x_max)
+        fine_flux = fields[fraction].boundary_flux(plane.boundaries.x_max)
+        print(f"50 % strip: {coarse.cell_count} to {meshes[fraction].cell_count} triangles, {len(coarse_field.space.dof_coordinates)} to {len(fields[fraction].space.dof_coordinates)} nodes, outlet flux change {100 * (fine_flux / coarse_flux - 1):+.4f} %")
 
 # ## Comparison with the Rayleigh-Perrins formula
 #
@@ -159,7 +168,7 @@ domains = [
         plane.domain(),
         plane.boundaries.x_min,
         plane.boundaries.x_max,
-        TriangularMesher(target_size=9e-5).generate(plane),
+        TriangularMesher(target_size=5.5e-5).generate(plane),
         diffusivity,
         length * height * porosity,
     ),
@@ -169,7 +178,7 @@ domains = [
         line.line,
         line.boundaries.start,
         line.boundaries.end,
-        StructuredLineMesher(cells=60).generate(line),
+        StructuredLineMesher(cells=128).generate(line),
         diffusivity * ratios[0.5] / porosity,
         length,
     ),
@@ -200,6 +209,7 @@ for name, geometry, domain, left, right, mesh, coefficient, measure in domains:
         .run(start_time=0.0, end_time=14400.0, time_step=600.0)
         .field(model.field("A"))
     )
+    print(f"Transient {name}: {mesh.cell_count} elements, {len(history.space.dof_coordinates)} concentration nodes")
     times = history.times[1:]
     inventory[name] = np.array([history.at(t).integrate().value / measure for t in times])
 print(

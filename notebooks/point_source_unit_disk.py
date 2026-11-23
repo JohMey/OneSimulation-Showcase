@@ -13,18 +13,18 @@ theme.set()
 
 # ## Geometry and mesh
 #
-# Cut the disk halfway through the STEP cylinder. The two meshes use progressively smaller triangles toward the point source, where the potential changes fastest.
+# Cut the disk halfway through the STEP cylinder. The three meshes use progressively smaller triangles toward the point source, where the potential changes fastest.
 
 part = load("point_source_unit_disk.step")
 disk = part.section((0, 0, 1), origin=(0, 0, part.size[2] / 2))
 meshes = [TriangularMesher(
     target_size=h, size_field=lambda p, h=h: h * (0.1 + 0.9 * np.linalg.norm(p[:, :2], axis=1)),
-).generate(disk) for h in (0.22, 0.11)]
+).generate(disk) for h in (0.22, 0.11, 0.04)]
 
 fig = plots.figure(1, 2, size=(11, 4.5))
 plots.geometry(part, selection={"zero potential": part.boundaries.rim}, labels=False,
                camera=plots.Camera(elevation=35, azimuth=-65), title="Disk and grounded rim", ax=fig[0])
-plots.mesh(meshes[1], groups=("all",), legend=False, title="Fine mesh on the mid-plane", ax=fig[1])
+plots.mesh(meshes[-1], groups=("all",), legend=False, title="Fine mesh on the mid-plane", ax=fig[1])
 plots.show()
 
 # ## Apply the point load
@@ -48,15 +48,15 @@ for mesh in meshes:
     rays = space.evaluate(potential, probes).reshape(len(angles), len(radii))
     profiles.append(rays[0])
     error = np.max(np.abs(rays - exact))
-    print(f"{mesh.cell_count:4d} triangles   total load {load.sum():.8f}   max absolute error {error:.5f}")
+    print(f"{len(mesh.coordinates):5d} nodes, {mesh.cell_count:5d} triangles   total load {load.sum():.8f}   max absolute error {error:.5f}")
 
 # ## Read the potential
 #
-# The field map includes the finite peak on the fine mesh. The radial profile compares both meshes with the logarithm over the annulus used for the error check, $0.08\le r\le0.95$.
+# The field map includes the finite peak on the fine mesh. The radial profile compares all three meshes with the logarithm over the annulus used for the error check, $0.08\le r\le0.95$.
 
 fig = plots.figure(1, 2, size=(11, 4.5))
 plots.heatmap(*space.dof_coordinates.T, potential, triangles=space.cell_dofs, contours=8,
               label="Potential u", title="Potential on the unit disk", ax=fig[0])
-plots.line(radii, {"Coarse": profiles[0], "Fine": profiles[1]}, reference={"Exact": exact},
+plots.line(radii, {f"{mesh.cell_count} triangles": profile for mesh, profile in zip(meshes, profiles)}, reference={"Exact": exact},
            xlabel="Radius [m]", ylabel="Potential u", title="Profile along the positive x-axis", ax=fig[1])
 plots.show()

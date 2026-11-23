@@ -60,7 +60,10 @@ print(f"Solid volume {frame.measure * 1e6:.3f} cm³; plate-layout reference {vol
 
 middle = frame.midsurfaces()
 area = 2 * (rail * (height - wall) + 2 * rail * (flange - wall / 2)) + 4 * (width - wall) * cross
-mesh = SheetMesher(target_size=0.02).generate(middle)
+coarse = SheetMesher(target_size=0.020).generate(middle)
+mesh = SheetMesher(target_size=0.010).generate(middle)
+for spacing, level in ((20, coarse), (10, mesh)):
+    print(f"{spacing:g} mm target: {len(level.coordinates)} shell nodes, {len(level.quadrilaterals)} quads, area {level.area:.6f} m²")
 print(
     f"mid-surface: {len(middle.faces)} faces for 10 walls, thickness {middle.thickness * 1e3:.3f} mm"
 )

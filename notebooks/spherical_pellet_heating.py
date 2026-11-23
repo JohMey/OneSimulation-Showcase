@@ -28,10 +28,10 @@ from scipy.optimize import brentq
 
 theme.set()
 
-# ## One radial mesh per pellet
+# ## Resolve each pellet on two radial meshes
 #
 # The thermal inputs are density 2000 kg/m³, specific heat 300 J/(kg K)
-# and conductivity 0.5 W/(m K). Twenty quadratic elements resolve each radius.
+# and conductivity 0.5 W/(m K). Compare 20 and 64 quadratic radial elements with the same time step.
 
 density, capacity, conductivity = 2000.0, 300.0, 0.5
 initial, gas, film = 298.15, 368.15, 1000.0
@@ -66,16 +66,24 @@ for radius in (0.0025, 0.005):
         boundary_conditions=(surface, symmetry),
         initial_conditions=(InitialValue(heat.temperature, initial),),
     )
-    mesh = StructuredLineMesher(cells=20).generate(line)
-    temperature[radius] = (
-        Simulation(problem=problem, mesh=mesh, numerics=numerics)
-        .run(
-            start_time=0,
-            end_time=10,
-            time_step=0.05,
+    histories = {}
+    for cells in (20, 64):
+        mesh = StructuredLineMesher(cells=cells).generate(line)
+        field = (
+            Simulation(problem=problem, mesh=mesh, numerics=numerics)
+            .run(
+                start_time=0,
+                end_time=10,
+                time_step=0.05,
+            )
+            .field(heat.temperature)
         )
-        .field(heat.temperature)
-    )
+        histories[cells] = field
+        print(f"{radius * 1000:g} mm pellet: {mesh.cell_count} elements, {len(field.space.dof_coordinates)} temperature nodes")
+    temperature[radius] = histories[64]
+    coarse = histories[20].time_series(points=[(0, 0, 0)])[1]
+    fine = histories[64].time_series(points=[(0, 0, 0)])[1]
+    print(f"Maximum centre-temperature change on refinement: {np.max(np.abs(fine - coarse)):.5f} K")
 
 # ## Check the centre temperature
 #

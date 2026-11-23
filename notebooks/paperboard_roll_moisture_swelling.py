@@ -74,14 +74,17 @@ theme.set()
 
 # ## Geometry and mesh
 #
-# The meridian section is meshed with triangles of 12.5 mm: finite volumes for the moisture,
+# The meridian section uses an 8 mm triangular mesh for the coupled calculation. Compare its cell count
+# with the original 12.5 mm mesh. Each triangle carries one moisture unknown, with
 # quadratic elements for the mechanics.
 
 roll = load("paperboard_roll_moisture_swelling.step")
 faces = roll.boundaries
 meridian = roll.section((0, 1, 0), origin=(0, 0, 0))
 edges = meridian.boundaries
-mesh = TriangularMesher(target_size=0.0125).generate(meridian)
+coarse = TriangularMesher(target_size=0.0125).generate(meridian)
+mesh = TriangularMesher(target_size=0.008).generate(meridian)
+print(f"Meridian mesh: {coarse.cell_count} triangles at 12.5 mm, {mesh.cell_count} at 8 mm")
 
 fig = plots.figure(1, 2, size=(14, 6))
 plots.geometry(
@@ -183,6 +186,7 @@ result = SmallStrainSolid(youngs_modulus=Ez, poisson_ratio=0.2, kinematics="axis
 )
 weights = result.quadrature_weights
 nodes = result.coordinates
+print(f"Coupled calculation: {len(centres)} moisture cells, {len(nodes)} quadratic displacement nodes")
 core = np.abs(nodes[:, 0] - inner) < 1e-9
 for k, days in enumerate(times / day):
     stress = result.stress[k]

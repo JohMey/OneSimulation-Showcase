@@ -65,13 +65,13 @@ theme.set()
 
 # ## Geometry and mesh
 #
-# The channel from the STEP file and its mid-plane, meshed with quadratic triangles of three
+# The channel from the STEP file and its mid-plane, meshed with quadratic triangles of four
 # sizes for a mesh study.
 
 channel = load("thin_channel_wall_mass_transfer.step")
 plane = channel.section((0, 0, 1), origin=(0, 0, 0.00025))
 length, width, thickness = channel.size
-meshes = {size: TriangularMesher(target_size=size).generate(plane) for size in (2e-3, 1e-3, 5e-4)}
+meshes = {size: TriangularMesher(target_size=size).generate(plane) for size in (2e-3, 1e-3, 5e-4, 3e-4)}
 fig = plots.figure(1, 2, size=(15, 5))
 plots.geometry(
     channel,
@@ -82,10 +82,10 @@ plots.geometry(
     ax=fig[0],
 )
 plots.mesh(
-    meshes[5e-4],
+    meshes[3e-4],
     groups=("all",),
     legend=False,
-    title=f"Mid-plane: {meshes[5e-4].cell_count} triangles",
+    title=f"Mid-plane: {meshes[3e-4].cell_count} triangles",
     ax=fig[1],
 )
 plots.show()
@@ -131,13 +131,15 @@ fields = {
 
 # ## Three-dimensional check
 #
-# The full channel with the film law on both walls, 80 x 20 x 6 hexahedra.
+# The full channel with the film law on both walls, 128 x 20 x 8 hexahedra. Refinement targets axial transport and the
+# concentration variation normal to the permeable walls.
 
 solid = SpeciesTransport(
     domain=channel.volume,
     species=(TransportSpecies("A", diffusivity=diffusivity),),
     velocity=(velocity, 0.0, 0.0),
 )
+volume_mesh = StructuredHexahedralMesher(cells=(128, 20, 8)).generate(channel)
 volume = (
     Simulation(
         problem=Problem(
@@ -156,7 +158,7 @@ volume = (
                 ),
             ),
         ),
-        mesh=StructuredHexahedralMesher(cells=(80, 20, 6)).generate(channel),
+        mesh=volume_mesh,
         numerics=Numerics(
             spatial=FiniteElement(element=Lagrange(order=2)), linear_solver=SparseDirect()
         ),
@@ -179,6 +181,7 @@ exit_ratio = (
 )
 print("  mesh size   2D c_out / c0   Danckwerts   deviation    feed + outflow + wall loss")
 for size, field in fields.items():
+    print(f"2D mesh: {meshes[size].cell_count} triangles, {len(field.space.dof_coordinates)} concentration nodes")
     outflow = field.boundary_flux(plane.boundaries.x_max) / (velocity * width * feed)
     balance = (
         field.boundary_flux(plane.boundaries.x_min)
@@ -188,6 +191,7 @@ for size, field in fields.items():
     print(
         f"{1e3 * size:8.1f} mm {outflow:14.6f} {exit_ratio:12.6f} {100 * (outflow / exit_ratio - 1):+9.3f} % {balance:16.1e}"
     )
+print(f"3D mesh: {volume_mesh.cell_count} hexahedra, {len(volume.space.dof_coordinates)} concentration nodes")
 three = volume.boundary_flux(channel.boundaries.x_max) / (velocity * width * thickness * feed)
 walls = volume.boundary_flux(channel.boundaries.z_min | channel.boundaries.z_max) / (
     velocity * width * thickness * feed
@@ -222,7 +226,7 @@ profile = (
 )
 fig = plots.figure(1, 2, size=(16, 5))
 plots.surface(
-    fields[5e-4],
+    fields[3e-4],
     limits=(0.0, 1.0),
     contours=11,
     subdivisions=2,
@@ -236,7 +240,7 @@ plots.line(
     1e3 * x,
     {
         "2D mid-plane": np.asarray(
-            fields[5e-4].evaluate(np.column_stack((x, np.full_like(x, width / 2))))
+            fields[3e-4].evaluate(np.column_stack((x, np.full_like(x, width / 2))))
         ).reshape(-1)
     },
     points={
