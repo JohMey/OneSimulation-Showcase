@@ -11,7 +11,7 @@ from onesim.numerics import Numerics
 from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.numerics.linear import SparseDirect
 from onesim.numerics.nonlinear import Newton
-from onesim.numerics.time import BackwardEuler
+from onesim.numerics.time import AdaptiveTimeStep, BackwardEuler
 from onesim.physics.heat_transfer import FixedTemperature, HeatConduction, HeatFlux
 from onesim.simulation import Problem, Simulation
 from onesim.simulation.initial_conditions import InitialValue
@@ -44,7 +44,7 @@ method = Numerics(spatial=FiniteElement(element=Lagrange(order=1), quadrature_or
 
 # ## Compare both moving boundaries
 #
-# Lunardini gives the depths $2\psi\sqrt{\alpha_f t}$ and $2\gamma\sqrt{\alpha_m t}$ for the −4 °C and 0 °C isotherms. Here $\psi=0.061$, $\gamma=1.397$ and the three diffusivities are the ratios of conductivity to volumetric heat capacity. On each of two meshes we interpolate the numerical isotherms and compare the whole profile between zero and three metres with the analytical temperature.
+# Lunardini gives the depths $2\psi\sqrt{\alpha_f t}$ and $2\gamma\sqrt{\alpha_m t}$ for the −4 °C and 0 °C isotherms. Here $\psi=0.061$, $\gamma=1.397$ and the three diffusivities are the ratios of conductivity to volumetric heat capacity. Adaptive time steps follow the phase change on the finest mesh. On each of three meshes we interpolate the numerical isotherms and compare the whole profile between zero and three metres with the analytical temperature.
 
 depth = np.linspace(0, 3, 601)
 points = np.column_stack((depth, np.zeros((len(depth), 2))))
@@ -55,14 +55,17 @@ for (frozen, thawed), (cold, mixed, warm) in zip(fronts, scale):
     middle = (erfc(depth/mixed) - erfc(thawed/mixed)) / (erfc(frozen/mixed) - erfc(thawed/mixed))
     exact.append(np.select([depth <= frozen, depth < thawed],
         [-6 + 2*erf(depth/cold)/erf(frozen/cold), -4*middle], 4*(1-erfc(depth/warm)/erfc(thawed/warm))))
-for n in (1, 2):
+for n in (1, 2, 4):
     nodes = np.r_[np.linspace(0, 0.9, 55*n, endpoint=False), np.linspace(0.9, 3, 30*n, endpoint=False), np.linspace(3, 10, 10*n+1)]
     mesh = NonuniformLineMesher(arclength_faces=tuple(nodes)).generate(column)
-    T = Simulation(problem=problem, mesh=mesh, numerics=method).run(start_time=0, end_time=3*day, time_step=900/n).field(heat.temperature)
-    profile = np.array([T.evaluate(points, time=d*day)-kelvin for d in (1, 2, 3)])
+    steps = 900/n if n < 4 else AdaptiveTimeStep(initial=0.1, minimum=1e-4, maximum=400,
+                                                relative_tolerance=0, absolute_tolerance=0.02)
+    T = Simulation(problem=problem, mesh=mesh, numerics=method).run(start_time=0, end_time=3*day, time_step=steps).field(heat.temperature)
+    history = T.time_interpolant()
+    profile = np.array([history(points, d*day)-kelvin for d in (1, 2, 3)])
     observed = np.array([np.interp([-4, 0], row, depth) for row in profile])
     rms = np.sqrt(np.mean((profile-exact)**2, axis=1))
-    print(f"{len(nodes)-1} cells: worst daily RMS {max(rms):.3f} K; largest front error {1000*np.max(abs(observed-fronts)):.1f} mm")
+    print(f"{len(mesh.faces)} nodes, {len(nodes)-1} cells: worst daily RMS {max(rms):.3f} K; largest front error {1000*np.max(abs(observed-fronts)):.1f} mm")
 
 days = np.arange(1, 4)
 fig = plots.figure(1, 2, size=(11, 4.4))
