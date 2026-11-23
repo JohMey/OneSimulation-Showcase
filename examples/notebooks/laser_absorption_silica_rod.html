@@ -38,7 +38,7 @@
 <div class="math display">\[I(r,z)=\frac{2P}{\pi w^2}\,e^{-2r^2/w^2}\,e^{-\alpha z},\qquad
   \rho c\,\frac{\partial T}{\partial t}=\nabla\cdot(k\nabla T)+\alpha I(r,z).\]</div>
 <p>Fused silica: <span class="math">\(k=1.38\)</span> W/(m K), <span class="math">\(\rho=2200\)</span> kg/m³, <span class="math">\(c=740\)</span> J/(kg K). All faces are taken as insulated for the 10 s of heating, so every absorbed joule stays in the rod.</p>
-<p>| face | condition | |---|---| | <code>entrance</code>, <code>exit</code>, <code>mantle</code> | insulated | | initial state | 20 °C |</p>
+<div class="table-wrap"><table><thead><tr><th scope="col">face</th><th scope="col">condition</th></tr></thead><tbody><tr><td><code>entrance</code>, <code>exit</code>, <code>mantle</code></td><td>insulated</td></tr><tr><td>initial state</td><td>20 °C</td></tr></tbody></table></div>
 <p>The rod (30 mm diameter) comes from the CAD file <code>laser_absorption_silica_rod.step</code>; the script <code>laser_absorption_silica_rod_geometry.py</code> builds it with the CAD objects of OneSimulation.</p>
 <p><strong>Reference.</strong> (1) Energy: the heat stored in the rod is <span class="math">\(P(1-e^{-\alpha L})\,t\)</span>. (2) Away from the end faces and the mantle the rod acts as an infinite medium. Each instant of the Gaussian source then spreads as a Gaussian, and the exponential axial profile grows by <span class="math">\(e^{\kappa\alpha^2s}\)</span>, so on the axis (Carslaw and Jaeger, <em>Conduction of Heat in Solids</em>, ch. 10)</p>
 <div class="math display">\[T(0,z,t)-T_0=\frac{\alpha I_0e^{-\alpha z}}{\rho c}\int_0^t\frac{e^{\kappa\alpha^2 s}}{1+8\kappa s/w^2}\,ds,
