@@ -69,19 +69,21 @@ theme.set()
 
 # ## Geometry and mesh
 #
-# Tetrahedra of 0.06 mm in the pores and 0.032 mm on the grains; the two periodic faces carry the
-# same triangles. The mesh study at $a/L=0.45$ adds 0.045 mm and 0.022 mm on the grains. The
+# The fine mesh uses 0.045 mm in the pores and 0.016 mm on the grains. The two periodic faces carry the
+# same triangles. The mesh study at $a/L=0.45$ adds 0.032 mm and 0.022 mm on the grains. The
 # specific surface is the area of the grain faces of the CAD part over the volume of the quarter.
 
 ratios = (0.38, 0.40, 0.45, 0.47)
 cells = {ratio: load(f"porous_microstructure_hexagonal_array_{round(100 * ratio)}.step") for ratio in ratios}
 side = cells[0.45].size[0]
 volume = side**3 / 4
-grain_sizes = (0.045e-3, 0.032e-3, 0.022e-3)
-cases = [(ratio, grain_sizes[1]) for ratio in ratios] + [(0.45, grain_sizes[0]), (0.45, grain_sizes[2])]
-meshes = {(ratio, size): TetrahedralMesher(target_size=0.06e-3, refinements=(LocalRefinement(region=cells[ratio].boundaries.grains, target_size=size),),
+grain_sizes = (0.032e-3, 0.022e-3, 0.016e-3)
+cases = [(ratio, grain_sizes[-1]) for ratio in ratios] + [(0.45, size) for size in grain_sizes[:-1]]
+meshes = {(ratio, size): TetrahedralMesher(target_size=0.045e-3, refinements=(LocalRefinement(region=cells[ratio].boundaries.grains, target_size=size),),
                                            periodic_pairs=(PeriodicPair(first=cells[ratio].boundaries.x_min, second=cells[ratio].boundaries.x_max),))
           .generate(cells[ratio]) for ratio, size in cases}
+for (ratio, size), mesh in meshes.items():
+    print(f"a/L={ratio:.2f}, grain spacing {size*1e3:.3f} mm: {len(mesh.coordinates):,} nodes, {mesh.cell_count:,} tetrahedra")
 surface = {ratio: sum(face.area for face in cell.faces if face.id in cell.boundaries.grains.members) / volume for ratio, cell in cells.items()}
 
 cell = load("porous_microstructure_hexagonal_array.step")
@@ -89,8 +91,8 @@ view = plots.Camera(elevation=28, azimuth=-60)
 fig = plots.figure(1, 2, size=(14, 6))
 plots.geometry(cell, selection={"grains": cell.boundaries.grains, "periodic pair": cell.boundaries.x_min | cell.boundaries.x_max},
                labels=False, camera=view, title="Pore space of a quarter cell, sintered grains (a/L = 0.45)", ax=fig[0])
-plots.mesh(meshes[0.45, grain_sizes[1]], groups=("all",), legend=False, camera=view,
-           title=f"{meshes[0.45, grain_sizes[1]].cell_count} tetrahedra", ax=fig[1])
+plots.mesh(meshes[0.45, grain_sizes[-1]], groups=("all",), legend=False, camera=view,
+           title=f"{meshes[0.45, grain_sizes[-1]].cell_count} tetrahedra", ax=fig[1])
 plots.show()
 
 # ## Model
@@ -117,7 +119,7 @@ flows = {(ratio, size): Simulation(problem=problems[ratio], mesh=meshes[ratio, s
 # permeability, the tortuosity and the Kozeny constant for the four grain sizes, the Kozeny-Carman
 # permeability with Carman's $k=5$, and the mesh study of the permeability.
 
-main = grain_sizes[1]
+main = grain_sizes[-1]
 porosity = {ratio: derived_field(flows[ratio, main], lambda u, points: np.ones(len(points)), name="one", unit="1").integrate().value / volume
             for ratio in ratios}
 permeability = {key: water.dynamic_viscosity * velocity.integrate().value[0] / volume / gradient for key, velocity in flows.items()}
