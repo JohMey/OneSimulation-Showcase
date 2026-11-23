@@ -4,15 +4,13 @@ https://johmey.github.io/OneSimulation-Showcase/examples/notebooks.html
 """
 
 
-# # Wärmestrahlung mit OneSimulation
+# # Radiative cooling with OneSimulation
 #
-# Dieses Beispiel berechnet die Abkühlung eines Körpers mit **einer einheitlichen Temperatur** über die installierte OneSimulation-API. Voraussetzung: aktivierte Runtime Alpha 0.2.1a4 und die in `README_DE.md` beschriebene Python-Umgebung. Führe alle Zellen der Reihe nach aus. Die Aktivierung wird hier nicht erneut gestartet; kein Kauf- oder Lizenzschlüssel gehört in dieses Notebook.
-#
-# Das Modell lautet
+# A body at a uniform temperature cools by radiation. Use an activated installation of Runtime Alpha 0.2.1a4 and the Python environment described in the release instructions. Run the cells in order. Keep your licence key outside the notebook.
 #
 # $$C\,\frac{dT}{dt}=-\varepsilon\,\sigma\,A\,(T^4-T_\mathrm{U}^4).$$
 #
-# $C$ ist die gesamte Wärmekapazität in J/K, $A$ die abstrahlende Fläche in m², $\varepsilon$ der Emissionsgrad und $\sigma$ die Stefan-Boltzmann-Konstante. Für den mathematischen Prüffall setzen wir **$T_\mathrm{U}=0$ K**. Das ist eine idealisierte Referenz und keine realistische Umgebungsannahme. Innere Temperaturgradienten, Konvektion und weitere Wärmequellen werden nicht modelliert.
+# Here $C$ is the total heat capacity in J/K, $A$ is the radiating area in m², $\varepsilon$ is emissivity and $\sigma$ is the Stefan–Boltzmann constant. Setting the surroundings to $T_\mathrm{U}=0$ K gives an idealized mathematical reference. The model neglects internal temperature gradients, convection and other heat sources.
 
 from pathlib import Path
 from importlib.metadata import version
@@ -30,20 +28,20 @@ from onesim.simulation.initial_conditions import InitialValue
 
 runtime_version = version("onesimulation")
 print("OneSimulation:", runtime_version)
-assert runtime_version == "0.2.1a4", "Für diese Beispiele ist Runtime Alpha 0.2.1a4 vorgesehen."
+assert runtime_version == "0.2.1a4", "This example requires Runtime Alpha 0.2.1a4."
 
 from onesim.physics.heat_transfer import RadiationCooling, ThermalGreyDiffuseRadiationBoundary
 
 
-# ## Parameter und Modell
+# ## Parameters and model
 #
-# Die Parameter können verändert werden. Die folgende Referenzformel bleibt nur bei konstanter Wärmekapazität, konstanter Fläche, konstantem Emissionsgrad und $T_\mathrm{U}=0$ K gültig. Die hier eingebauten Fehlertoleranzen gelten für die mitgelieferte Parameterauswahl.
+# You can vary the parameters. The reference formula assumes constant heat capacity, area and emissivity, with $T_\mathrm{U}=0$ K. The error tolerances below apply to the supplied values.
 
-heat_capacity = 100.0          # J/K; gesamte Wärmekapazität
+heat_capacity = 100.0          # J/K; total heat capacity
 area = 0.1                     # m²
-emissivity = 0.8               # dimensionslos, 0 bis 1
+emissivity = 0.8               # dimensionless, from 0 to 1
 initial_temperature = 600.0    # K
-ambient_temperature = 0.0      # K; idealisierter analytischer Prüffall
+ambient_temperature = 0.0      # K; idealized analytical case
 end_time = 20.0                # s
 time_step = 0.5                # s
 
@@ -64,7 +62,7 @@ model = RadiationCooling(
 )
 simulation = Simulation(
     problem=Problem(
-        name="Wärmestrahlung: analytischer Referenzfall",
+        name="Radiative cooling reference case",
         geometry=domain,
         physics=(model,),
         initial_conditions=(InitialValue(model.temperature, initial_temperature),),
@@ -100,29 +98,29 @@ powers = np.asarray([
 assert len(times) > 1 and np.isclose(times[-1], end_time)
 
 
-# ## Vergleich mit der geschlossenen Lösung
+# ## Comparison with the closed-form solution
 #
-# Für $T_\mathrm{U}=0$ K folgt durch Trennung der Variablen
+# For $T_\mathrm{U}=0$ K, separation of variables gives
 #
 # $$T(t)=\left(T_0^{-3}+\frac{3\varepsilon\sigma A}{C}\,t\right)^{-1/3}.$$
 #
-# Wir vergleichen sämtliche gespeicherten Zeitpunkte. Eine bestandene Prüfung zeigt die Übereinstimmung dieses numerischen Beispiels mit dieser Gleichung, keine experimentelle Validierung eines realen Systems.
+# Compare the numerical temperature at every saved time with the formula. This checks the numerical solution against the equation. Experimental validation would require measurements.
 
 sigma = 5.670374419e-8  # W/(m² K⁴)
 reference_temperature = (
     initial_temperature**(-3) + 3 * emissivity * sigma * area * times / heat_capacity
 ) ** (-1 / 3)
 max_temperature_error = float(np.max(np.abs(temperatures - reference_temperature)))
-assert max_temperature_error < 1e-6, "Referenzfehler größer als die Beispieltoleranz."
-assert np.all(np.diff(temperatures) < 0), "Der Körper muss in diesem Beispiel abkühlen."
+assert max_temperature_error < 1e-6, "The reference error exceeds the example tolerance."
+assert np.all(np.diff(temperatures) < 0), "The body should cool in this example."
 assert np.all(powers >= 0)
-print(f"Endtemperatur: {temperatures[-1]:.8f} K")
-print(f"Maximaler absoluter Referenzfehler: {max_temperature_error:.3e} K")
+print(f"Final temperature: {temperatures[-1]:.8f} K")
+print(f"Largest absolute reference error: {max_temperature_error:.3e} K")
 
-output_dir = Path("ergebnisse_onesimulation")
+output_dir = Path("onesimulation_results")
 output_dir.mkdir(exist_ok=True)
 np.savetxt(
-    output_dir / "waermestrahlung.csv",
+    output_dir / "radiative_cooling.csv",
     np.column_stack((times, temperatures, reference_temperature, powers)),
     delimiter=",",
     header="time_s,temperature_K,reference_temperature_K,radiated_power_W",
@@ -131,16 +129,16 @@ np.savetxt(
 fig, ax = plt.subplots(figsize=(8, 4.5), constrained_layout=True)
 fig.patch.set_facecolor("#fbf5eb")
 ax.set_facecolor("#fffaf2")
-ax.plot(times, reference_temperature, color="#6b442f", label="Analytische Referenz")
+ax.plot(times, reference_temperature, color="#6b442f", label="Analytical reference")
 ax.plot(times, temperatures, "o", color="#c56838", markersize=4, label="OneSimulation RK4")
-ax.set(xlabel="Zeit / s", ylabel="Temperatur / K", title="Idealisierte Strahlungskühlung")
+ax.set(xlabel="Time / s", ylabel="Temperature / K", title="Idealized radiative cooling")
 ax.grid(alpha=0.25)
 ax.legend()
-fig.savefig(output_dir / "waermestrahlung.svg")
+fig.savefig(output_dir / "radiative_cooling.svg")
 plt.show()
-print("CSV und SVG gespeichert in:", output_dir)
+print("CSV and SVG saved in", output_dir)
 
 
-# ## Weiterarbeiten
+# ## Explore further
 #
-# Halbiere die Schrittweite und vergleiche den Referenzfehler. Ändere anschließend einzeln Fläche, Wärmekapazität oder Emissionsgrad und erkläre die Wirkung anhand der Gleichung. Bei anderen Umgebungsbedingungen ist die hier verwendete Referenzformel nicht mehr gültig; ersetze sie vor einer solchen Untersuchung durch eine geeignete Vergleichslösung. Wiederholtes Ausführen überschreibt die beiden gleichnamigen Ergebnisdateien.
+# Halve the time step and compare the error. Change area, heat capacity and emissivity one at a time, and use the equation to explain the effects. For other environmental conditions, select a reference solution with those same conditions. Rerunning the notebook overwrites its two output files.

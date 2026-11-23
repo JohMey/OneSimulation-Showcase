@@ -4,37 +4,17 @@ https://johmey.github.io/OneSimulation-Showcase/examples/notebooks.html
 """
 
 
-# # Magnetostatik: das dreidimensionale Feld einer Spule
+# # The magnetic field of a 3D solenoid
 #
-# **OneSimulation Runtime Alpha 0.2.1a4 · 3D-FEM · Nédélec-Elemente und Coulomb-Eichung**
+# **OneSimulation Runtime Alpha 0.2.1a4 · 3D finite elements · Nédélec elements and a Coulomb gauge**
 #
-# Eine homogenisierte Ringspule (Innenradius 20 mm, Außenradius 30 mm, Länge 20 mm)
-# führt 1 A bei 10 Windungen. Ihr Strom wird als azimutale Volumenstromdichte auf einem
-# explizit vernetzten Wicklungsgebiet modelliert. OneSimulation löst
-# \(\nabla\times(\mu^{-1}\nabla\times\mathbf A)=\mathbf J\) mit schwacher Coulomb-Eichung
-# und rekonstruiert \(\mathbf B=\nabla\times\mathbf A\), \(\mathbf H=\mathbf B/\mu\).
-# Dies ist eine tatsächliche räumliche FEM-Rechnung, keine als Solver ausgegebene
-# analytische Spulenformel.
+# A homogenized coil has an inner radius of 20 mm, an outer radius of 30 mm and an axial length of 20 mm. Its ten turns each carry 1 A. The model represents the winding by an azimuthal volume current density on an explicitly meshed region. OneSimulation solves \(\nabla\times(\mu^{-1}\nabla\times\mathbf A)=\mathbf J\) with a weak Coulomb gauge and reconstructs \(\mathbf B=\nabla\times\mathbf A\) and \(\mathbf H=\mathbf B/\mu\).
 #
-# Voraussetzung ist das regulär installierte und aktivierte Runtime-Paket 0.2.1a4
-# mit NumPy und Matplotlib. Alle Zellen der Reihe nach ausführen; Jupyter ist optional.
-# Keine Internetdaten oder Materialkataloge sind erforderlich.
+# Install and activate Runtime 0.2.1a4 with NumPy and Matplotlib, then run the cells in order. Jupyter is optional. The model requires no external data or material catalogues.
 #
-# **Auflösung wählen:** Die erste Codezelle enthält `PROFILE = "SCHNELL"`.
-# Das schnelle Standardprofil behält seine bisherigen Netzeinstellungen bei.
-# `PROFILE = "HOCHAUFGELOEST"` erzeugt und löst ein echtes feineres Tetraedernetz
-# mit 6 mm Zielgröße im Rechenraum und 2,5 mm im Wicklungsgebiet.
-# Die tatsächliche Elementzahl wird ausgegeben. Dafür werden mehrere GiB freier
-# Arbeitsspeicher und mehrere Minuten Rechenzeit benötigt. Um den Speicherbedarf
-# zu begrenzen, erfolgt der zusätzliche Stromverdopplungstest nur im schnellen
-# Profil; die Eichungs-, Materialgesetz- und Quellenprüfungen laufen in beiden.
+# **Choose a resolution.** The first code cell selects the quick default profile, `PROFILE = "FAST"`. Selecting `PROFILE = "HIGH_RESOLUTION"` builds and solves a finer tetrahedral mesh with target sizes of 6 mm in the domain and 2.5 mm in the winding. The output reports the actual element count. Allow several GiB of free memory and several minutes for the fine mesh. To limit memory use, only the quick profile runs the current-doubling check. Both profiles check the gauge, constitutive law and source.
 #
-# **Modellgrenzen:** Vakuumpermeabilität, lineare stationäre Rechnung, homogenisierte
-# Wicklung ohne Einzelwindungen oder Zuleitungen. Der endliche Zylinder (Radius 50 mm,
-# Länge 80 mm) erhält außen magnetische Isolation; diese Randbedingung beeinflusst
-# das Feld. Die Rechnung repräsentiert deshalb keine unendlich ausgedehnte freie
-# Umgebung und keine experimentell validierte reale Spule. Die gezeichneten
-# Kupferringe illustrieren die Windungen, nicht zusätzliche separat berechnete Drähte.
+# **Model limits.** This stationary, linear model uses vacuum permeability. The homogenized winding excludes individual turns and leads. Magnetic insulation at the outer boundary of the finite cylinder (50 mm radius, 80 mm length) influences the field. The model does not represent unbounded free space or an experimentally validated coil. Copper rings in the plot illustrate the turns.
 
 from dataclasses import replace
 from importlib.metadata import version
@@ -61,13 +41,13 @@ from onesim.physics.magnetostatics import (
 from onesim.simulation import Problem, Simulation
 
 assert version("onesimulation") == "0.2.1a4"
-PROFILE = "SCHNELL"  # Alternativ bewusst "HOCHAUFGELOEST" wählen.
+PROFILE = "FAST"  # Choose "HIGH_RESOLUTION" for the high-resolution solve.
 PROFILES = {
-    "SCHNELL": {"target_size": 0.025, "coil_size": 0.012, "grid": 61, "dpi": 180},
-    "HOCHAUFGELOEST": {"target_size": 0.006, "coil_size": 0.0025, "grid": 241, "dpi": 300},
+    "FAST": {"target_size": 0.025, "coil_size": 0.012, "grid": 61, "dpi": 180},
+    "HIGH_RESOLUTION": {"target_size": 0.006, "coil_size": 0.0025, "grid": 241, "dpi": 300},
 }
 config = PROFILES[PROFILE]
-output_dir = Path("ergebnisse_onesimulation")
+output_dir = Path("onesimulation_results")
 output_dir.mkdir(exist_ok=True)
 started = perf_counter()
 geometry = Cylinder(radius=0.05, length=0.08)
@@ -82,7 +62,7 @@ def solve_magnetic(source):
     model = Magnetostatics(domain=geometry.volume, permeability=VacuumPermeability(),
         formulation=MagneticVectorPotential(gauge=CoulombGauge()), current_sources=(source,))
     result = Simulation(
-        problem=Problem(name="FEM-Magnetfeld einer homogenisierten Ringspule",
+        problem=Problem(name="Finite-element field of a homogenized solenoid",
             geometry=geometry, physics=(model,), boundary_conditions=(
                 MagneticInsulation(boundary=geometry.boundaries.all, physics=model),)),
         mesh=mesh,
@@ -92,24 +72,20 @@ def solve_magnetic(source):
     return model, result, perf_counter() - started
 
 model, result, solve_seconds = solve_magnetic(coil)
-if PROFILE == "SCHNELL":
+if PROFILE == "FAST":
     model2, result2, doubled_solve_seconds = solve_magnetic(replace(coil, current=2.0))
 else:
-    # Die Stromverdopplung wird im schnellen Profil tatsächlich gelöst und geprüft.
-    # Das große Profil hält für geringeren Speicherbedarf nur eine FEM-Lösung vor.
+    # The quick profile solves a second case at twice the current to check linearity.
+    # The fine profile keeps a single solution in memory.
     model2, result2, doubled_solve_seconds = None, None, None
 B_field = result.field(model.magnetic_flux_density)
 H_field = result.field(model.magnetic_field_strength)
 operator = result.operators[model.model_id]
 
 
-# ## Das gelöste Feld prüfen
+# ## Check the computed field
 #
-# Geprüft werden die tatsächlich aufgelöste Stromregion, die Amperewindungen
-# \(NI=10\,\mathrm A\), die diskrete Coulomb-Eichbedingung, \(\mathbf B=\mu\mathbf H\)
-# und eine zweite Lösung mit doppeltem Strom. Im linearen Modell muss diese das
-# doppelte Magnetfeld liefern. Dies sind Konsistenzprüfungen, keine externe
-# Genauigkeitsvalidierung oder abgeschlossene Netzkonvergenzstudie.
+# The checks cover the meshed current-carrying region, the total ampere-turns \(NI=10\,\mathrm A\), the discrete Coulomb gauge and \(\mathbf B=\mu\mathbf H\). In the quick profile a second solve doubles the current. The field should also double because the model is linear. These are internal consistency checks. External accuracy validation and a mesh convergence study would require additional comparisons.
 
 check_points = np.array([[0,0,0.04], [0.01,0.005,0.045], [-0.01,-0.005,0.035],
                          [0.035,0,0.06], [-0.035,0,0.02]])
@@ -136,7 +112,7 @@ assert constitutive_relative_error < 1e-12
 assert gauge_residual_norm < 1e-10
 assert not result.result_set.field(model.vector_potential.field_id).metadata["penalty"]
 
-# Ein tatsächlicher Schnitt durch das räumlich berechnete Feld (y=0).
+# Sample the computed 3D field on the y=0 plane.
 x = np.linspace(-0.045, 0.045, config["grid"])
 z = np.linspace(0.004, 0.076, config["grid"])
 xx, zz = np.meshgrid(x, z)
@@ -144,25 +120,20 @@ points = np.column_stack((xx.ravel(), np.zeros(xx.size), zz.ravel()))
 B = np.asarray(B_field.evaluate(points)).reshape(zz.shape + (3,))
 B_magnitude = np.linalg.norm(B, axis=2)
 assert np.isfinite(B).all() and np.max(B_magnitude) > 0
-csv_path = output_dir / "magnetostatik_spule_3d.csv"
+csv_path = output_dir / "magnetostatic_solenoid_3d.csv"
 with csv_path.open("w", encoding="utf-8", newline="") as handle:
     writer = csv.writer(handle)
     writer.writerow(["x_m", "y_m", "z_m", "Bx_T", "By_T", "Bz_T", "B_magnitude_T"])
     writer.writerows(np.column_stack((points, B.reshape(-1,3), B_magnitude.ravel())))
-npz_path = output_dir / "magnetostatik_spule_3d_felddaten.npz"
+npz_path = output_dir / "magnetostatic_solenoid_3d_field_data.npz"
 np.savez_compressed(npz_path, x_m=x, z_m=z, B_tesla=B,
     mesh_coordinates_m=mesh.coordinates, mesh_cells=mesh.cells,
     source_cell_indices=np.asarray(sorted(mesh.region_cells(coil.support)), dtype=int))
 
 
-# ## Aus dem 3D-Feld eine lesbare Abbildung erzeugen
+# ## Visualize a section of the 3D field
 #
-# Die räumlichen Pfeile zeigen die berechnete Richtung auf der Mittelebene;
-# ihre Längen sind zur Lesbarkeit einheitlich, die Farben geben den Betrag von
-# \(\mathbf B\) an. Rechts werden dieselben FEM-Abtastwerte als Schnitt mit
-# interpolierten Feldlinien der **in die Ebene projizierten** Komponenten dargestellt.
-# Bei Nédélec-Elementen erster Ordnung kann das rekonstruierte Feld zellweise
-# springen. Die Abbildung ist eine stationäre Lösung, keine zeitliche Animation.
+# The arrows show the computed field direction in the central plane. All arrows have the same length for readability, while color encodes the magnitude of \(\mathbf B\). The right panel uses the same finite-element samples to draw a section with interpolated field lines for the components **projected into the plane**. With first-order Nédélec elements the reconstructed field can jump between cells. Both views show the stationary solution.
 
 cream, ink, green, copper = "#F7F2E7", "#223D35", "#336B57", "#B66E43"
 plt.rcParams.update({"font.family":"DejaVu Sans", "font.size":11, "text.color":ink,
@@ -171,9 +142,9 @@ cmap = LinearSegmentedColormap.from_list("onesimulation_magnetic",
     ["#214D43", "#5F9175", "#A8BC91", "#E4D6A0", "#CD9561", "#A85539"])
 norm = Normalize(0, float(B_magnitude.max()*1e6))
 fig = plt.figure(figsize=(16,9), facecolor=cream)
-fig.text(.045,.937,"ONESIMULATION   /   MAGNETOSTATIK", fontsize=11, color=green, weight="bold")
-fig.text(.045,.875,"Strom formt ein Magnetfeld.", fontsize=32, weight="bold")
-fig.text(.045,.828,"3D-FEM · Nédélec-Elemente · gemischte Coulomb-Eichung · tatsächliches Lösungsfeld",fontsize=12)
+fig.text(.045,.937,"ONESIMULATION   /   MAGNETOSTATICS", fontsize=11, color=green, weight="bold")
+fig.text(.045,.875,"The magnetic field of a coil", fontsize=32, weight="bold")
+fig.text(.045,.828,"3D FEM · Nédélec elements · mixed Coulomb gauge · computed field",fontsize=12)
 
 ax = fig.add_axes([.025,.19,.53,.60], projection="3d", facecolor=cream)
 theta = np.linspace(0,2*np.pi,181)
@@ -199,19 +170,19 @@ ax.set_proj_type("ortho")
 ax.set_axis_off()
 for artist in ax.collections:
     artist.set_clip_on(False)
-fig.text(.075,.20,"10 Windungen · 1 A · homogenisierte Wicklung",fontsize=11,color=green)
-fig.text(.075,.168,"Pfeile: Richtung bei gleicher Länge; Farbe: Betrag von B",fontsize=9)
+fig.text(.075,.20,"10 turns · 1 A · homogenized winding",fontsize=11,color=green)
+fig.text(.075,.168,"Equal-length arrows show direction. Color shows the magnitude of B.",fontsize=9)
 
 plane = fig.add_axes([.615,.29,.27,.45], facecolor=cream)
 plane.pcolormesh(x*1000,z*1000,B_magnitude*1e6,cmap=cmap,norm=norm,
-                 shading="gouraud" if PROFILE == "HOCHAUFGELOEST" else "auto",rasterized=True)
+                 shading="gouraud" if PROFILE == "HIGH_RESOLUTION" else "auto",rasterized=True)
 plane.streamplot(x*1000,z*1000,B[:,:,0],B[:,:,2],color="#FAF7ED",
-                 density=1.65 if PROFILE == "HOCHAUFGELOEST" else 1.15,
+                 density=1.65 if PROFILE == "HIGH_RESOLUTION" else 1.15,
                  linewidth=.7,arrowsize=.8,broken_streamlines=True)
 for low_x in (-30,20):
     plane.add_patch(Rectangle((low_x,30),10,20,facecolor="none",edgecolor=copper,linewidth=2))
 plane.set_xlabel("x [mm]",fontsize=10); plane.set_ylabel("z [mm]",fontsize=10)
-plane.set_title("FEM-Schnitt y = 0 · interpolierte Darstellung",fontsize=11,pad=12)
+plane.set_title("Finite-element section at y = 0 · interpolated view",fontsize=11,pad=12)
 plane.set_aspect("equal")
 plane.set_xlim(x[0]*1000,x[-1]*1000)
 plane.set_ylim(z[0]*1000,z[-1]*1000)
@@ -219,55 +190,46 @@ plane.tick_params(labelsize=9,length=3)
 for spine in plane.spines.values(): spine.set_color("#A8B6A7")
 cax=fig.add_axes([.91,.32,.014,.39])
 bar=fig.colorbar(ScalarMappable(norm=norm,cmap=cmap),cax=cax)
-bar.set_label("Magnetische Flussdichte |B| [µT]",fontsize=10)
+bar.set_label("Magnetic flux density |B| [µT]",fontsize=10)
 bar.outline.set_visible(False); bar.ax.tick_params(length=0,labelsize=9)
 fig.text(.615,.205,f"{B_check[0,2]*1e6:.1f} µT",fontsize=26,weight="bold")
-fig.text(.615,.168,"berechnete axiale Flussdichte im Zentrum",fontsize=10)
-fig.text(.615,.125,f"{mesh.cell_count:,} Tetraeder · {n:,} Potential- + {len(operator.gauge_dofs):,} Eichfreiheitsgrade".replace(",","."),fontsize=10)
+fig.text(.615,.168,"computed axial flux density at the center",fontsize=10)
+fig.text(.615,.125,f"{mesh.cell_count:,} tetrahedra · {n:,} potential and {len(operator.gauge_dofs):,} gauge degrees of freedom",fontsize=10)
 fig.add_artist(plt.Line2D([.045,.96],[.10,.10],color="#D5D7C8",linewidth=1))
-fig.text(.045,.067,"Endlicher Rechenraum mit magnetischer Isolation. Kupferringe schematisch; Feld aus der 3D-FEM.",fontsize=10)
-fig.text(.045,.036,"Illustratives lineares Modell · endlicher Rechenraum · keine experimentelle Validierung",fontsize=9,color="#596B61")
-png_path=output_dir/"magnetostatik_spule_3d.png"
+fig.text(.045,.067,"Finite domain with magnetic insulation. Copper rings show the winding. The field comes from the 3D solve.",fontsize=10)
+fig.text(.045,.036,"Illustrative linear model · finite domain · no experimental validation",fontsize=9,color="#596B61")
+png_path=output_dir/"magnetostatic_solenoid_3d.png"
 svg_path=png_path.with_suffix(".svg")
 fig.savefig(png_path,dpi=config["dpi"],facecolor=cream)
 fig.savefig(svg_path,facecolor=cream)
 plt.show()
 
 
-# ## Ergebnisse weiterverwenden
+# ## Visualize and export the results
 #
-# `onesim.visualization.result` zeichnet ein berechnetes Feld direkt auf seinem
-# eigenen Träger. Das ist eine Zeile anstelle der von Hand geschriebenen
-# Abtastung und Einfärbung weiter oben; die gestaltete Abbildung bleibt davon
-# unberührt, hier steht der kurze Weg daneben.
+# `onesim.visualization.result` plots a computed field on its native support in one call. This gives a shorter alternative to the manual sampling and coloring used for the figure above.
 #
-# `onesim.results.storage.write_for_paraview` schreibt ausdrücklich genannte
-# Felder auf genau das Netz, auf dem gerechnet wurde, als `.vtk` und `.xdmf`.
-# Beide Dateien öffnet ParaView oder VisIt ohne Zwischenschritt.
+# `onesim.results.storage.write_for_paraview` exports the fields you specify on the mesh used for the solve. Open the resulting `.vtk` and `.xdmf` files directly in ParaView or VisIt.
 #
-# Grenzen dieses Exports: die Werte werden an den geschriebenen Netzknoten
-# ausgewertet. Eine quadratische oder Nédélec-Lösung erscheint dort als lineare
-# Ansicht auf denselben Knoten, nicht als die Lösung selbst; bei Bedarf das Netz
-# verfeinern. Geschrieben wird nur, was aufgezählt ist — es gibt keine
-# stillschweigende Feldauswahl. Es wird nichts neu gerechnet.
+# The export evaluates the field at the output mesh nodes. For a quadratic or Nédélec solution, the exported field is a linear representation on those nodes. Refine the mesh if you need finer spatial detail. The export writes only the requested fields and uses the existing solution.
 
 import onesim.visualization as visualization
 from onesim.results.storage import write_for_paraview
 
-PARAVIEW_FELDER = (model.magnetic_flux_density, model.magnetic_field_strength)
+PARAVIEW_FIELDS = (model.magnetic_flux_density, model.magnetic_field_strength)
 figure = visualization.result(
-    result.result_set, model.magnetic_flux_density.field_id, title="Magnetische Flussdichte (T)",
+    result.result_set, model.magnetic_flux_density.field_id, title="Magnetic flux density (T)",
 )
-assert figure.data, "Die Bibliotheksgrafik enthält keine Spur"
+assert figure.data, "The result plot contains no traces."
 
 paraview_dateien = [
-    write_for_paraview(result, mesh, PARAVIEW_FELDER,
-                       output_dir / f"magnetostatik_spule_3d.{suffix}")
+    write_for_paraview(result, mesh, PARAVIEW_FIELDS,
+                       output_dir / f"magnetostatic_solenoid_3d.{suffix}")
     for suffix in ("vtk", "xdmf")
 ]
 for pfad in paraview_dateien:
     assert pfad.is_file() and pfad.stat().st_size > 1000, pfad
-    print(f"ParaView-Datei: {pfad} ({pfad.stat().st_size / 1024:.1f} KiB)")
+    print(f"ParaView file: {pfad} ({pfad.stat().st_size / 1024:.1f} KiB)")
 figure
 
 verification = {
@@ -291,6 +253,6 @@ verification = {
         "Equal-length direction arrows; interpolated projected field lines",
         "No COMSOL accuracy or performance comparison"],
 }
-(output_dir/"magnetostatik_spule_3d_pruefung.json").write_text(
+(output_dir/"magnetostatic_solenoid_3d_verification.json").write_text(
     json.dumps(verification,indent=2,ensure_ascii=False,allow_nan=False)+"\n",encoding="utf-8")
 print(json.dumps(verification,indent=2,ensure_ascii=False,allow_nan=False))

@@ -1,78 +1,9 @@
-OneSimulation – Proprietäre Softwarelizenz / Proprietary Software License
+OneSimulation Proprietary Software License
+Copyright (c) 2026 Johannes Meyer. All rights reserved.
 
-Copyright (c) 2026 Johannes Meyer. Alle Rechte vorbehalten. All rights reserved.
+The German text of the licence governs. The original licence supplied in the wheel is available in full before purchase at
+https://github.com/JohMey/OneSimulation-Showcase/blob/d2d9a7fdb14f9fcff8c0148d7590640c8763774c/assets/onesimulation-0.2.1a8-licence.txt
 
-Die deutsche Fassung ist maßgeblich. Die englische Fassung am Ende dient der
-Information.
-
-1. Gegenstand
-   Diese Lizenz gilt für die Software OneSimulation einschließlich der Python-
-   Pakete (Wheels), der Runtime, der Werkzeuge zur Lizenzaktivierung, der
-   Dokumentation und der mitgelieferten Beispiel-Notebooks (zusammen: die
-   „Software“). Rechteinhaber ist Johannes Meyer (der „Lizenzgeber“).
-
-2. Nutzungsrecht
-   Der Lizenzgeber räumt dem Erwerber eines gültigen Abonnements oder einer
-   sonstigen gültigen Berechtigung (der „Lizenznehmer“) ein einfaches, nicht
-   übertragbares und nicht unterlizenzierbares Recht ein, die Software für die
-   Dauer der Berechtigung zu installieren und zu nutzen. Der Umfang
-   (insbesondere Anzahl der Geräte und Benutzerkonten) richtet sich nach dem
-   erworbenen Angebot; ohne abweichende Vereinbarung gilt: eine Person, ein
-   Gerät, ein lokales Benutzerkonto. Private, wissenschaftliche und
-   gewerbliche Nutzung sind erlaubt, soweit das erworbene Angebot nichts
-   anderes bestimmt.
-
-3. Beschränkungen
-   Soweit nicht gesetzlich zwingend erlaubt oder in dieser Lizenz ausdrücklich
-   gestattet, ist es nicht gestattet,
-   a) die Software oder Teile davon zu vervielfältigen, zu verbreiten, zu
-      veröffentlichen, zu vermieten, zu verkaufen oder Dritten zugänglich zu
-      machen, auch nicht über Paketverzeichnisse, Repositorys oder Container;
-   b) die Lizenzprüfung, Aktivierung oder Zertifikate zu umgehen, zu
-      entfernen, zu verändern oder zu deaktivieren;
-   c) die Software zu dekompilieren, zu disassemblieren oder anderweitig
-      zurückzuentwickeln, ausgenommen in den Grenzen der §§ 69d und 69e UrhG;
-   d) Urheberrechts-, Marken- und Lizenzhinweise zu entfernen.
-   Sicherungskopien sind im Rahmen von § 69d Abs. 2 UrhG zulässig.
-
-4. Beispiel-Notebooks und Ergebnisse
-   Die mitgelieferten Notebooks dürfen für eigene Berechnungen verändert und
-   zusammen mit der lizenzierten Software genutzt werden. Mit der Software
-   erzeugte Rechenergebnisse, Daten und Grafiken stehen dem Lizenznehmer zu.
-
-5. Komponenten Dritter
-   Abhängigkeiten und Komponenten Dritter (siehe THIRD_PARTY_NOTICES.txt)
-   unterliegen ausschließlich ihren eigenen Lizenzen. Diese Lizenz schränkt
-   Rechte aus jenen Lizenzen nicht ein.
-
-6. Frühere BSD-Ausgaben
-   Kopien früherer Ausgaben, die vor dem 10. November 2026 unter der
-   BSD-3-Clause-Lizenz weitergegeben wurden, behalten für ihre Empfänger die
-   Rechte aus jener Lizenz. Für alle späteren Ausgaben, Änderungen und
-   Erweiterungen gilt ausschließlich diese Lizenz.
-
-7. Laufzeit und Beendigung
-   Das Nutzungsrecht endet mit dem Ende der Berechtigung, insbesondere mit dem
-   wirksamen Ende des Abonnements, oder bei einem erheblichen Verstoß gegen
-   diese Lizenz. Danach ist die Nutzung einzustellen.
-
-8. Gewährleistung und Haftung
-   Die Software ist eine Alpha-Version. Gesetzliche Gewährleistungsrechte
-   bleiben unberührt. Der Lizenzgeber haftet unbeschränkt bei Vorsatz und
-   grober Fahrlässigkeit, bei Verletzung von Leben, Körper oder Gesundheit
-   sowie nach dem Produkthaftungsgesetz. Bei leichter Fahrlässigkeit haftet er
-   nur bei Verletzung einer wesentlichen Vertragspflicht und begrenzt auf den
-   vorhersehbaren, vertragstypischen Schaden. Im Übrigen ist die Haftung
-   ausgeschlossen. Die Software ersetzt keine technische, wissenschaftliche
-   oder sicherheitsrelevante Validierung durch den Lizenznehmer.
-
-9. Schlussbestimmungen
-   Es gilt deutsches Recht unter Ausschluss des UN-Kaufrechts. Für
-   Verbraucher bleiben zwingende Schutzvorschriften ihres Aufenthaltsstaats
-   unberührt. Sollte eine Bestimmung unwirksam sein, bleibt der Rest wirksam.
-   Kontakt: über die Bestellbestätigung des Kaufs.
-
---------------------------------------------------------------------------------
 English translation (for information only)
 
 1. Subject. This license covers the OneSimulation software, including its

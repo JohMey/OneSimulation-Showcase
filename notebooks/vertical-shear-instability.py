@@ -4,20 +4,20 @@ https://johmey.github.io/OneSimulation-Showcase/examples/notebooks.html
 """
 
 
-# # 07 · Hydrodynamik: vertikale Scherinstabilität
+# # Vertical shear instability in a rotating disk
 #
-# Dieses Anwendungsbeispiel berechnet die zeitliche Entwicklung einer kleinen Drehimpulsstörung in einer lokal isothermen, rotierenden Scheibe. Die achsensymmetrischen, kompressiblen hydrodynamischen Gleichungen werden von **OneSimulation Runtime Alpha 0.2.1a4** gelöst. NumPy dient der Eingabe und Auswertung; Matplotlib stellt die berechneten Felder dar.
+# This example follows a small angular momentum perturbation in a locally isothermal disk. **OneSimulation Runtime Alpha 0.2.1a4** solves the axisymmetric compressible flow equations. NumPy prepares the inputs and processes the results. Matplotlib plots the computed fields.
 #
-# Die Modellparameter stammen aus dem vorhandenen VSI-Beispiel `vsi_gsf_dissertation_parameterstudie.ipynb`. Wissenschaftlicher Kontext: [Johannes Meyer, Dissertation (2024)](https://doi.org/10.11588/heidok.00035158). OneSimulation ist eine eigene Implementierung; dieses Beispiel ist keine Reproduktion oder Validierung des dort beschriebenen MATRICS-Codes.
+# The parameters follow the disk model in [Johannes Meyer’s dissertation (2024)](https://doi.org/10.11588/heidok.00035158). This calculation uses OneSimulation’s own implementation. It does not reproduce or validate the MATRICS code described in the dissertation.
 #
-# **Voraussetzung:** Das passende Runtimewheel ist installiert und regulär aktiviert. Dieses Notebook enthält keine Lizenzdatei oder Zugangsangaben. Jupyter ist optional: Die Codezellen lassen sich auch ohne Jupyter-Oberfläche nacheinander ausführen.
+# Install and activate the matching runtime before starting. You can execute the code cells in order in Jupyter or run them as a Python script.
 #
-# ## Zwei ausdrücklich verschiedene Profile
+# ## Choose a run profile
 #
-# - `FUNKTIONSPRUEFUNG`: 32 × 32 Zellen, vier kurze Schritte. Prüft API, Solver und Erhaltung; dieser kurze Lauf weist noch keine entwickelte VSI nach.
-# - `HOCHAUFGELOEST`: 256 × 256 Zellen, 262.656 native Unbekannte, 15 Umlaufperioden. Dies ist eine längere wissenschaftliche Rechnung mit regelmäßigen nativen Checkpoints. Die Laufzeit und der Speicherbedarf hängen vom Rechner ab.
+# - `SMOKE_TEST` runs four short steps on a 32 × 32 mesh. Use it to check the API, solver and conservation. The run ends before instability growth can be assessed.
+# - `HIGH_RESOLUTION` runs 15 reference orbits on a 256 × 256 mesh with 262,656 unknowns and periodically writes checkpoints. Runtime and memory use depend on the computer.
 #
-# Das räumlich feine Profil ist keine automatische Genauigkeitsgarantie. Ein Zeitschrittvergleich und die Grenzen des endlichen Ausschnitts bleiben relevant. Es werden keine experimentelle Validierung, gesättigte Turbulenz oder allgemeine 3D-Auflösung behauptet.
+# The fine mesh alone does not establish accuracy. Check time-step sensitivity and account for the finite extent of the modelled domain. This axisymmetric calculation does not establish saturated three-dimensional turbulence or validate the model against experiments.
 
 from pathlib import Path
 from importlib.metadata import version
@@ -38,23 +38,23 @@ from onesim.simulation.problem_definition.declarations.specification import Nume
 from onesim.simulation.execution.requests.controls import ExecutionOptions
 from onesim.results.storage.output.retention_policy import ResultRetentionPolicy
 
-assert version("onesimulation") == "0.2.1a4", "Dieses Beispiel ist für Runtime 0.2.1a4 geprüft."
-PROFILE = "FUNKTIONSPRUEFUNG"  # Für die lange Rechnung: "HOCHAUFGELOEST"
+assert version("onesimulation") == "0.2.1a4", "This example was tested with Runtime 0.2.1a4."
+PROFILE = "SMOKE_TEST"  # For the longer run, use "HIGH_RESOLUTION"
 PROFILES = {
-    "FUNKTIONSPRUEFUNG": {"cells": 32, "end_code": 0.8, "dt_code": 0.2},
-    "HOCHAUFGELOEST": {"cells": 256, "end_code": 15 * 2 * np.pi, "dt_code": 0.5},
+    "SMOKE_TEST": {"cells": 32, "end_code": 0.8, "dt_code": 0.2},
+    "HIGH_RESOLUTION": {"cells": 256, "end_code": 15 * 2 * np.pi, "dt_code": 0.5},
 }
 assert PROFILE in PROFILES
 config = PROFILES[PROFILE]
-output = Path("ergebnisse_onesimulation")
+output = Path("onesimulation_results")
 output.mkdir(exist_ok=True)
 
 
-# ## Modell, Anfangsstörung und Numerik
+# ## Model, initial perturbation and numerical methods
 #
-# Es gelten dimensionslose Codeeinheiten mit `GM = r₀ = ρ₀ = 1` und Referenz-Schallgeschwindigkeit `c₀ = 0,1`. Eine Referenz-Umlaufperiode dauert `2π` Codezeiteinheiten. Der radiale Temperaturexponent ist `q = −1`, der Scheibendichteexponent `p = −1,5`; die kinematische und die Volumenviskosität sind null. Die polare Koordinate ist hier die Breite oberhalb der Äquatorebene: `θ ∈ [0,05; 0,15]` rad bei `r ∈ [0,95; 1,05]`.
+# Dimensionless units set `GM = r₀ = ρ₀ = 1` and the reference sound speed to `c₀ = 0.1`. One reference orbit takes `2π` time units. The radial temperature exponent is `q = −1`, the disk density exponent is `p = −1.5`, and both kinematic and bulk viscosity are zero. Here θ is latitude above the equatorial plane. The domain spans θ ∈ [0.05, 0.15] radians and r ∈ [0.95, 1.05].
 #
-# Die Anfangsdichte und die Rotation liefert das native Scheibengleichgewicht. Nur der konservative Drehimpuls erhält eine reproduzierbare Zufallsstörung mit absoluter Amplitude `10⁻⁵` (Seed 2024). Die Meridionalgeschwindigkeiten sind anfangs null. Der räumliche Ansatz ist ein versetztes Finite-Volumen-Gitter mit QUICK-Fluss und Gleichgewichtswänden. Der explizite Gleichgewichtsabzug bleibt wie im ausgeführten Ursprungsbeispiel ausgeschaltet. BDF2, Newton und LU-vorkonditioniertes GMRES werden ausschließlich durch die vorhandenen Runtime-APIs ausgeführt; eine zusätzliche CFL-Grenze begrenzt den advektiven Courantwert.
+# The disk equilibrium supplies the initial density and rotation. A reproducible random perturbation of absolute amplitude 10⁻⁵ is added to the conserved angular momentum (seed 2024). Both meridional velocity components start at zero. The spatial discretization uses a staggered finite-volume grid, QUICK fluxes and equilibrium wall conditions. As in the original example, explicit equilibrium subtraction is disabled. The runtime uses BDF2 time integration, Newton iteration and LU-preconditioned GMRES. A CFL limit bounds the advective Courant number.
 
 physical = FlowParameters(
     environment="disk", thermodynamics="isothermal", GM=1., r0=1., c0=.1,
@@ -89,7 +89,7 @@ numerics = NumericalSetup(
                      provider_id="numerics.solver.scipy.right-gmres"),
     coupling=CouplingStrategy(mode="fully_coupled"),
 )
-print(f"{PROFILE}: {box.nr} × {box.ntheta} Zellen, {model.initial_state.size:,} Unbekannte")
+print(f"{PROFILE}: {box.nr} × {box.ntheta} cells, {model.initial_state.size:,} unknowns")
 
 times, diagnostics = [], []
 snapshots = []
@@ -114,7 +114,7 @@ def retain(frame):
             "vr": np.asarray(fields["vr"]).reshape(model.shape).copy(),
             "vtheta": np.asarray(fields["vtheta"]).reshape(model.shape).copy()})
     if perf_counter() - last_print[0] >= 30 or t >= config["end_code"]-1e-10:
-        print(f"{t/(2*np.pi):.3f} Umläufe; v_rms/c₀ = {d['vrms']:.6g}")
+        print(f"{t/(2*np.pi):.3f} orbits; v_rms/c₀ = {d['vrms']:.6g}")
         last_print[0] = perf_counter()
 
 retain({"time": 0., "state": model.initial_state})
@@ -139,17 +139,17 @@ angular_drift = float(np.max(np.abs(history["angular_momentum_total"]/history["a
 assert mass_drift < 1e-8 and angular_drift < 1e-8
 final_fields = snapshots[-1]
 assert np.all(final_fields["density"] > 0)
-np.savez_compressed(output/"vsi_felddaten.npz", r=model.r, theta=model.theta,
+np.savez_compressed(output/"vsi_fields.npz", r=model.r, theta=model.theta,
                     rf=model.rf, tf=model.tf, R=model.R, z=model.z,
                     initial_density=initial_density, **final_fields)
-np.savez_compressed(output/"vsi_zeitverlauf.npz", **history)
+np.savez_compressed(output/"vsi_history.npz", **history)
 
 
-# ## Tatsächlich berechnete Störungen
+# ## Examine the perturbations
 #
-# Die linke Karte zeigt die meridionale Geschwindigkeitskomponente `vθ/c₀`, die rechte die relative Dichteänderung gegenüber dem Anfangsgleichgewicht. Die Farbbereiche ergeben sich aus den berechneten Werten. Es werden keine künstlichen Wirbel oder analytischen Ersatzfelder hinzugefügt. Die achsensymmetrische Lösung wird in der meridionalen `R-z`-Ebene dargestellt; dies ist kein dreidimensional aufgelöstes Turbulenzfeld.
+# The left panel shows the meridional velocity component `vθ/c₀`. The right panel shows the density change relative to the initial equilibrium. Each colour scale spans the computed values. Both panels show the meridional R–z plane of the axisymmetric model.
 #
-# Der zeitliche Verlauf unten verwendet jede akzeptierte Lösung. Ein positiver Wachstumsfit ist eine numerische Diagnose dieses Falls, keine unabhängige wissenschaftliche Validierung. Beim kurzen Funktionsprüfprofil ist das Fitfenster absichtlich noch nicht erreicht.
+# The time series uses every accepted solution. The fitted growth rate measures behaviour in this calculation. It would require an independent comparison to validate that rate. The short profile ends before the fitting interval begins.
 
 cream, ink, teal, copper = "#f8f2e8", "#233e39", "#176f67", "#ba6748"
 cmap = LinearSegmentedColormap.from_list("vsi_signed", [teal, cream, copper])
@@ -163,8 +163,8 @@ grid = fig.add_gridspec(2, 2, height_ratios=[3.2,1.05], left=.075, right=.95,
 rr, tt = np.meshgrid(model.rf, model.tf, indexing="ij")
 R_nodes, z_nodes = rr*np.cos(tt), rr*np.sin(tt)
 fields_to_show = [
-    (final_fields["vtheta"]/physical.c0, r"Meridionalgeschwindigkeit $v_\theta/c_0$"),
-    ((final_fields["density"]-initial_density)/initial_density, r"Dichtestörung $(\rho-\rho_{eq})/\rho_{eq}$"),
+    (final_fields["vtheta"]/physical.c0, r"Meridional velocity $v_\theta/c_0$"),
+    ((final_fields["density"]-initial_density)/initial_density, r"Density perturbation $(\rho-\rho_{eq})/\rho_{eq}$"),
 ]
 for index,(values,title) in enumerate(fields_to_show):
     ax=fig.add_subplot(grid[0,index],facecolor=cream)
@@ -179,14 +179,14 @@ for index,(values,title) in enumerate(fields_to_show):
 ax=fig.add_subplot(grid[1,:],facecolor=cream)
 positive=history["vrms"]>0
 ax.semilogy(history["orbits"][positive],history["vrms"][positive],color=teal,lw=2)
-ax.set(xlabel="Zeit / Referenz-Umlaufperiode",ylabel=r"$v_{rms}/c_0$")
+ax.set(xlabel="Time / reference orbital period",ylabel=r"$v_{rms}/c_0$")
 ax.grid(alpha=.18)
-fig.text(.075,.94,"ONESIMULATION  /  HYDRODYNAMIK",fontsize=12,color=copper,weight="bold")
-fig.text(.075,.89,"Vertikale Scherinstabilität",fontsize=27,weight="bold")
-fig.text(.075,.85,f"{box.nr} × {box.ntheta} Zellen · {history['orbits'][-1]:.3f} Umläufe · achsensymmetrische Scheibe",fontsize=12)
-fig.text(.075,.025,"Dimensionslose Codeeinheiten · echte zeitabhängige Runtime-Lösung · keine experimentelle Validierung",fontsize=10)
-fig.savefig(output/"vsi_hydrodynamik.png",dpi=300,facecolor=cream)
-fig.savefig(output/"vsi_hydrodynamik.svg",facecolor=cream)
+fig.text(.075,.94,"ONESIMULATION  /  HYDRODYNAMICS",fontsize=12,color=copper,weight="bold")
+fig.text(.075,.89,"Vertical shear instability",fontsize=27,weight="bold")
+fig.text(.075,.85,f"{box.nr} × {box.ntheta} cells · {history['orbits'][-1]:.3f} orbits · axisymmetric disk",fontsize=12)
+fig.text(.075,.025,"Dimensionless units · time-dependent numerical solution · no experimental comparison",fontsize=10)
+fig.savefig(output/"vsi_hydrodynamics.png",dpi=300,facecolor=cream)
+fig.savefig(output/"vsi_hydrodynamics.svg",facecolor=cream)
 plt.close(fig)
 
 growth=fit_growth(history["orbits"],history["vrms"],time_min=5.,time_max=15.,min_efolds=.5)
@@ -198,7 +198,7 @@ verification={
     "mass_relative_max_error": mass_drift, "angular_momentum_relative_max_error": angular_drift,
     "final_diagnostics": diagnostics[-1], "growth_fit": growth,
     "scope": "Axisymmetric locally isothermal disk; no independent validation or saturation claim.",
-    "outputs": ["ergebnisse_onesimulation/vsi_hydrodynamik.png", "ergebnisse_onesimulation/vsi_hydrodynamik.svg"],
+    "outputs": ["onesimulation_results/vsi_hydrodynamics.png", "onesimulation_results/vsi_hydrodynamics.svg"],
 }
-(output/"vsi_pruefung.json").write_text(json.dumps(verification,indent=2,allow_nan=False)+"\n",encoding="utf-8")
+(output/"vsi_verification.json").write_text(json.dumps(verification,indent=2,allow_nan=False)+"\n",encoding="utf-8")
 print(json.dumps(verification,indent=2,allow_nan=False))

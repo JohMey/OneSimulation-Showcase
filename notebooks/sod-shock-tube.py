@@ -4,11 +4,11 @@ https://johmey.github.io/OneSimulation-Showcase/examples/notebooks.html
 """
 
 
-# # Sod-Stoßrohr: WENO5 und RK4 über die direkte Python-API
+# # Sod shock tube with WENO5 and RK4 in Python
 #
-# Dieses Beispiel formuliert die eindimensionalen kompressiblen Euler-Gleichungen direkt über `Problem` und `Simulation`. Es importiert **keinen vorgefertigten Sod-Fall und keine analytische Lösung**. Voraussetzung: aktivierte OneSimulation Runtime Alpha **0.2.1a4**, NumPy und Matplotlib.
+# This notebook sets up the one-dimensional compressible Euler equations with `Problem` and `Simulation`. It builds the initial state directly and computes the subsequent flow with the solver. You will need an activated OneSimulation Runtime Alpha **0.2.1a4**, NumPy and Matplotlib.
 #
-# Normierte Anfangswerte links/rechts: Dichte1/0,125; Druck1/0,1; Geschwindigkeit0; γ=1,4. Ausgewertet wird t=0,2 auf x∈[0,1] mit transmissiven Enden. WENO5-Jiang–Shu rekonstruiert komponentenweise gespaltene Flüsse; die hohe räumliche Ordnung gilt in glatten Bereichen. Diskontinuitäten werden durch die nichtlinearen WENO-Gewichte behandelt. Dies ist keine allgemeine Positivitätsgarantie oder experimentelle Validierung.
+# The initial left and right states have densities of 1 and 0.125, pressures of 1 and 0.1, and zero velocity. The ratio of specific heats is γ = 1.4. The domain is x ∈ [0, 1], both ends are transmissive, and the final time is t = 0.2. The Jiang–Shu WENO5 scheme reconstructs the split fluxes component by component. It uses high-order reconstruction in smooth regions and nonlinear weights at discontinuities. Positivity is checked for this run. The example has no experimental comparison.
 
 import json
 import time
@@ -32,21 +32,21 @@ from onesim.simulation.initial_conditions import InitialValue
 
 POINTS = 1600
 DT = 0.00005
-OUTPUT = Path('ergebnisse_sod')
+OUTPUT = Path('sod_results')
 
 
-# ## Modell und tatsächliche Rechnung
+# ## Mesh and time integration
 #
-# Das Netz enthält1.600 äquidistante Punktwerte. Klassisches RK4 integriert in der Zeit; eine explizite CFL-Grenze schützt die Zeitschrittwahl. `DT` ist eine obere Vorgabe und kann durch die Runtime verkleinert werden. Die Endfelder werden behalten;21 Ausgabestände dienen zusätzlichen Positivitätsprüfungen.
+# The mesh has 1,600 equally spaced points. Classical RK4 advances the solution in time. The runtime may reduce the requested maximum step `DT` to satisfy the CFL limit. It retains the final fields and saves 21 states for the positivity checks.
 
-# Physik und Anfangswerte: links (rho,p,u)=(1,1,0), rechts (0.125,0.1,0).
+# Initial states: left (rho,p,u)=(1,1,0), right (0.125,0.1,0).
 gamma, end_time = 1.4, 0.2
 geometry = Line(start=(0.0, 0.0, 0.0), end=(1.0, 0.0, 0.0))
 gas = CompressibleEuler(
     domain=geometry.line, equation_of_state=IdealGasEquationOfState(gamma=gamma),
 )
 problem = Problem(
-    name='Sod: direkte Euler-API', geometry=geometry, physics=(gas,),
+    name='Sod shock tube with the Euler API', geometry=geometry, physics=(gas,),
     initial_conditions=(
         InitialValue(gas.density, lambda x: np.where(x < 0.5, 1.0, 0.125)),
         InitialValue(gas.momentum, 0.0),
@@ -74,11 +74,11 @@ result = simulation.run(
 elapsed = time.perf_counter() - started
 
 
-# ## Positivität und Erhaltungsbilanzen
+# ## Positivity and conservation
 #
-# Dichte und Druck müssen in den gespeicherten Feldern positiv bleiben. Masse und Gesamtenergie bleiben bis t=0,2 praktisch unverändert, da die Störungen die offenen Ränder noch nicht erreicht haben. Der Gesamtimpuls wächst dagegen wegen des Druckunterschieds an den Enden: Die geprüfte Bilanz berücksichtigt diesen Randbeitrag. Die CSV enthält ausschließlich numerisch berechnete Werte.
+# Check that density and pressure remain positive in every saved state. At t = 0.2 the waves have yet to reach the open boundaries, so the total mass and energy should still match their initial values to within numerical precision. The pressure difference at the ends increases the total momentum. The momentum check includes that boundary contribution. The CSV contains the fields computed by the solver.
 
-# Numerische Kontrollen aus den tatsächlich berechneten Feldern.
+# Check the computed fields.
 x = np.asarray(mesh.cell_centers[:, 0])
 rho, velocity, pressure, energy, momentum = [
     np.asarray(result.field(field).values)
@@ -89,7 +89,7 @@ assert rho.min() > 0 and pressure.min() > 0
 assert all(np.min(field.values) > 0 for snap in snapshots.snapshots for field in snap.fields.values())
 mass_error = abs(float(rho @ mesh.cell_volumes) - 0.5625)
 energy_error = abs(float(energy @ mesh.cell_volumes) - 1.375)
-# Offene Enden: der Druckunterschied bewirkt den Impulszuwachs (1-0.1)*t.
+# The pressure difference across the open ends produces a momentum gain of (1-0.1)*t.
 momentum_balance_error = abs(float(momentum @ mesh.cell_volumes) - (1.0 - 0.1) * end_time)
 assert max(mass_error, energy_error, momentum_balance_error) < 1e-9
 verification = dict(
@@ -103,31 +103,31 @@ verification = dict(
     time_integrator='classical RK4', analytic_solution_used=False,
 )
 OUTPUT.mkdir(parents=True, exist_ok=True)
-np.savetxt(OUTPUT / 'sod_felder.csv', np.column_stack((x, rho, velocity, pressure, energy, momentum)),
+np.savetxt(OUTPUT / 'sod_fields.csv', np.column_stack((x, rho, velocity, pressure, energy, momentum)),
            delimiter=',', header='x,density,velocity,pressure,total_energy,momentum', comments='')
-(OUTPUT / 'pruefung.json').write_text(json.dumps(verification, indent=2) + '\n', encoding='utf-8')
+(OUTPUT / 'verification.json').write_text(json.dumps(verification, indent=2) + '\n', encoding='utf-8')
 
 
-# ## Felder zeichnen
+# ## Plot the fields
 #
-# Die durchgezogenen Kurven stammen ausschließlich aus der Rechnung. Gestrichelt sind die vorgegebenen Anfangswerte dargestellt, keine analytische Vergleichslösung. Für eine Netz-/Zeitstudie kann das gleiche Modell mit anderen `POINTS`-/`DT`-Werten erneut ausgeführt werden; Abstände zwischen numerischen Lösungen sind keine exakten Fehler.
+# The solid curves show the computed solution. The dashed curves show the prescribed initial state. To study convergence, rerun the model with different values of `POINTS` and `DT` and compare the numerical solutions. Measuring the exact error would require an independent reference solution.
 
-# Nur numerische Felder; die gestrichelte Linie zeigt den vorgegebenen Anfangszustand.
+# Plot the computed fields and show the initial state with a dashed line.
 plt.rcParams.update({'font.size': 12, 'axes.spines.top': False, 'axes.spines.right': False})
 fig, axes = plt.subplots(2, 2, figsize=(16, 10), facecolor='#f6f1e7')
 for ax, values, initial, title in zip(axes.flat, (rho, velocity, pressure, energy),
         (np.where(x < 0.5, 1.0, 0.125), np.zeros_like(x), np.where(x < 0.5, 1.0, 0.1),
-         np.where(x < 0.5, 2.5, 0.25)), ('Dichte ρ', 'Geschwindigkeit u', 'Druck p', 'Gesamtenergiedichte E')):
+         np.where(x < 0.5, 2.5, 0.25)), ('Density ρ', 'Velocity u', 'Pressure p', 'Total energy density E')):
     ax.set_facecolor('#fffdf7')
-    ax.plot(x, initial, '--', color='#b4aa98', lw=1.1, label='Anfangswerte t = 0')
-    ax.plot(x, values, color='#39715e', lw=2, label=f'Numerik t = {end_time:g}')
+    ax.plot(x, initial, '--', color='#b4aa98', lw=1.1, label='Initial state at t = 0')
+    ax.plot(x, values, color='#39715e', lw=2, label=f'Numerical solution at t = {end_time:g}')
     ax.set(xlabel='Position x', ylabel=title, xlim=(0, 1), title=title)
     ax.grid(alpha=0.16)
 axes[0, 0].legend(frameon=False, fontsize=10)
-fig.suptitle('Eine Drucksprungstelle wird zur Stoßwelle.', fontsize=26, color='#203f36', x=.07, ha='left')
-point_label = f'{POINTS:,}'.replace(',', '.')
-fig.text(.07, .915, f'Sod-Stoßrohr · {point_label} Stützstellen · WENO5 + RK4 · t = 0,2', color='#39715e', fontsize=14)
-fig.text(.07, .025, 'Direkte Python-API · dimensionslos · keine analytische Kurve · keine experimentelle Validierung', color='#6d746c')
+fig.suptitle('Shock formation from a pressure discontinuity', fontsize=26, color='#203f36', x=.07, ha='left')
+point_label = f'{POINTS:,}'
+fig.text(.07, .915, f'Sod shock tube · {point_label} grid points · WENO5 + RK4 · t = 0.2', color='#39715e', fontsize=14)
+fig.text(.07, .025, 'Direct Python API · dimensionless units · numerical solution and initial conditions · no experimental comparison', color='#6d746c')
 fig.subplots_adjust(top=.84, bottom=.10, left=.08, right=.96, hspace=.34, wspace=.24)
 fig.savefig(OUTPUT / 'sod_weno5.png', dpi=300)
 fig.savefig(OUTPUT / 'sod_weno5.svg')

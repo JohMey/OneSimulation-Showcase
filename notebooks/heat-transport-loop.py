@@ -4,15 +4,15 @@ https://johmey.github.io/OneSimulation-Showcase/examples/notebooks.html
 """
 
 
-# # 04 · Wärmetransport im Umlauf
+# # Heat transport in a recirculating flow
 #
-# Dieses vollständige Anwendungsbeispiel berechnet ein räumliches Temperaturfeld mit **OneSimulation Runtime 0.2.1a4**. Zwei stationäre Wärmequellen liegen in einem 120 × 80 × 2 mm großen Rechengebiet. Wir vergleichen Wärmeleitung ohne Umlauf mit Wärmeleitung und einem vorgegebenen, divergenzfreien Geschwindigkeitsfeld.
+# This example computes a spatial temperature field with **OneSimulation Runtime 0.2.1a4**. Two stationary heat sources lie inside a 120 × 80 × 2 mm domain. The first case uses heat conduction alone. The second adds a prescribed, divergence-free velocity field.
 #
-# **Was tatsächlich gelöst wird:** Die stationäre Advektions-Diffusionsgleichung für die Temperatur, mit dem Finite-Volumen-Verfahren der installierten Runtime. Die Strömung ist eine analytische Eingabe. Es werden keine Navier–Stokes-Gleichungen, kein Auftrieb und keine experimentellen Messdaten berechnet. Das Modell ist in Dickenrichtung invariant; eine Hexaederzellschicht bildet den 2D-Fall ab.
+# The installed runtime solves the steady advection–diffusion equation for temperature by the finite-volume method. The flow is an analytical input. This example does not solve the Navier–Stokes equations or include buoyancy or experimental data. The model is invariant through the thickness, so one layer of hexahedral cells represents the 2D problem.
 #
-# Voraussetzung: Das zu deinem System passende Paket ist installiert und regulär aktiviert. Verwende denselben CPython-3.13-Interpreter wie bei der Installation. Das Beispiel benötigt NumPy, SciPy und Matplotlib, die als Paketabhängigkeiten installiert werden. Kein GUI und kein zusätzlicher Dienst werden gestartet. Es entstehen zwei PNG-/SVG-Abbildungen und ein Prüfbericht im Ordner `ergebnisse_onesimulation`.
+# Install and activate the runtime package for your platform and use the same CPython 3.13 interpreter for the notebook. NumPy, SciPy and Matplotlib are package dependencies. The calculation runs locally without a GUI or an additional service. It writes two figures, each as PNG and SVG, and a verification report to `onesimulation_results`.
 #
-# Die folgenden Zellen sind Anwendungs- und Darstellungsbeispiele. Sie enthalten keine Implementierung des OneSimulation-Solvers. Eine erste Ausführung dauert abhängig vom Rechner ungefähr eine bis mehrere Minuten.
+# The cells define the application and its plots. The numerical solver is supplied by the runtime. Allow one to several minutes for the first run, depending on your machine.
 
 import json
 import platform
@@ -44,13 +44,13 @@ from onesim.physics.heat_transfer import (
 from onesim.simulation import Problem, Simulation
 
 
-# ## Modell und Randbedingungen
+# ## Model and boundary conditions
 #
-# Wir verwenden konstante, ausdrücklich illustrative Koeffizienten: $\rho=1000\,\mathrm{kg/m^3}$, $c_p=1000\,\mathrm{J/(kg\,K)}$ und $k=2\,\mathrm{W/(m\,K)}$. Das sind keine aus einem Materialkatalog entnommenen Stoffdaten. Der Materialcontainer `IsotropicSolid` liefert hier ausschließlich die thermischen Koeffizienten; es wird keine Festkörpermechanik gerechnet.
+# The illustrative constant coefficients are $\rho=1000\,\mathrm{kg/m^3}$, $c_p=1000\,\mathrm{J/(kg\,K)}$ and $k=2\,\mathrm{W/(m\,K)}$. They are independent of any material catalogue. The `IsotropicSolid` material container supplies the thermal coefficients only. No solid mechanics equation is solved.
 #
-# Die vier Seiten stehen auf 20 °C, Vorder- und Rückseite sind wärmeisoliert. Zwei positive Gaußquellen liefern Wärme. Das vorgegebene Geschwindigkeitsfeld ist tangential zu allen Seiten und hat maximal 0,6 mm/s. Daher verlässt keine Wärme das Gebiet durch advektiven Transport über den Rand; im stationären Zustand muss die integrierte Wärmeleitung über den Rand der Quellenleistung entsprechen.
+# The four lateral walls are held at 20 °C. The front and back faces are insulated. Two positive Gaussian sources supply heat. The prescribed velocity is tangent to each lateral wall and reaches 0.6 mm/s. There is therefore no advective heat flow across the boundary. At steady state, the integrated outward conductive heat flow should equal the total source power.
 #
-# Die unabhängige Quellenintegration unten nutzt die analytischen Gaußintegrale, **keinen zweiten Wärmesolver**.
+# The independent source-power calculation evaluates the analytical integrals of the two Gaussians.
 
 LENGTH, WIDTH, THICKNESS = 0.120, 0.080, 0.002  # m
 AMBIENT_K = 293.15
@@ -62,15 +62,15 @@ SOURCES = (
     {"x": 0.036, "y": 0.024, "sigma": 0.008, "amplitude": 1.0e6},
     {"x": 0.078, "y": 0.054, "sigma": 0.006, "amplitude": 0.8e6},
 )
-PROFILE = "SCHNELL"  # Change to "HOCHAUFGELOEST" for a genuinely finer solve.
+PROFILE = "FAST"  # Change to "HIGH_RESOLUTION" for a genuinely finer solve.
 PROFILES = {
-    "SCHNELL": {"fine_cells": (72, 48, 1), "coarse_cells": (36, 24, 1)},
-    "HOCHAUFGELOEST": {"fine_cells": (144, 96, 1), "coarse_cells": (72, 48, 1)},
+    "FAST": {"fine_cells": (72, 48, 1), "coarse_cells": (36, 24, 1)},
+    "HIGH_RESOLUTION": {"fine_cells": (144, 96, 1), "coarse_cells": (72, 48, 1)},
 }
 assert PROFILE in PROFILES
 FINE_CELLS = PROFILES[PROFILE]["fine_cells"]
 COARSE_CELLS = PROFILES[PROFILE]["coarse_cells"]
-OUTPUT = Path("ergebnisse_onesimulation")
+OUTPUT = Path("onesimulation_results")
 OUTPUT.mkdir(exist_ok=True)
 
 def circulating_velocity(x, y, z):
@@ -102,16 +102,16 @@ def analytic_heating_power():
     return float(total)
 
 
-# ## Drei echte Solverläufe und numerische Prüfungen
+# ## Solve three cases and check the results
 #
-# Das Profil wählst du in der Parameterzelle über `PROFILE`:
+# Set `PROFILE` in the parameter cell to choose a resolution.
 #
-# - `SCHNELL` ist die Voreinstellung: 72 × 48 × 1 = **3.456 Kontrollvolumen** je Hauptrechnung; Netzvergleich mit 36 × 24 × 1 Zellen.
-# - `HOCHAUFGELOEST`: 144 × 96 × 1 = **13.824 Kontrollvolumen**, also viermal so viele tatsächlich berechnete Zellen; Netzvergleich mit 72 × 48 × 1 Zellen. Plane hierfür mehr Rechenzeit und Arbeitsspeicher ein.
+# - `FAST` (default) uses 72 × 48 × 1 = **3,456 control volumes** for each main solve. Its coarse comparison uses 36 × 24 × 1 cells.
+# - `HIGH_RESOLUTION` uses 144 × 96 × 1 = **13,824 control volumes**, four times as many. Its coarse comparison uses 72 × 48 × 1 cells. Allow more memory and computing time.
 #
-# Beide Profile lösen dieselben physikalischen Gleichungen. Die höhere Auflösung entsteht durch feinere Solvernetze, nicht durch das Hochskalieren eines alten Bildes. Alle drei Fälle prüfen endliche Werte, die untere Temperaturgrenze und die Wärmebilanz aus den tatsächlich ausgeführten Randflüssen. Zellwerte und der bereits gebundene native Least-Squares-Gradient werden direkt aus dem FV-Ergebnis gelesen; das vermeidet unnötige räumliche Suchen für bereits bekannte Zellmittelpunkte.
+# Both profiles solve the same physical equations on their respective meshes. All three cases check that the solution is finite, respects the lower temperature bound and satisfies the heat balance computed from the solver's boundary fluxes. The code reads cell values and the native least-squares gradient directly from the finite-volume result, avoiding point searches at known cell centers.
 #
-# Der Vergleich zweier Netze ist ein Sensitivitätscheck; er ist **kein Beweis für Netzunabhängigkeit oder die Genauigkeit gegenüber einer unbekannten exakten Lösung**. Das lineare Upwind-Verfahren besitzt numerische Diffusion. Die Python-Assertions brechen bei Überschreitung der dokumentierten Grenzen ab.
+# The two-grid comparison measures sensitivity to refinement. It does not establish mesh independence or the error against an unknown exact solution. Linear upwinding introduces numerical diffusion. The assertions stop execution if a result exceeds a stated tolerance.
 
 def solve_heat(cells, *, circulation):
     started = time.perf_counter()
@@ -133,7 +133,7 @@ def solve_heat(cells, *, circulation):
              | geometry.boundaries.y_min | geometry.boundaries.y_max)
     caps = geometry.boundaries.z_min | geometry.boundaries.z_max
     problem = Problem(
-        name="Wärmetransport im Umlauf" if circulation else "Wärmeleitung ohne Umlauf",
+        name="Heat transport with recirculation" if circulation else "Heat conduction without recirculation",
         geometry=geometry, physics=(model,),
         boundary_conditions=(
             FixedTemperature(physics=model, boundary=walls, value=AMBIENT_K),
@@ -217,11 +217,11 @@ assert np.max(np.abs(baseline["temperature"] - circulating["temperature"])) > 5.
 assert np.max(np.abs(circulating["flux"][..., 2])) < 1e-6
 
 
-# ## Felder darstellen
+# ## Plot the fields
 #
-# Die Temperaturbilder verwenden dieselbe Farbskala. Die Linien mit Pfeilen im zweiten Temperaturbild zeigen die **vorgegebene Geschwindigkeit**, nicht ein separat gelöstes Strömungsmodell. Das Differenzbild zeigt die Änderung der gelösten Temperatur. Die weitere Abbildung verwendet den von OneSimulation ausgegebenen Fourier-Wärmestrom $\mathbf q=-k\nabla T$.
+# The two temperature panels share a color scale. The arrows in the second panel follow the **prescribed velocity**. The difference panel shows the temperature change caused by that circulation. A separate figure shows the Fourier heat flux $\mathbf q=-k\nabla T$ from the OneSimulation solution.
 #
-# PNG ist für Präsentationen geeignet; SVG hält Beschriftungen und Konturen als Vektoren vor. Die farbigen Zellfelder sind in den SVG-Dateien gerastert, damit die Dateien handlich bleiben. Geometrie, Werte und Beschriftungen werden unverändert aus derselben Berechnung erzeugt.
+# The PNG files are convenient for presentations. The SVG files retain vector labels and contours, with rasterized cell colors to limit file size. Both formats show the same geometry and computed values.
 
 CREAM, INK, TEAL, COPPER = "#faf5eb", "#193d3e", "#146f73", "#b3613d"
 plt.rcParams.update({
@@ -244,10 +244,10 @@ XX, YY = np.meshgrid(xmm, ymm)
 VV = circulating_velocity(XX.ravel()/1000, YY.ravel()/1000,
                           np.zeros(XX.size)).reshape((*XX.shape, 3))
 fig = plt.figure(figsize=(16, 11.1))
-fig.text(.06, .958, "ONESIMULATION  /  BERECHNETES ANWENDUNGSBEISPIEL", color=TEAL,
+fig.text(.06, .958, "ONESIMULATION  /  COMPUTED HEAT TRANSPORT", color=TEAL,
          fontsize=10.3, weight="bold", ha="left")
-fig.text(.06, .902, "Wie Umlauf Wärme verteilt", fontsize=31, weight="bold")
-fig.text(.06, .864, "Zwei Wärmequellen. Dieselben Randbedingungen. Ein verändertes Transportfeld.",
+fig.text(.06, .902, "How recirculation redistributes heat", fontsize=31, weight="bold")
+fig.text(.06, .864, "Two heat sources and identical boundary conditions, with and without recirculation.",
          fontsize=12.4, color="#586b68")
 
 def style_field(ax, *, title, subtitle):
@@ -267,8 +267,8 @@ def style_field(ax, *, title, subtitle):
 
 axes = [fig.add_axes([.06, .505, .394, .286]), fig.add_axes([.535, .505, .394, .286])]
 for ax, case, label, sub in zip(
-    axes, [baseline, circulating], ["01  Wärmeleitung", "02  Wärmeleitung + Advektion"],
-    ["Ohne Umlauf · gleiche Wärmequellen", "Vorgegebener Umlauf · Pfeile zeigen seine Richtung"],
+    axes, [baseline, circulating], ["01  Conduction", "02  Conduction and advection"],
+    ["No recirculation · same heat sources", "Prescribed recirculation · arrows show flow direction"],
 ):
     field_C = case["temperature"]-273.15
     image=ax.pcolormesh(xmm, ymm, field_C, shading="nearest", cmap=thermal_cmap, norm=norm, rasterized=True)
@@ -281,7 +281,7 @@ axes[1].streamplot(xmm, ymm, np.ma.masked_where(stagnant,VV[...,0]),
                    np.ma.masked_where(stagnant,VV[...,1]), density=.85, color=INK,
                    linewidth=.7, arrowsize=.8, minlength=.2, maxlength=5, zorder=7)
 colorbar=fig.colorbar(image, cax=fig.add_axes([.275, .446, .45, .014]), orientation="horizontal")
-colorbar.set_label("Temperatur [°C] · gemeinsame Farbskala", size=10, labelpad=6)
+colorbar.set_label("Temperature [°C] · shared color scale", size=10, labelpad=6)
 colorbar.ax.tick_params(labelsize=8.5, length=3)
 
 delta=circulating["temperature"]-baseline["temperature"]
@@ -293,29 +293,29 @@ ax_delta.set_aspect("equal")
 ax_delta.set(xlim=(0,120),ylim=(0,80),xlabel="x [mm]",ylabel="y [mm]")
 ax_delta.set_xticks([0,30,60,90,120]); ax_delta.set_yticks([0,40,80])
 ax_delta.tick_params(labelsize=8.5,length=3)
-ax_delta.set_title("Wo sich die Temperatur ändert",loc="left",fontsize=11.5,pad=8)
+ax_delta.set_title("Where the temperature changes",loc="left",fontsize=11.5,pad=8)
 cb=fig.colorbar(delta_image,cax=fig.add_axes([.06,.103,.285,.011]),orientation="horizontal")
-cb.set_label("Mit Umlauf minus ohne Umlauf [K]",fontsize=9,labelpad=4)
+cb.set_label("With minus without recirculation [K]",fontsize=9,labelpad=4)
 cb.ax.tick_params(labelsize=8,length=2)
 
 peak_drop=float(baseline["temperature"].max()-circulating["temperature"].max())
-fig.text(.405,.325,f"{peak_drop:.1f} K".replace(".",","),fontsize=32,weight="bold",color=TEAL)
-fig.text(.405,.294,"niedrigere Spitzentemperatur",fontsize=11.5,weight="bold")
-fig.text(.405,.270,"in dieser stationären Modellrechnung",fontsize=10,color="#657975")
+fig.text(.405,.325,f"{peak_drop:.1f} K",fontsize=32,weight="bold",color=TEAL)
+fig.text(.405,.294,"reduction in peak temperature",fontsize=11.5,weight="bold")
+fig.text(.405,.270,"in this steady-state model",fontsize=10,color="#657975")
 fig.text(.405,.222,"120 × 80 mm",fontsize=20,weight="bold")
-fig.text(.405,.195,"2 mm Dicke · in z invariant",fontsize=10,color="#657975")
-fig.text(.685,.325,f"{int(np.prod(FINE_CELLS)):,}".replace(",", "."),fontsize=30,weight="bold",color=COPPER)
-fig.text(.685,.294,"Finite-Volumen-Zellen",fontsize=11.5,weight="bold")
+fig.text(.405,.195,"2 mm thick · invariant in z",fontsize=10,color="#657975")
+fig.text(.685,.325,f"{int(np.prod(FINE_CELLS)):,}",fontsize=30,weight="bold",color=COPPER)
+fig.text(.685,.294,"finite-volume cells",fontsize=11.5,weight="bold")
 fig.text(.685,.270,"OneSimulation Runtime 0.2.1a4",fontsize=10,color="#657975")
-fig.text(.685,.222,f"{analytic_heating_power():.3f} W".replace(".",","),fontsize=20,weight="bold")
-fig.text(.685,.195,"zugeführte Wärmeleistung",fontsize=10,color="#657975")
-fig.text(.405,.137,"Vier Seiten: 20 °C · Deckflächen: wärmeisoliert\n"
-         "Umlauf: maximal 0,6 mm/s · konstante Stoffwerte",fontsize=10,color="#586b68",linespacing=1.65)
-fig.text(.06,.036,"Echte Solver-Ausgabe, kein Messdatensatz. Vorgegebene Strömung; keine Navier–Stokes- oder Auftriebsrechnung.\n"
-         "Darstellung der Zellwerte mit Konturlinien. Netzvergleich und Wärmebilanz sind im ausführbaren Beispiel dokumentiert.",
+fig.text(.685,.222,f"{analytic_heating_power():.3f} W",fontsize=20,weight="bold")
+fig.text(.685,.195,"heat input",fontsize=10,color="#657975")
+fig.text(.405,.137,"Four walls at 20 °C · insulated front and back\n"
+         "Maximum velocity 0.6 mm/s · constant properties",fontsize=10,color="#586b68",linespacing=1.65)
+fig.text(.06,.036,"Computed solution with prescribed flow. The model excludes momentum and buoyancy.\n"
+         "Contours show cell temperatures. The notebook reports the mesh comparison and heat balance.",
          fontsize=9.1,color="#657975",linespacing=1.5)
-png_path=OUTPUT/"04_waermetransport_umlauf.png"
-svg_path=OUTPUT/"04_waermetransport_umlauf.svg"
+png_path=OUTPUT/"04_circulating_heat_transport.png"
+svg_path=OUTPUT/"04_circulating_heat_transport.svg"
 fig.savefig(png_path,dpi=250)
 fig.savefig(svg_path)
 plt.close(fig)
@@ -326,9 +326,9 @@ flux_magnitude = np.linalg.norm(flux_kW, axis=2)
 flux_cmap = LinearSegmentedColormap.from_list(
     "cream_teal", ["#f0efda", "#c7dac3", "#83b9ae", "#31858b", "#164c58"])
 fig_flux = plt.figure(figsize=(12, 8.7))
-fig_flux.text(.075,.947,"ONESIMULATION  /  ABGELEITETES PHYSIKFELD",fontsize=10,weight="bold",color=TEAL)
-fig_flux.text(.075,.893,"Wohin die Wärme fließt",fontsize=27,weight="bold")
-fig_flux.text(.075,.852,"Fourier-Wärmestrom aus dem gelösten Temperaturfeld mit vorgegebenem Umlauf",fontsize=10.7,color="#586b68")
+fig_flux.text(.075,.947,"ONESIMULATION  /  DERIVED HEAT FLUX",fontsize=10,weight="bold",color=TEAL)
+fig_flux.text(.075,.893,"Where the heat flows",fontsize=27,weight="bold")
+fig_flux.text(.075,.852,"Fourier heat flux from the computed temperature field with prescribed recirculation",fontsize=10.7,color="#586b68")
 ax_flux=fig_flux.add_axes([.075,.20,.72,.57])
 flux_image=ax_flux.pcolormesh(xmm,ymm,flux_magnitude,shading="nearest",cmap=flux_cmap,rasterized=True)
 ax_flux.streamplot(xmm,ymm,flux_kW[...,0],flux_kW[...,1],density=1.15,color="#fffaf0",
@@ -345,22 +345,22 @@ for index, source in enumerate(SOURCES):
     ax_flux.text(1000*source["x"],1000*source["y"],chr(65+index),
                  ha="center",va="center",fontsize=8,weight="bold",zorder=9)
 flux_bar=fig_flux.colorbar(flux_image,cax=fig_flux.add_axes([.837,.27,.021,.43]))
-flux_bar.set_label("Betrag des Wärmestroms [kW/m²]",size=10,labelpad=10)
-fig_flux.text(.075,.10,"Farbe: Betrag des berechneten Wärmestroms   ·   Weiße Pfeile: Richtung von −k∇T\n"
-              "Kupferfarbene Linien: Temperatur   ·   A / B: Zentren der Wärmequellen",fontsize=10,linespacing=1.8,color="#586b68")
-fig_flux.text(.075,.045,f"Stationäre Finite-Volumen-Rechnung · {FINE_CELLS[0]} × {FINE_CELLS[1]} × 1 Zellen · OneSimulation Runtime 0.2.1a4\n"
-              "Illustratives Modell mit konstanten Stoffwerten; keine Messdaten und keine experimentelle Validierung.",
+flux_bar.set_label("Heat flux magnitude [kW/m²]",size=10,labelpad=10)
+fig_flux.text(.075,.10,"Color: computed heat flux magnitude   ·   White arrows: direction of −k∇T\n"
+              "Copper lines: temperature   ·   A and B: heat source centers",fontsize=10,linespacing=1.8,color="#586b68")
+fig_flux.text(.075,.045,f"Steady finite-volume solution · {FINE_CELLS[0]} × {FINE_CELLS[1]} × 1 cells · OneSimulation Runtime 0.2.1a4\n"
+              "Illustrative model with constant properties. No measured data or experimental validation.",
               fontsize=8.8,linespacing=1.6,color="#657975")
-flux_png_path=OUTPUT/"04_fourier_waermestrom.png"
-flux_svg_path=OUTPUT/"04_fourier_waermestrom.svg"
+flux_png_path=OUTPUT/"04_fourier_heat_flux.png"
+flux_svg_path=OUTPUT/"04_fourier_heat_flux.svg"
 fig_flux.savefig(flux_png_path,dpi=320)
 fig_flux.savefig(flux_svg_path)
 plt.close(fig_flux)
 
 
-# ## Maschinenlesbare Verifikation
+# ## Machine-readable verification report
 #
-# `verification` enthält Laufzeiten, Netzgrößen, Temperaturen, Quellen- und Randflussleistung sowie den Netzvergleich. Der Bericht dokumentiert diese Rechnung und ihre Grenzen; er behauptet keine wissenschaftliche oder experimentelle Validierung.
+# `verification` records run times, mesh sizes, temperatures, source power, outward boundary heat flow and the mesh comparison. It documents this calculation and its limits. It does not provide independent scientific or experimental validation.
 
 verification = {
     "passed": True,
@@ -392,5 +392,5 @@ verification = {
 }
 assert version("onesimulation") == "0.2.1a4"
 assert all(Path(path).stat().st_size > 1000 for path in verification["artifacts"])
-(OUTPUT/"04_verifikation.json").write_text(json.dumps(verification,indent=2,ensure_ascii=False)+"\n",encoding="utf-8")
+(OUTPUT/"04_verification.json").write_text(json.dumps(verification,indent=2,ensure_ascii=False)+"\n",encoding="utf-8")
 print(json.dumps(verification,indent=2,ensure_ascii=False))
