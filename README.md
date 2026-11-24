@@ -37,6 +37,10 @@ codex plugin marketplace add JohMey/OneSimulation-Showcase
 codex plugin add onesimulation@onesimulation
 ```
 
+OneSimulation is listed in the official [MCP Registry](https://registry.modelcontextprotocol.io/) as
+`io.github.JohMey/onesimulation`. The entry installs the [starter](mcp-starter/), which launches
+the MCP server of your runtime and, without it, searches the example library.
+
 ## Downloads in this repository
 
 - [Sod shock tube, 6,400-point WENO5 + RK4 preview and script](https://github.com/JohMey/OneSimulation-Showcase/releases/tag/sod-weno5-2026-11-10)
