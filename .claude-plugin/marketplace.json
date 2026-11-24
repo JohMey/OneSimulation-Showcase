@@ -1,0 +1,17 @@
+{
+  "name": "onesimulation",
+  "owner": {
+    "name": "OneSimulation",
+    "url": "https://onesimulation.onrender.com/"
+  },
+  "description": "Physics simulation built API-first and AI-first: a full Python API, an MCP server for Codex and Claude Code, 16 physics modules and a wide choice of numerical methods.",
+  "plugins": [
+    {
+      "name": "onesimulation",
+      "source": "./plugins/onesimulation",
+      "description": "Set up, run and check physics simulations with OneSimulation: through its local MCP server or by writing Python against its API.",
+      "version": "1.0.0",
+      "homepage": "https://onesimulation.onrender.com/"
+    }
+  ]
+}

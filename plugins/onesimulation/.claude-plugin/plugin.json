@@ -1,0 +1,10 @@
+{
+  "name": "onesimulation",
+  "version": "1.0.0",
+  "description": "Set up, run and check physics simulations with OneSimulation: through its local MCP server or by writing Python against its API.",
+  "author": {
+    "name": "OneSimulation",
+    "url": "https://onesimulation.onrender.com/"
+  },
+  "homepage": "https://onesimulation.onrender.com/"
+}

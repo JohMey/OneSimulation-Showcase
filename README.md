@@ -21,6 +21,22 @@ Runtime Alpha 0.2.1a8 runs on macOS (Apple Silicon), Ubuntu 22.04 (x86-64) and W
 an alpha and a closed binary package. Its results are numerically verified against references;
 they are not experimentally validated.
 
+## Use it from Claude Code or Codex
+
+This repository is also a plugin marketplace. The plugin adds a skill that connects your
+assistant to the MCP server of your runtime download and guides it through a study: building
+the model, running it and checking the result against a reference.
+
+```sh
+claude plugin marketplace add JohMey/OneSimulation-Showcase
+claude plugin install onesimulation@onesimulation
+```
+
+```sh
+codex plugin marketplace add JohMey/OneSimulation-Showcase
+codex plugin add onesimulation@onesimulation
+```
+
 ## Downloads in this repository
 
 - [Sod shock tube, 6,400-point WENO5 + RK4 preview and script](https://github.com/JohMey/OneSimulation-Showcase/releases/tag/sod-weno5-2026-11-10)
