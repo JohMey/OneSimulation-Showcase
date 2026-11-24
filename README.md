@@ -43,4 +43,4 @@ codex plugin add onesimulation@onesimulation
 - [Vertical shear instability, 512 × 512 cells over 15 orbits](https://github.com/JohMey/OneSimulation-Showcase/releases/tag/vsi-512-2026-11-11)
 - [Original field figures up to 6,400 × 4,440 pixels with numerical checks](https://github.com/JohMey/OneSimulation-Showcase/releases/tag/field-details-2026-11-11)
 
-Questions before you subscribe: [contact form](https://onesimulation-contact.yummy-bee-0467.chatgpt.site/).
+[Release notes](https://onesimulation.onrender.com/changelog/) · [Release notes by email](https://johmey.gumroad.com/subscribe) · Questions before you subscribe: [contact form](https://onesimulation-contact.yummy-bee-0467.chatgpt.site/).
