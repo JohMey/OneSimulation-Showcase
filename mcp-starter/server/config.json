@@ -1,0 +1,12 @@
+{
+  "name": "OneSimulation",
+  "version": "1.0.0",
+  "examples": 377,
+  "urls": {
+    "pricing": "https://johmey.gumroad.com/l/onesimulation-runtime-abo?section=subscribe",
+    "contact": "https://onesimulation-contact.yummy-bee-0467.chatgpt.site/",
+    "quickstart": "https://johmey.github.io/OneSimulation-Showcase/quickstart.html",
+    "examples": "https://onesimulation.onrender.com/blog/",
+    "llms": "https://onesimulation.onrender.com/llms.txt"
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "manifest_version": "0.3",
+  "name": "onesimulation-mcp-starter",
+  "display_name": "OneSimulation",
+  "version": "1.0.0",
+  "description": "Physics simulation with OneSimulation: build, run and read studies; search worked examples.",
+  "long_description": "Physics simulation built API-first and AI-first: a full Python API, an MCP server for Codex and Claude Code, 16 physics modules and a wide choice of numerical methods. This starter launches the MCP server of an installed OneSimulation runtime, which builds, saves, runs and reads studies on your machine. Without the runtime it searches the public library of 377 worked examples and explains the setup.",
+  "author": {
+    "name": "OneSimulation",
+    "url": "https://onesimulation.onrender.com/"
+  },
+  "homepage": "https://onesimulation.onrender.com/",
+  "documentation": "https://johmey.github.io/OneSimulation-Showcase/quickstart.html",
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/server/index.js"
+      ],
+      "env": {
+        "ONESIMULATION_MCP": "${user_config.server_path}",
+        "ONESIMULATION_WORKSPACE": "${user_config.workspace}"
+      }
+    }
+  },
+  "user_config": {
+    "server_path": {
+      "type": "file",
+      "title": "OneSimulation MCP server",
+      "description": "The onesimulation-mcp executable in the Python environment where you installed the OneSimulation runtime. Leave empty to use the example search only.",
+      "required": false
+    },
+    "workspace": {
+      "type": "directory",
+      "title": "Workspace",
+      "description": "The folder that holds your OneSimulation projects. A new empty folder works.",
+      "required": false
+    }
+  },
+  "tools": [
+    {
+      "name": "search_examples",
+      "description": "Search the public example library for a physical problem."
+    },
+    {
+      "name": "setup_onesimulation",
+      "description": "Explain how to get the runtime and connect its MCP server."
+    }
+  ],
+  "keywords": [
+    "simulation",
+    "physics",
+    "finite elements",
+    "multiphysics",
+    "engineering"
+  ],
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  }
+}

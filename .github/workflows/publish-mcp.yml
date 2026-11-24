@@ -1,0 +1,83 @@
+name: Publish the MCP starter
+
+# Builds the starter bundle, attaches it to a release and publishes the registry entry.
+# Runs when a tag mcp-starter-v<version> is pushed. No secret is needed: the registry
+# accepts the workflow's own GitHub identity for the namespace io.github.JohMey.
+
+on:
+  push:
+    tags: ["mcp-starter-v*"]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: write
+    env:
+      MCP_PUBLISHER_VERSION: v1.8.16
+      ASSET: onesimulation-mcp-starter.mcpb
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "lts/*"
+
+      - name: Test the starter
+        run: |
+          set -euo pipefail
+          node --check mcp-starter/server/index.js
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+            | (cat; sleep 2) | node mcp-starter/server/index.js > answers.jsonl
+          jq -e 'select(.id == 2) | .result.tools | length == 2' answers.jsonl
+
+      - name: Build the bundle
+        run: |
+          set -euo pipefail
+          npm install -g @anthropic-ai/mcpb@2.1.2
+          mcpb validate mcp-starter/manifest.json
+          mcpb pack mcp-starter "$ASSET"
+
+      - name: Attach the bundle to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="mcp-starter-v$(jq -r .version server.json)"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "OneSimulation MCP starter $(jq -r .version server.json)" \
+            --notes "Starter for the MCP server of an installed OneSimulation runtime. It contains no OneSimulation code."
+          gh release upload "$TAG" "$ASSET" --clobber
+
+      - name: Write the bundle hash into server.json
+        run: |
+          set -euo pipefail
+          SHA="$(sha256sum "$ASSET" | cut -d' ' -f1)"
+          jq --arg s "$SHA" '.packages[0].fileSha256 = $s' server.json > server.tmp && mv server.tmp server.json
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Download and verify mcp-publisher
+        run: |
+          set -euo pipefail
+          archive="mcp-publisher_linux_amd64.tar.gz"
+          base_url="https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}"
+          curl --fail --location --silent --show-error --output "$archive" "$base_url/$archive"
+          curl --fail --location --silent --show-error --output "$archive.sigstore.json" "$base_url/$archive.sigstore.json"
+          cosign verify-blob \
+            --bundle "$archive.sigstore.json" \
+            --certificate-identity "https://github.com/modelcontextprotocol/registry/.github/workflows/release.yml@refs/tags/${MCP_PUBLISHER_VERSION}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$archive"
+          tar xzf "$archive" mcp-publisher
+
+      - name: Validate the registry entry
+        run: ./mcp-publisher validate server.json
+
+      - name: Sign in to the MCP Registry
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish to the MCP Registry
+        run: ./mcp-publisher publish server.json
