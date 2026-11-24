@@ -1,98 +1,30 @@
 # OneSimulation
 
-**[OneSimulation website](https://onesimulation.onrender.com/)** · Tutorials, 355 worked notebooks, physics and engineering notes, and the author's CV.
+**API-first · AI-first · fully flexible**
 
-**A whole simulation lab in one Python package:** CAD, meshing, 16 physics modules, FEM, FVM, FDM and DG, implicit and explicit solvers, multiphysics coupling, plotting and storage behind one API.
-
-**[Documentation](https://johmey.github.io/OneSimulation-Showcase/)** · **[Quickstart](https://johmey.github.io/OneSimulation-Showcase/quickstart.html)** · **[Examples](https://johmey.github.io/OneSimulation-Showcase/examples/index.html)** · **[API reference](https://johmey.github.io/OneSimulation-Showcase/reference/a-physics-api-reference/index.html)** · **[Free books](https://johmey.github.io/OneSimulation-Showcase/books.html)** · **[Plans](https://johmey.gumroad.com/l/onesimulation-runtime-abo)**
-
-**Runtime Alpha 0.2.1a8 is available** for macOS (Apple Silicon), Ubuntu 22.04 (x86-64), and Windows x64 with CPython 3.13. [Start the seven-day Focus trial on Gumroad](https://johmey.gumroad.com/l/onesimulation-runtime-abo?variant=Focus+%E2%80%93+Structures+%26+Mechanics&monthly=true&wanted=true&utm_source=github&utm_medium=repository&utm_campaign=engineering_pilot&utm_content=github_readme) for commercial STEP and thermomechanics workflows. Focus renews at €39/month before applicable tax. [STEP example](https://johmey.github.io/OneSimulation-Showcase/examples/notebooks/step-import.html#engineering-pilot) · [Circuit-board warpage](https://johmey.github.io/OneSimulation-Showcase/examples/notebooks/pcb_thermal_warpage.html#engineering-pilot) · [Contact OneSimulation](https://onesimulation-contact.yummy-bee-0467.chatgpt.site/)
+Every part of OneSimulation is a Python API: geometry, mesh, physics, numerics and results. The included MCP server opens the same studies to Codex and Claude Code, so your assistant builds, runs and reads simulations on your machine. Nothing is fixed: 16 physics modules, finite elements, finite volumes, finite differences and discontinuous Galerkin, implicit and explicit time integrators, direct and Krylov solvers, multiphysics couplings and equations of your own.
 
 <p>
-<a href="https://johmey.github.io/OneSimulation-Showcase/examples/magnetostatics.html"><img src="https://johmey.github.io/OneSimulation-Showcase/thumbs/hero-magnetostatics.jpg" width="24%" alt="Computed magnetic field of a coil"></a>
-<a href="https://johmey.github.io/OneSimulation-Showcase/examples/heat_transfer.html"><img src="https://johmey.github.io/OneSimulation-Showcase/thumbs/hero-heat_transfer.jpg" width="24%" alt="Computed heat transport with circulation"></a>
-<a href="https://johmey.github.io/OneSimulation-Showcase/examples/magnetohydrodynamics.html"><img src="https://johmey.github.io/OneSimulation-Showcase/thumbs/hero-magnetohydrodynamics.jpg" width="24%" alt="Computed resistive MHD field in 3D"></a>
-<a href="https://johmey.github.io/OneSimulation-Showcase/examples/multiphysics.html"><img src="https://johmey.github.io/OneSimulation-Showcase/thumbs/hero-multiphysics.jpg" width="24%" alt="Computed Joule heating around a hole in a copper plate"></a>
+<a href="https://onesimulation.onrender.com/blog/halbach_rotor_field/"><img src="https://onesimulation.onrender.com/assets/hero-3d/halbach_rotor_field.webp" width="24%" alt="Static field of a Halbach rotor, computed with OneSimulation"></a>
+<a href="https://onesimulation.onrender.com/blog/turbine_stator_blade_thermal_stress/"><img src="https://onesimulation.onrender.com/assets/hero-3d/turbine_stator_blade_thermal_stress.webp" width="24%" alt="Thermal stress in a cooled turbine stator blade, computed with OneSimulation"></a>
+<a href="https://onesimulation.onrender.com/blog/tesla_valve_diodicity/"><img src="https://onesimulation.onrender.com/assets/hero-3d/tesla_valve_diodicity.webp" width="24%" alt="Flow through a Tesla valve, computed with OneSimulation"></a>
+<a href="https://onesimulation.onrender.com/blog/double_slit_diffraction/"><img src="https://onesimulation.onrender.com/assets/hero-3d/double_slit_diffraction.webp" width="24%" alt="Double-slit diffraction of sound, computed with OneSimulation"></a>
 </p>
 
-Every picture is a real calculation. The [example library](https://johmey.github.io/OneSimulation-Showcase/examples/index.html) holds 355 worked examples, each compared with a reference, next to one page for each of the sixteen physics modules with the model, its resolution and its limits.
+| | |
+| --- | --- |
+| **[Website](https://onesimulation.onrender.com/)** | What OneSimulation does: 377 worked examples with reference checks, [one model through every method](https://onesimulation.onrender.com/tutorials/sod-shock-tube/), tutorials and courses. |
+| **[Documentation](https://johmey.github.io/OneSimulation-Showcase/)** | How to use it: [quickstart](https://johmey.github.io/OneSimulation-Showcase/quickstart.html), MCP setup for Codex and Claude Code, guide, [API reference](https://johmey.github.io/OneSimulation-Showcase/reference/a-physics-api-reference/index.html), [licence and terms](https://johmey.github.io/OneSimulation-Showcase/plans.html). |
+| **[Plans and trial](https://johmey.gumroad.com/l/onesimulation-runtime-abo?section=subscribe)** | 7-day trial, then from €19 per month on Gumroad. [Start the Focus trial](https://johmey.gumroad.com/l/onesimulation-runtime-abo?variant=Focus+%E2%80%93+Structures+%26+Mechanics&monthly=true&wanted=true&utm_source=github&utm_medium=repository&utm_campaign=engineering_pilot&utm_content=github_readme). |
 
-## One model, five discretizations
+Runtime Alpha 0.2.1a8 runs on macOS (Apple Silicon), Ubuntu 22.04 (x86-64) and Windows x64 with CPython 3.13. OneSimulation is
+an alpha and a closed binary package. Its results are numerically verified against references;
+they are not experimentally validated.
 
-The physics is declared once; the numerical method is an argument.
+## Downloads in this repository
 
-```python
-for spatial in (FiniteElement(element=Lagrange(order=1)),
-                FiniteElement(element=Lagrange(order=2)),
-                FiniteVolume(gradient=LeastSquaresGradient(), diffusion=CentralDifference()),
-                FiniteDifference(gradient=FDGradient(), diffusion=CentralLaplacian()),
-                FiniteDifference(gradient=PolynomialDifference(accuracy_order=4),
-                                 diffusion=PolynomialLaplacian(accuracy_order=4))):
-    result = Simulation(problem=problem, mesh=mesh,
-                        numerics=Numerics(spatial=spatial, linear_solver=SparseDirect())
-                        ).solve_stationary()
-```
+- [Sod shock tube, 6,400-point WENO5 + RK4 preview and script](https://github.com/JohMey/OneSimulation-Showcase/releases/tag/sod-weno5-2026-11-10)
+- [Vertical shear instability, 512 × 512 cells over 15 orbits](https://github.com/JohMey/OneSimulation-Showcase/releases/tag/vsi-512-2026-11-11)
+- [Original field figures up to 6,400 × 4,440 pixels with numerical checks](https://github.com/JohMey/OneSimulation-Showcase/releases/tag/field-details-2026-11-11)
 
-| Method | RMS error against the exact solution | Time |
-| --- | --- | --- |
-| FEM, linear elements | 2.8 × 10⁻³ | 14 s |
-| FEM, quadratic elements | 6.3 × 10⁻⁷ | 86 s |
-| FVM | 5.7 × 10⁻⁴ | 6 s |
-| FDM, 2nd order | 1.1 × 10⁻³ | 6 s |
-| FDM, 4th order | 1.7 × 10⁻⁸ | 7 s |
-
-Same 3D Poisson problem, same mesh of 16 × 16 × 16 hexahedra. [The full example with the model code](https://johmey.github.io/OneSimulation-Showcase/examples/method-swap.html).
-
-## Install
-
-Choose the current ZIP for your platform on Gumroad. The [Quickstart](https://johmey.github.io/OneSimulation-Showcase/quickstart.html) covers installation, activation and the first STEP run on all three platforms.
-
-## Getting it
-
-[Compare plans, trial and cancellation terms](https://johmey.github.io/OneSimulation-Showcase/plans.html) or [open the Gumroad offer](https://johmey.gumroad.com/l/onesimulation-runtime-abo?utm_source=github&utm_medium=repository&utm_campaign=engineering_pilot&utm_content=all_plans).
-
-OneSimulation is an alpha and a closed binary package. The results shown are numerically verified against references ([verification](https://johmey.github.io/OneSimulation-Showcase/verification.html)); they are not experimentally validated.
-
-## Free books and custom equations
-
-The updated English **Showcase (136 pages)** and **Cookbook (433 pages)**
-include a fully worked, user-defined reaction-diffusion equation with direct
-Python API calls, numerical fields and a three-mesh convergence study.
-
-[Showcase (PDF)](https://johmey.github.io/OneSimulation-Showcase/books/OneSimulation-Showcase.pdf) · [Cookbook (PDF)](https://johmey.github.io/OneSimulation-Showcase/books/OneSimulation-Cookbook.pdf) · [the worked example online](https://johmey.github.io/OneSimulation-Showcase/examples/custom-equation.html) · [the executed notebook](https://github.com/JohMey/OneSimulation-Showcase/releases/tag/custom-equations-2026-11-11)
-
-The example uses a stationary 2D coefficient-form equation and OneSimulation's
-CG/Jacobi solve. It is checked against an independently derived exact solution;
-its execution scope and the broader operator-extension interfaces are explained
-in both books. Running the notebook requires a compatible OneSimulation installation.
-
-## Python API demonstration: Sod shock tube
-
-See the computed shock, contact discontinuity and rarefaction in a
-**6,400-point WENO5 + RK4 calculation**, alongside a numerical refinement study
-and a space–time density plot from 401 saved states.
-
-[Open the free high-resolution preview and application script](https://github.com/JohMey/OneSimulation-Showcase/releases/tag/sod-weno5-2026-11-10).
-The script defines the model directly through the Python API and requires an
-installed, activated OneSimulation Runtime.
-
-## Hydrodynamics: vertical shear instability
-
-Explore a **512 × 512-cell stratified disk calculation over 15 orbits**,
-with 1,049,600 numerical unknowns, a 4,800 × 3,000-pixel figure and a
-32-state animation. The preview includes conservation checks and a
-last-orbit time-step comparison; it does not claim full grid convergence
-or a saturated three-dimensional turbulent disk.
-
-[Open the computed VSI figures and numerical checks](https://github.com/JohMey/OneSimulation-Showcase/releases/tag/vsi-512-2026-11-11).
-
-## Computed field details
-
-Inspect original figures up to **6,400 × 4,440 pixels**: heat transport with
-221,184 finite volumes, a three-dimensional cantilever with 73,728 Q1 elements,
-and a magnetostatic coil calculation with 77,302 tetrahedra. Image dimensions
-and solver resolution are reported separately. The accompanying numerical
-checks include measured mesh differences, conservation checks and model limits;
-the magnetic example does not establish mesh independence.
-
-[Open the original field figures and numerical checks](https://github.com/JohMey/OneSimulation-Showcase/releases/tag/field-details-2026-11-11).
+Questions before you subscribe: [contact form](https://onesimulation-contact.yummy-bee-0467.chatgpt.site/).
