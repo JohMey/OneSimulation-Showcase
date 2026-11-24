@@ -21,8 +21,8 @@ the Python API covers everything else.
    - [Free Education plan for students and teachers](https://onesimulation-contact.yummy-bee-0467.chatgpt.site/)
    - [Download, install and activate](https://johmey.github.io/OneSimulation-Showcase/quickstart.html)
 
-   The runtime is 0.2.1a8 for CPython 3.13 on macOS (Apple Silicon), Ubuntu 22.04 (x86-64), Windows x64. It is delivered as a
-   wheel in the customer download. OneSimulation is not published on PyPI or any other package
+   OneSimulation 1.0 runs on CPython 3.13 for macOS (Apple Silicon), Ubuntu 22.04 (x86-64), Windows x64. It is delivered as a wheel in
+   the customer download, package build 0.2.1a8. OneSimulation is not published on PyPI or any other package
    index: never install a package of that name from an index.
 
 ### Register the MCP server
