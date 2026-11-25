@@ -228,3 +228,5 @@ pre.code .vg { color: #BB60D5 } /* Name.Variable.Global */
 pre.code .vi { color: #BB60D5 } /* Name.Variable.Instance */
 pre.code .vm { color: #BB60D5 } /* Name.Variable.Magic */
 pre.code .il { color: #40A070 } /* Literal.Number.Integer.Long */
+/* Sales paused on 25 November 2026: links to the Gumroad offer are greyed out and cannot be clicked. Delete this rule to resume. */
+a[href*="gumroad.com/l/onesimulation-runtime-abo"]{opacity:.45;filter:grayscale(1);pointer-events:none;cursor:not-allowed}
