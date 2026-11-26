@@ -35,6 +35,8 @@
 <p><strong>Reference.</strong> Linearising the system about the resting area <span class="math">\(A_0\)</span> gives the wave speed <span class="math">\(c^2 = (A/\rho)\,\mathrm{d}p/\mathrm{d}A\)</span>. For the tube law above <span class="math">\(\mathrm{d}p/\mathrm{d}A = \beta/(2\sqrt{A A_0})\)</span>, so at <span class="math">\(A=A_0\)</span></p>
 <div class="math display">\[c_0=\sqrt{\frac{\beta}{2\rho}} .\]</div>
 <p>Matching the tube law to a thin elastic wall gives <span class="math">\(\beta=\sqrt{\pi}\,E h/\big((1-\nu^2)\sqrt{A_0}\big)\)</span>, and with <span class="math">\(A_0=\pi r_0^2\)</span> this <span class="math">\(c_0\)</span> is exactly the Moens-Korteweg speed. A linear forward-running pulse also fixes the ratio of its pressure and flow perturbations, the characteristic impedance <span class="math">\(Z_0=\rho c_0/A_0\)</span>; we check both.</p></div><div class="nb-code"><pre class="code" data-lang="python"><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">onesim.cad.d1</span><span class="w"> </span><span class="kn">import</span> <span class="n">Line</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">onesim.meshing</span><span class="w"> </span><span class="kn">import</span> <span class="n">StructuredLineMesher</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.biophysics</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">ArterialNetwork</span><span class="p">,</span>
     <span class="n">ArterialPressure</span><span class="p">,</span>
@@ -76,8 +78,9 @@
     <span class="n">name</span><span class="o">=</span><span class="s2">&quot;aorta&quot;</span><span class="p">,</span>
     <span class="n">start</span><span class="o">=</span><span class="s2">&quot;inlet&quot;</span><span class="p">,</span>
     <span class="n">end</span><span class="o">=</span><span class="s2">&quot;outlet&quot;</span><span class="p">,</span>
-    <span class="n">length</span><span class="o">=</span><span class="n">L</span><span class="p">,</span>
-    <span class="n">cells</span><span class="o">=</span><span class="n">cells</span><span class="p">,</span>
+    <span class="n">mesh</span><span class="o">=</span><span class="n">StructuredLineMesher</span><span class="p">(</span><span class="n">cells</span><span class="o">=</span><span class="n">cells</span><span class="p">)</span><span class="o">.</span><span class="n">generate</span><span class="p">(</span>
+        <span class="n">Line</span><span class="p">(</span><span class="n">start</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span> <span class="n">end</span><span class="o">=</span><span class="p">(</span><span class="n">L</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">))</span>
+    <span class="p">),</span>
     <span class="n">reference_area</span><span class="o">=</span><span class="n">A0</span><span class="p">,</span>
     <span class="n">wall_stiffness</span><span class="o">=</span><span class="n">beta</span><span class="p">,</span>
 <span class="p">)</span>

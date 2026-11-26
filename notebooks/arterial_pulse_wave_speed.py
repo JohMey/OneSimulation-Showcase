@@ -46,6 +46,8 @@ against the characteristic impedance rho*c0/A0.
 # perturbations, the characteristic impedance $Z_0=\rho c_0/A_0$; we check both.
 
 import numpy as np
+from onesim.cad.d1 import Line
+from onesim.meshing import StructuredLineMesher
 from onesim.physics.biophysics import (
     ArterialNetwork,
     ArterialPressure,
@@ -97,8 +99,9 @@ vessel = ArterialSegment(
     name="aorta",
     start="inlet",
     end="outlet",
-    length=L,
-    cells=cells,
+    mesh=StructuredLineMesher(cells=cells).generate(
+        Line(start=(0.0, 0.0, 0.0), end=(L, 0.0, 0.0))
+    ),
     reference_area=A0,
     wall_stiffness=beta,
 )

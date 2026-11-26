@@ -36,6 +36,7 @@
 <p>We check the computed steady profile against this form and also recover the space constant <span class="math">\(\lambda\)</span> from a fit of the numerical solution.</p></div><div class="nb-code"><pre class="code" data-lang="python"><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.cad.d1</span><span class="w"> </span><span class="kn">import</span> <span class="n">Line</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.meshing</span><span class="w"> </span><span class="kn">import</span> <span class="n">StructuredLineMesher</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">onesim.numerics.linear</span><span class="w"> </span><span class="kn">import</span> <span class="n">SparseDirect</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.biophysics</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">MembraneChannel</span><span class="p">,</span>
     <span class="n">MembraneCurrentElectrode</span><span class="p">,</span>
@@ -84,6 +85,7 @@
 <span class="n">times</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">end_time</span><span class="p">,</span> <span class="mi">60</span><span class="p">)</span>
 <span class="n">result</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">solve</span><span class="p">(</span>
     <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
+    <span class="n">linear_solver</span><span class="o">=</span><span class="n">SparseDirect</span><span class="p">(),</span>
     <span class="n">times</span><span class="o">=</span><span class="n">times</span><span class="p">,</span>
     <span class="n">max_step</span><span class="o">=</span><span class="n">tau</span> <span class="o">/</span> <span class="mf">50.0</span><span class="p">,</span>
     <span class="n">initial_voltage</span><span class="o">=</span><span class="n">E_L</span><span class="p">,</span>

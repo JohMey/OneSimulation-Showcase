@@ -39,6 +39,7 @@ solution of the linear cable equation.
 import numpy as np
 from onesim.cad.d1 import Line
 from onesim.meshing import StructuredLineMesher
+from onesim.numerics.linear import SparseDirect
 from onesim.physics.biophysics import (
     MembraneChannel,
     MembraneCurrentElectrode,
@@ -103,6 +104,7 @@ electrodes = (
 times = np.linspace(0.0, end_time, 60)
 result = model.solve(
     mesh=mesh,
+    linear_solver=SparseDirect(),
     times=times,
     max_step=tau / 50.0,
     initial_voltage=E_L,
