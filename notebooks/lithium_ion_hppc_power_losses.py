@@ -37,6 +37,9 @@ import numpy as np
 from onesim.physics.chemistry import (
     BatteryElectrodeLayer,
     BatteryElectrolyteLayer,
+    PorousBatteryBDF,
+    PorousBatteryFiniteVolume,
+    PorousBatteryMesh,
     PorousElectrodeBattery,
 )
 from onesim.visualization import plots, theme
@@ -109,8 +112,8 @@ cell = PorousElectrodeBattery(
 # Pulses of 1.5C (7.5 A) discharge and 1.125C charge at 80, 50 and 20 % state of charge; between the
 # blocks the cell is discharged by 30 % at 1C and rests for 15 minutes.
 #
-# The current switches abruptly. The stiff BDF integrator (the default of the model) gets a maximum
-# step of 2 s through the `time_solver` port, so that no pulse can fall between two steps.
+# The current switches abruptly. The stiff BDF integrator gets a maximum
+# step of 2 s through the `time_solver` callable it is built with, so that no pulse can fall between two steps.
 
 one_c, step = 5.0 / area, 0.3 * 5.0904 / 5.0 * 3600
 starts = np.array([0.0, 100 + step + 900, 2 * (100 + step + 900)])
@@ -152,10 +155,10 @@ run = cell.solve(
     mode="DFN",
     current_density=program,
     final_time=end,
-    radial_cells=16,
-    through_cells=counts,
+    mesh=PorousBatteryMesh.from_model(cell, 16, counts),
+    spatial=PorousBatteryFiniteVolume(tolerance=1e-12, residual_limit=2e-8),
+    time_integrator=PorousBatteryBDF(stepping),
     output_times=times,
-    time_solver=stepping,
 )
 
 # ## Loss parts

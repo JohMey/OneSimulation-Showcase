@@ -71,6 +71,8 @@
     <span class="n">Uniform</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.numerics.fem</span><span class="w"> </span><span class="kn">import</span> <span class="n">FiniteElement</span><span class="p">,</span> <span class="n">Lagrange</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">onesim.numerics.linear</span><span class="w"> </span><span class="kn">import</span> <span class="n">ScipySparseDirectSolver</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">onesim.numerics.nonlinear</span><span class="w"> </span><span class="kn">import</span> <span class="n">AffinePrimalDualActiveSet</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.solid_mechanics</span><span class="w"> </span><span class="kn">import</span> <span class="n">MortarBody</span><span class="p">,</span> <span class="n">MortarContact</span><span class="p">,</span> <span class="n">SmallStrainSolid</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.results.comparisons</span><span class="w"> </span><span class="kn">import</span> <span class="n">convergence</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.results.derived</span><span class="w"> </span><span class="kn">import</span> <span class="n">max_shear</span><span class="p">,</span> <span class="n">strain_from_gradient</span><span class="p">,</span> <span class="n">voigt</span>
@@ -175,6 +177,8 @@
     <span class="p">)</span><span class="o">.</span><span class="n">solve</span><span class="p">(</span>
         <span class="n">times</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">approaches</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)),</span>
         <span class="n">normal_offset</span><span class="o">=</span><span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="o">-</span><span class="n">approaches</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="nb">round</span><span class="p">(</span><span class="n">t</span><span class="p">))</span> <span class="o">-</span> <span class="mi">1</span><span class="p">],</span>
+        <span class="n">normal_solver</span><span class="o">=</span><span class="n">AffinePrimalDualActiveSet</span><span class="p">(),</span>
+        <span class="n">linear_solver</span><span class="o">=</span><span class="n">ScipySparseDirectSolver</span><span class="p">(),</span>
     <span class="p">)</span>
     <span class="k">for</span> <span class="n">block_mesh</span><span class="p">,</span> <span class="n">sphere_mesh</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">block_meshes</span><span class="p">,</span> <span class="n">sphere_meshes</span><span class="p">)</span>
 <span class="p">]</span></code></pre></div><div class="nb-md"><h4>Contact patch and pressure</h4>

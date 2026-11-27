@@ -51,6 +51,7 @@ analytical localised solution, on three meshes.
 import numpy as np
 from onesim.cad.exchange import load
 from onesim.meshing import TriangularMesher
+from onesim.numerics.linear import SparseDirect
 from onesim.physics.solid_mechanics import PhaseFieldFracture
 from onesim.visualization import plots, theme
 
@@ -112,6 +113,7 @@ model = PhaseFieldFracture(
 results = {
     n: model.solve(
         mesh=mesh,
+        linear_solver=SparseDirect(),
         times=strain * length,
         tolerance=1e-6,
         max_iterations=5000,

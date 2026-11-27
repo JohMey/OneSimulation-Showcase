@@ -174,6 +174,7 @@ model = lambda substrate_permittivity, polar, azimuth: FrequencyDomainMaxwell(
         azimuth=np.radians(azimuth),
         polarization="TE",
         lower=substrate_permittivity,
+        height=0.0,
     ),
     phasor_convention="exp(-i*omega*t)",
     amplitude_convention="peak",

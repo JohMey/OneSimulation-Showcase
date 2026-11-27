@@ -41,6 +41,9 @@ import numpy as np
 from onesim.physics.chemistry import (
     BatteryElectrodeLayer,
     BatteryElectrolyteLayer,
+    PorousBatteryBDF,
+    PorousBatteryFiniteVolume,
+    PorousBatteryMesh,
     PorousElectrodeBattery,
 )
 from onesim.visualization import plots, theme
@@ -123,8 +126,9 @@ run = cell.solve(
     mode="DFN",
     current_density=program,
     final_time=10800.0,
-    radial_cells=32,
-    through_cells=(20, 10, 20),
+    mesh=PorousBatteryMesh.from_model(cell, 32, (20, 10, 20)),
+    spatial=PorousBatteryFiniteVolume(tolerance=1e-12, residual_limit=2e-8),
+    time_integrator=PorousBatteryBDF(relative_tolerance=1e-8, absolute_tolerance=1e-9),
     output_times=times,
     breakpoints=(0.0, 2700.0, 6300.0, 9000.0, 10800.0),
 )
@@ -133,8 +137,9 @@ radial = {
         mode="DFN",
         current_density=one_c,
         final_time=2700.0,
-        radial_cells=n,
-        through_cells=(20, 10, 20),
+        mesh=PorousBatteryMesh.from_model(cell, n, (20, 10, 20)),
+        spatial=PorousBatteryFiniteVolume(tolerance=1e-12, residual_limit=2e-8),
+        time_integrator=PorousBatteryBDF(relative_tolerance=1e-8, absolute_tolerance=1e-9),
         output_times=(0.0, 2700.0),
     ).terminal_voltage[-1]
     for n in (8, 16, 32, 64)
@@ -144,8 +149,9 @@ layered = {
         mode="DFN",
         current_density=one_c,
         final_time=2700.0,
-        radial_cells=32,
-        through_cells=(n, n // 2, n),
+        mesh=PorousBatteryMesh.from_model(cell, 32, (n, n // 2, n)),
+        spatial=PorousBatteryFiniteVolume(tolerance=1e-12, residual_limit=2e-8),
+        time_integrator=PorousBatteryBDF(relative_tolerance=1e-8, absolute_tolerance=1e-9),
         output_times=(0.0, 2700.0),
     ).terminal_voltage[-1]
     for n in (5, 10, 20, 40)

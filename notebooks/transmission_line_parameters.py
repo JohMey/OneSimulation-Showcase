@@ -75,7 +75,7 @@ theme.set()
 # triangles are small at the conductors and grow outwards.
 
 mid = lambda name: load(f"transmission_line_parameters{name}.step").section(
-    (0, 0, 1), origin=(0, 0, 0.0005)
+    (0, 0, 1), origin=(0, 0, 0.0005), planar_thickness=1.0
 )
 cable, dielectric, inner, shield = (
     mid(""),
@@ -193,11 +193,11 @@ current = 1.0
 magnetic = {
     "coax": (
         cable,
-        ((inner, current, np.pi * a**2), (shield, -current, np.pi * (c**2 - b**2))),
+        ((inner, current), (shield, -current)),
     ),
     "twin": (
         twin,
-        ((plus, current, np.pi * wire**2), (minus, -current, np.pi * wire**2)),
+        ((plus, current), (minus, -current)),
     ),
 }
 inductance = {}
@@ -206,8 +206,8 @@ for line, (section, conductors) in magnetic.items():
         domain=section.domain(),
         permeability=VacuumPermeability(),
         current_sources=tuple(
-            RegionCurrent.axial(region, value, area=area, within=section.domain())
-            for region, value, area in conductors
+            RegionCurrent.axial(region, value, within=section.domain())
+            for region, value in conductors
         ),
     )
     result = Simulation(

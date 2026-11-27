@@ -203,7 +203,7 @@ errors = {
         [
             abs(
                 study(
-                    model("Erphiz", m), nedelec(order), grids[h], (0.9 * f0, 1.1 * f0)
+                    model("Erphiz", m), nedelec(order), grids[h], (0.9 * f0, 1.2 * f0)
                 ).resonance_frequencies[0]
                 / f0
                 - 1

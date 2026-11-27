@@ -49,10 +49,15 @@ import numpy as np
 from onesim.cad.d1 import Line
 from onesim.meshing import StructuredLineMesher
 from onesim.physics.biophysics import (
+    ArterialBracketedRoot,
+    ArterialCoupledRoot,
     ArterialNetwork,
+    ArterialNetworkFiniteVolume,
+    ArterialNetworkTrialMidpoint,
     ArterialPressure,
     ArterialSegment,
     WindkesselTerminal,
+    arterial_network_explicit_step,
 )
 from onesim.visualization import plots, theme
 
@@ -121,6 +126,10 @@ network = ArterialNetwork(
     ),
 )
 result = network.solve(
+    cfl=0.45, spatial=ArterialNetworkFiniteVolume(
+        scalar_junction=ArterialBracketedRoot(tolerance=1e-16, relative_tolerance=8.881784197001252e-16, maximum_iterations=100),
+        coupled_junction=ArterialCoupledRoot(tolerance=1e-10, residual_limit=5e-12, maximum_evaluations_per_unknown=100),
+    ), time_integrator=ArterialNetworkTrialMidpoint(), step_policy=arterial_network_explicit_step,
     times=np.linspace(0.0, final_time, 6),
     max_step=1.0e-3,
     initial_area={"aorta": initial_area},

@@ -109,9 +109,7 @@ plots.show()
 # auxiliary-space preconditioner; three fields: primary alone, secondary alone and both.
 
 mu0 = float(VacuumPermeability().evaluate())
-source = lambda index: RegionCurrent.coil(
-    loops[index], turns=1, current=1.0, cross_section=side**2
-)
+source = lambda index: RegionCurrent.coil(loops[index], turns=1, current=1.0)
 numerics = Numerics(
     spatial=FiniteElement(element=Nedelec(order=2)),
     linear_solver=GMRES(

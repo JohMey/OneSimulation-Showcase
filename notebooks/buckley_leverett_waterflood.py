@@ -43,12 +43,14 @@ tangent construction, on three grids.
 import numpy as np
 from onesim.cad.d1 import Line
 from onesim.meshing import StructuredLineMesher
+from onesim.numerics.linear import SparseDirect
 from onesim.physics.geotechnics import (
     ImmiscibleReservoir,
     ReservoirFiniteVolume,
     ReservoirFluxBoundary,
     ReservoirGeometryFactory,
     ReservoirPressureBoundary,
+    SequentialReservoirTransport,
 )
 from onesim.visualization import plots, theme
 
@@ -79,10 +81,12 @@ meshes = {n: StructuredLineMesher(cells=n).generate(column) for n in columns}
 results = {
     n: rock.solve(
         mesh=mesh,
+        linear_solver=SparseDirect(),
         water_saturation=0.0,
         times=injected * pore_volume_time,
         max_step=pore_volume_time / n,
         spatial=ReservoirFiniteVolume(geometry_factory=ReservoirGeometryFactory()),
+        time_integrator=SequentialReservoirTransport(),
         flux_boundaries=(
             ReservoirFluxBoundary(
                 boundary=column.boundaries.start, flux=-velocity, water_saturation=1.0

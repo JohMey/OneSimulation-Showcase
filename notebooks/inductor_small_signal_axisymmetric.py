@@ -106,7 +106,7 @@ plots.show()
 # `small_signal` solves the harmonic field of 1 mA at 1 kHz around a DC bias and returns
 # $L_\mathrm{ss}=\mathrm{Im}\,Z/\omega$.
 
-turns, frequency, area = 200, 1e3, winding.measure
+turns, frequency = 200, 1e3
 steel = BHCurve(
     flux_density=(0.5, 1.0, 1.3, 1.5, 1.6, 1.7, 1.8, 2.0),
     field_strength=(80, 150, 300, 700, 1500, 3500, 8000, 40000),
@@ -117,18 +117,14 @@ numerics = lambda solver: Numerics(
         element=Lagrange(order=2), quadrature_order=4, provider=RevolvedH1SpaceFactory()
     ),
     linear_solver=solver,
-    **(
-        {
-            "nonlinear_solver": DampedNewton(
-                linear_solver=solver, relative_tolerance=1e-10, absolute_tolerance=1e-14
-            )
-        }
-        if isinstance(solver, SparseDirect)
-        else {}
+    nonlinear_solver=DampedNewton(
+        linear_solver=solver if isinstance(solver, SparseDirect) else SparseDirect(),
+        relative_tolerance=1e-10,
+        absolute_tolerance=1e-14,
     ),
 )
 source = lambda current: (
-    RegionCurrent.coil(winding, turns=turns, current=current, cross_section=area),
+    RegionCurrent.coil(winding, turns=turns, current=current),
 )
 insulated = lambda m: (MagneticInsulation(boundary=meridian.boundaries.all, physics=m),)
 linkage = lambda current: (

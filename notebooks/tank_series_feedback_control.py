@@ -36,6 +36,7 @@ controller then removes the offset.
 # numbers: $K_p = 0.45\,K_u$, $T_i = P_u/1.2$.
 
 import numpy as np
+from onesim.numerics.time import create_time_integrator
 from onesim.physics.systems import (
     ControlSignalFlowConfiguration,
     ControlSignalFlowPublicApi,
@@ -107,6 +108,7 @@ proportional = {
                 ),
                 final_time=4000.0,
                 time_step=1.0,
+                time_integrator=create_time_integrator("classical_rk4"),
             )
         )
     )
@@ -169,6 +171,7 @@ pi_run = ControlSignalFlowPublicApi().run(
             ),
             final_time=8000.0,
             time_step=1.0,
+            time_integrator=create_time_integrator("classical_rk4"),
             event_times=(4000.0,),
         )
     )

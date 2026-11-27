@@ -47,11 +47,21 @@ solution of the frictionless pipe.
 # characteristic $p_v=p_r+Z\,(Q_0-Q_v)$.
 
 import numpy as np
+from onesim.cad.d1 import Line
+from onesim.meshing import StructuredLineMesher
+from onesim.numerics.linear import SparseDirect
 from onesim.physics.systems import (
     HydraulicPressurePort,
     HydraulicValvePort,
     WaterHammerNetwork,
     WaterHammerPipe,
+)
+from onesim.physics.systems.hydraulic.numerics.backends.water_hammer import (
+    StaggeredPipeDiscretization,
+    WaterHammerImplicitMidpoint,
+)
+from onesim.physics.systems.hydraulic.binding.water_hammer_components import (
+    WaterHammerMesh,
 )
 from onesim.results.sampling import crossing_times
 from onesim.visualization import plots, theme
@@ -88,17 +98,17 @@ print(
 # and the initial flow everywhere.
 
 times = np.linspace(0.0, 8.0, 1601)
-runs = {
+main = Line(start=(0.0, 0.0, 0.0), end=(length, 0.0, 0.0))
+networks = {
     cells: WaterHammerNetwork(
         pipes=(
             WaterHammerPipe(
                 name="main",
                 start="reservoir",
                 end="valve",
-                length=length,
+                mesh=StructuredLineMesher(cells=cells).generate(main),
                 diameter=diameter,
                 wave_speed=wave_speed,
-                cells=cells,
             ),
         ),
         ports=(
@@ -111,13 +121,25 @@ runs = {
             ),
         ),
         density=density,
-    ).solve(
+    )
+    for cells in (100, 200, 400)
+}
+runs = {
+    cells: network.solve(
+        mesh=WaterHammerMesh.from_network(network),
+        spatial=StaggeredPipeDiscretization(linear_solver=SparseDirect()),
+        time_integrator=WaterHammerImplicitMidpoint(
+            linear_solver=SparseDirect(),
+            relative_tolerance=5e-13,
+            maximum_iterations=35,
+            maximum_halvings=20,
+        ),
         times=times,
         max_step=0.5 * length / wave_speed / cells,
         initial_pressure=reservoir_pressure,
         initial_flow=flow,
     )
-    for cells in (100, 200, 400)
+    for cells, network in networks.items()
 }
 result = runs[400]
 surge = {

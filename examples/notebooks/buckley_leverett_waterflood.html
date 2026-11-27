@@ -36,12 +36,14 @@
 <p>with <span class="math">\(Q\)</span> the injected pore volumes and <span class="math">\(\bar S\)</span> the mean water saturation, equal to the oil recovered per pore volume.</p></div><div class="nb-code"><pre class="code" data-lang="python"><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.cad.d1</span><span class="w"> </span><span class="kn">import</span> <span class="n">Line</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.meshing</span><span class="w"> </span><span class="kn">import</span> <span class="n">StructuredLineMesher</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">onesim.numerics.linear</span><span class="w"> </span><span class="kn">import</span> <span class="n">SparseDirect</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.geotechnics</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">ImmiscibleReservoir</span><span class="p">,</span>
     <span class="n">ReservoirFiniteVolume</span><span class="p">,</span>
     <span class="n">ReservoirFluxBoundary</span><span class="p">,</span>
     <span class="n">ReservoirGeometryFactory</span><span class="p">,</span>
     <span class="n">ReservoirPressureBoundary</span><span class="p">,</span>
+    <span class="n">SequentialReservoirTransport</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.visualization</span><span class="w"> </span><span class="kn">import</span> <span class="n">plots</span><span class="p">,</span> <span class="n">theme</span>
 
@@ -65,10 +67,12 @@
 <span class="n">results</span> <span class="o">=</span> <span class="p">{</span>
     <span class="n">n</span><span class="p">:</span> <span class="n">rock</span><span class="o">.</span><span class="n">solve</span><span class="p">(</span>
         <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
+        <span class="n">linear_solver</span><span class="o">=</span><span class="n">SparseDirect</span><span class="p">(),</span>
         <span class="n">water_saturation</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
         <span class="n">times</span><span class="o">=</span><span class="n">injected</span> <span class="o">*</span> <span class="n">pore_volume_time</span><span class="p">,</span>
         <span class="n">max_step</span><span class="o">=</span><span class="n">pore_volume_time</span> <span class="o">/</span> <span class="n">n</span><span class="p">,</span>
         <span class="n">spatial</span><span class="o">=</span><span class="n">ReservoirFiniteVolume</span><span class="p">(</span><span class="n">geometry_factory</span><span class="o">=</span><span class="n">ReservoirGeometryFactory</span><span class="p">()),</span>
+        <span class="n">time_integrator</span><span class="o">=</span><span class="n">SequentialReservoirTransport</span><span class="p">(),</span>
         <span class="n">flux_boundaries</span><span class="o">=</span><span class="p">(</span>
             <span class="n">ReservoirFluxBoundary</span><span class="p">(</span>
                 <span class="n">boundary</span><span class="o">=</span><span class="n">column</span><span class="o">.</span><span class="n">boundaries</span><span class="o">.</span><span class="n">start</span><span class="p">,</span> <span class="n">flux</span><span class="o">=-</span><span class="n">velocity</span><span class="p">,</span> <span class="n">water_saturation</span><span class="o">=</span><span class="mf">1.0</span>

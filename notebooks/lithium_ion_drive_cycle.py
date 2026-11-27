@@ -34,6 +34,9 @@ import numpy as np
 from onesim.physics.chemistry import (
     BatteryElectrodeLayer,
     BatteryElectrolyteLayer,
+    PorousBatteryBDF,
+    PorousBatteryFiniteVolume,
+    PorousBatteryMesh,
     PorousElectrodeBattery,
 )
 from onesim.visualization import plots, theme
@@ -154,8 +157,9 @@ run = cell.solve(
     mode="DFN",
     current_density=profile,
     final_time=end,
-    radial_cells=32,
-    through_cells=(20, 10, 20),
+    mesh=PorousBatteryMesh.from_model(cell, 32, (20, 10, 20)),
+    spatial=PorousBatteryFiniteVolume(tolerance=1e-12, residual_limit=2e-8),
+    time_integrator=PorousBatteryBDF(relative_tolerance=1e-8, absolute_tolerance=1e-9),
     output_times=times,
     breakpoints=switches,
     cutoff_voltage=(2.5, 4.3),

@@ -44,6 +44,7 @@ fermentation temperature. The simulation is compared with the exact integrated M
 # and the products follow the sugar stoichiometrically, $E=Y_{E/S}\,(S_0-S)$.
 
 import numpy as np
+from onesim.numerics.time import ClassicalRungeKutta4TimeIntegrator
 from onesim.physics.systems import (
     ProcessModelsConfiguration,
     ProcessModelsPublicApi,
@@ -94,6 +95,7 @@ runs = {
                 ),
                 final_time=14 * 86400.0,
                 time_step=120.0,
+                time_integrator=ClassicalRungeKutta4TimeIntegrator(),
             )
         )
     )

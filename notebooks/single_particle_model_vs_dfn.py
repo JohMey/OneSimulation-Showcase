@@ -37,6 +37,9 @@ import numpy as np
 from onesim.physics.chemistry import (
     BatteryElectrodeLayer,
     BatteryElectrolyteLayer,
+    PorousBatteryBDF,
+    PorousBatteryFiniteVolume,
+    PorousBatteryMesh,
     PorousElectrodeBattery,
 )
 from onesim.visualization import plots, theme
@@ -115,7 +118,9 @@ spm_meshes = {
         mode="SPM",
         current_density=one_c,
         final_time=3000,
-        radial_cells=n,
+        mesh=PorousBatteryMesh.from_model(cell, n, (8, 6, 8)),
+        spatial=PorousBatteryFiniteVolume(tolerance=1e-12, residual_limit=2e-8),
+        time_integrator=PorousBatteryBDF(relative_tolerance=1e-8, absolute_tolerance=1e-9),
         output_times=probe,
     )
     for n in (8, 16, 32, 64)
@@ -184,8 +189,9 @@ runs = {
         mode=mode,
         current_density=rate * one_c,
         final_time=0.9 * 3600 / rate,
-        radial_cells=16,
-        through_cells=(10, 5, 10),
+        mesh=PorousBatteryMesh.from_model(cell, 16, (10, 5, 10)),
+        spatial=PorousBatteryFiniteVolume(tolerance=1e-12, residual_limit=2e-8),
+        time_integrator=PorousBatteryBDF(relative_tolerance=1e-8, absolute_tolerance=1e-9),
         output_times=np.linspace(0, 0.9 * 3600 / rate, 300),
     )
     for mode in ("SPM", "SPMe", "DFN")

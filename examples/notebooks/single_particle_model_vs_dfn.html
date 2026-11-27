@@ -34,6 +34,9 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.chemistry</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">BatteryElectrodeLayer</span><span class="p">,</span>
     <span class="n">BatteryElectrolyteLayer</span><span class="p">,</span>
+    <span class="n">PorousBatteryBDF</span><span class="p">,</span>
+    <span class="n">PorousBatteryFiniteVolume</span><span class="p">,</span>
+    <span class="n">PorousBatteryMesh</span><span class="p">,</span>
     <span class="n">PorousElectrodeBattery</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.visualization</span><span class="w"> </span><span class="kn">import</span> <span class="n">plots</span><span class="p">,</span> <span class="n">theme</span>
@@ -102,7 +105,9 @@
         <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;SPM&quot;</span><span class="p">,</span>
         <span class="n">current_density</span><span class="o">=</span><span class="n">one_c</span><span class="p">,</span>
         <span class="n">final_time</span><span class="o">=</span><span class="mi">3000</span><span class="p">,</span>
-        <span class="n">radial_cells</span><span class="o">=</span><span class="n">n</span><span class="p">,</span>
+        <span class="n">mesh</span><span class="o">=</span><span class="n">PorousBatteryMesh</span><span class="o">.</span><span class="n">from_model</span><span class="p">(</span><span class="n">cell</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> <span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">6</span><span class="p">,</span> <span class="mi">8</span><span class="p">)),</span>
+        <span class="n">spatial</span><span class="o">=</span><span class="n">PorousBatteryFiniteVolume</span><span class="p">(</span><span class="n">tolerance</span><span class="o">=</span><span class="mf">1e-12</span><span class="p">,</span> <span class="n">residual_limit</span><span class="o">=</span><span class="mf">2e-8</span><span class="p">),</span>
+        <span class="n">time_integrator</span><span class="o">=</span><span class="n">PorousBatteryBDF</span><span class="p">(</span><span class="n">relative_tolerance</span><span class="o">=</span><span class="mf">1e-8</span><span class="p">,</span> <span class="n">absolute_tolerance</span><span class="o">=</span><span class="mf">1e-9</span><span class="p">),</span>
         <span class="n">output_times</span><span class="o">=</span><span class="n">probe</span><span class="p">,</span>
     <span class="p">)</span>
     <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="mi">32</span><span class="p">,</span> <span class="mi">64</span><span class="p">)</span>
@@ -165,8 +170,9 @@
         <span class="n">mode</span><span class="o">=</span><span class="n">mode</span><span class="p">,</span>
         <span class="n">current_density</span><span class="o">=</span><span class="n">rate</span> <span class="o">*</span> <span class="n">one_c</span><span class="p">,</span>
         <span class="n">final_time</span><span class="o">=</span><span class="mf">0.9</span> <span class="o">*</span> <span class="mi">3600</span> <span class="o">/</span> <span class="n">rate</span><span class="p">,</span>
-        <span class="n">radial_cells</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
-        <span class="n">through_cells</span><span class="o">=</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">10</span><span class="p">),</span>
+        <span class="n">mesh</span><span class="o">=</span><span class="n">PorousBatteryMesh</span><span class="o">.</span><span class="n">from_model</span><span class="p">(</span><span class="n">cell</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">10</span><span class="p">)),</span>
+        <span class="n">spatial</span><span class="o">=</span><span class="n">PorousBatteryFiniteVolume</span><span class="p">(</span><span class="n">tolerance</span><span class="o">=</span><span class="mf">1e-12</span><span class="p">,</span> <span class="n">residual_limit</span><span class="o">=</span><span class="mf">2e-8</span><span class="p">),</span>
+        <span class="n">time_integrator</span><span class="o">=</span><span class="n">PorousBatteryBDF</span><span class="p">(</span><span class="n">relative_tolerance</span><span class="o">=</span><span class="mf">1e-8</span><span class="p">,</span> <span class="n">absolute_tolerance</span><span class="o">=</span><span class="mf">1e-9</span><span class="p">),</span>
         <span class="n">output_times</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mf">0.9</span> <span class="o">*</span> <span class="mi">3600</span> <span class="o">/</span> <span class="n">rate</span><span class="p">,</span> <span class="mi">300</span><span class="p">),</span>
     <span class="p">)</span>
     <span class="k">for</span> <span class="n">mode</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;SPM&quot;</span><span class="p">,</span> <span class="s2">&quot;SPMe&quot;</span><span class="p">,</span> <span class="s2">&quot;DFN&quot;</span><span class="p">)</span>

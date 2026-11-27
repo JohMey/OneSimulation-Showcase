@@ -41,10 +41,13 @@
 <p><strong>Checks.</strong> For incompressible fluids the volumes must balance exactly: injected water equals produced fluid, and the oil produced equals the oil that left the pores; before breakthrough the oil rate equals the injection rate. The breakthrough time and the recovery are compared on two grids.</p></div><div class="nb-code"><pre class="code" data-lang="python"><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.cad.exchange</span><span class="w"> </span><span class="kn">import</span> <span class="n">load</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.meshing</span><span class="w"> </span><span class="kn">import</span> <span class="n">CadHexahedralMesher</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">onesim.numerics.linear</span><span class="w"> </span><span class="kn">import</span> <span class="n">SparseDirect</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.geotechnics</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">ImmiscibleReservoir</span><span class="p">,</span>
+    <span class="n">ReservoirFiniteVolume</span><span class="p">,</span>
     <span class="n">ReservoirPerforation</span><span class="p">,</span>
     <span class="n">ReservoirWell</span><span class="p">,</span>
+    <span class="n">SequentialReservoirTransport</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.visualization</span><span class="w"> </span><span class="kn">import</span> <span class="n">plots</span><span class="p">,</span> <span class="n">theme</span>
 
@@ -126,11 +129,14 @@
 <span class="n">results</span> <span class="o">=</span> <span class="p">{</span>
     <span class="n">name</span><span class="p">:</span> <span class="n">rock</span><span class="o">.</span><span class="n">solve</span><span class="p">(</span>
         <span class="n">mesh</span><span class="o">=</span><span class="n">meshes</span><span class="p">[</span><span class="n">name</span><span class="p">],</span>
+        <span class="n">linear_solver</span><span class="o">=</span><span class="n">SparseDirect</span><span class="p">(),</span>
         <span class="n">water_saturation</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
         <span class="n">times</span><span class="o">=</span><span class="n">months</span><span class="p">,</span>
         <span class="n">max_step</span><span class="o">=</span><span class="mi">10</span> <span class="o">*</span> <span class="n">day</span><span class="p">,</span>
         <span class="n">wells</span><span class="o">=</span><span class="n">wells</span><span class="p">[</span><span class="n">name</span><span class="p">],</span>
         <span class="n">gravity</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">9.81</span><span class="p">),</span>
+        <span class="n">spatial</span><span class="o">=</span><span class="n">ReservoirFiniteVolume</span><span class="p">(),</span>
+        <span class="n">time_integrator</span><span class="o">=</span><span class="n">SequentialReservoirTransport</span><span class="p">(),</span>
     <span class="p">)</span>
     <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">grids</span>
 <span class="p">}</span></code></pre></div><div class="nb-md"><h4>Results</h4>

@@ -20,7 +20,15 @@ correction.
 #   \omega^2=\omega_p^2+3k^2v_{th}^2=\omega_p^2\big(1+3\,k^2\lambda_D^2\big) .$$
 
 import numpy as np
+from onesim.meshing.meshes import CartesianMesh
+from onesim.numerics.discretization.spatial.equations.periodic_spectral_fields import (
+    PeriodicSpectralFields,
+)
+from onesim.numerics.discretization.spatial.fields.particles.periodic_particle_transfer import (
+    cloud_in_cell_weights,
+)
 from onesim.physics.plasma import PeriodicParticleInCell, PICSpecies
+from onesim.physics.plasma.particles.numerics.particle_pushers import boris_velocity
 from onesim.results import oscillation_fit
 from onesim.visualization import plots, theme
 from scipy.constants import e, epsilon_0, m_e
@@ -43,9 +51,14 @@ bohm_gross = lambda temperature: np.sqrt(
 # velocity spread for the warm cases. Every five time steps the Fourier amplitude of the electric
 # field at the wavenumber $k$ is recorded; it rotates at the oscillation frequency.
 
-plasma = PeriodicParticleInCell(
-    lengths=(length,), cells=(cells,), background_charge_density=e * density
+box = CartesianMesh(shape=(cells,), extents=(length,), periodic=True)
+plasma = PeriodicParticleInCell(mesh=box, background_charge_density=e * density)
+spatial = plasma.discretization(
+    shape_function=cloud_in_cell_weights,
+    field_factory=PeriodicSpectralFields,
+    particle_pusher=boris_velocity,
 )
+time_integrator = plasma.midpoint_time_integrator()
 grid = np.arange(cells) * length / cells
 start = (np.arange(particles) + 0.5) * length / particles
 time_step = 1 / (50 * plasma_frequency)
@@ -70,7 +83,13 @@ def simulate(temperature):
     )
     times, amplitude, energy = [], [], []
     for sample in range(int(6 * 2 * np.pi / bohm_gross(temperature) / (5 * time_step))):
-        result = plasma.solve(species=(electrons,), time_step=time_step, steps=5)
+        result = plasma.solve(
+            species=(electrons,),
+            time_step=time_step,
+            steps=5,
+            spatial=spatial,
+            time_integrator=time_integrator,
+        )
         electrons = result.species[0]
         times.append(5 * time_step * (sample + 1))
         amplitude.append(np.sum(result.electric_field[:, 0] * np.exp(-1j * k * grid)))

@@ -51,6 +51,7 @@ energy with Griffith's toughness times the crack area.
 import numpy as np
 from onesim.cad.exchange import load
 from onesim.meshing import TriangularMesher
+from onesim.numerics.linear import SparseDirect
 from onesim.physics.solid_mechanics import PhaseFieldFracture
 from onesim.visualization import plots, theme
 
@@ -123,6 +124,7 @@ results = {
         plane_stress=True,
     ).solve(
         mesh=meshes[ell],
+        linear_solver=SparseDirect(),
         times=deflection,
         tolerance=1e-4,
         max_iterations=3000,

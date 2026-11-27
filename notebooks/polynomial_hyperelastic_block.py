@@ -47,6 +47,9 @@ import numpy as np
 from onesim.cad.exchange import load
 from onesim.materials.solids import IsochoricInvariantPolynomial, QuadraticVolumeLaw
 from onesim.meshing import CadHexahedralMesher
+from onesim.numerics.fem import TaylorHood
+from onesim.numerics.linear import SparseDirect
+from onesim.numerics.nonlinear import DampedNewton
 from onesim.physics.solid_mechanics import FiniteStrainSolid
 from onesim.visualization import plots, theme
 
@@ -121,6 +124,13 @@ results = {
         times=(stretch[case] - 1) * side,
         quadrature_order=3,
         displacements=supports + extra,
+        nonlinear=DampedNewton(
+            linear_solver=SparseDirect(),
+            absolute_tolerance=1e-11,
+            relative_tolerance=1e-10,
+            line_search_merit="newton_correction",
+        ),
+        space_factory=TaylorHood(),
         elastic_response=IsochoricInvariantPolynomial(terms),
         volume_law=QuadraticVolumeLaw(2e4 * (terms[0][2] + terms[1][2])),
     )

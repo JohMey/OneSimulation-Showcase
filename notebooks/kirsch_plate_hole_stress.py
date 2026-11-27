@@ -38,17 +38,29 @@ away from the hole, with a mesh study and a plate-size study.
 #
 # **Reference.** G. Kirsch, *Die Theorie der Elastizität und die Bedürfnisse der
 # Festigkeitslehre*, Zeitschrift des VDI 42 (1898); S. Timoshenko and J. N. Goodier, *Theory of
-# Elasticity*, 3rd ed., McGraw-Hill (1970), Sec. 35. The hoop stress comes from
-# `kirsch_hole_hoop_stress` of OneSimulation.
+# Elasticity*, 3rd ed., McGraw-Hill (1970), Sec. 35. The hoop stress is the closed
+# Kirsch formula, written out below.
 
 import numpy as np
 from onesim.cad.exchange import load
 from onesim.meshing import TriangularMesher
-from onesim.physics.solid_mechanics import SmallStrainSolid, kirsch_hole_hoop_stress
+from onesim.physics.solid_mechanics import SmallStrainSolid
 from onesim.results.comparisons import convergence
 from onesim.visualization import plots, theme
 
 theme.set()
+
+
+def kirsch_hole_hoop_stress(distance, radius, remote_stress, angle):
+    # Hoop stress at a distance from the edge of a circular hole in an infinite plate under
+    # uniaxial remote stress; the angle is measured from the load direction.
+    ratio_squared = (radius / (radius + np.asarray(distance, dtype=float))) ** 2
+    return (
+        remote_stress
+        / 2
+        * (1 + ratio_squared - (1 + 3 * ratio_squared**2) * np.cos(2 * angle))
+    )
+
 
 # ## Geometry and mesh
 #

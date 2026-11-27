@@ -38,10 +38,15 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.cad.d1</span><span class="w"> </span><span class="kn">import</span> <span class="n">Line</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.meshing</span><span class="w"> </span><span class="kn">import</span> <span class="n">StructuredLineMesher</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.biophysics</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">ArterialBracketedRoot</span><span class="p">,</span>
+    <span class="n">ArterialCoupledRoot</span><span class="p">,</span>
     <span class="n">ArterialNetwork</span><span class="p">,</span>
+    <span class="n">ArterialNetworkFiniteVolume</span><span class="p">,</span>
+    <span class="n">ArterialNetworkTrialMidpoint</span><span class="p">,</span>
     <span class="n">ArterialPressure</span><span class="p">,</span>
     <span class="n">ArterialSegment</span><span class="p">,</span>
     <span class="n">WindkesselTerminal</span><span class="p">,</span>
+    <span class="n">arterial_network_explicit_step</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.visualization</span><span class="w"> </span><span class="kn">import</span> <span class="n">plots</span><span class="p">,</span> <span class="n">theme</span>
 
@@ -100,6 +105,10 @@
     <span class="p">),</span>
 <span class="p">)</span>
 <span class="n">result</span> <span class="o">=</span> <span class="n">network</span><span class="o">.</span><span class="n">solve</span><span class="p">(</span>
+    <span class="n">cfl</span><span class="o">=</span><span class="mf">0.45</span><span class="p">,</span> <span class="n">spatial</span><span class="o">=</span><span class="n">ArterialNetworkFiniteVolume</span><span class="p">(</span>
+        <span class="n">scalar_junction</span><span class="o">=</span><span class="n">ArterialBracketedRoot</span><span class="p">(</span><span class="n">tolerance</span><span class="o">=</span><span class="mf">1e-16</span><span class="p">,</span> <span class="n">relative_tolerance</span><span class="o">=</span><span class="mf">8.881784197001252e-16</span><span class="p">,</span> <span class="n">maximum_iterations</span><span class="o">=</span><span class="mi">100</span><span class="p">),</span>
+        <span class="n">coupled_junction</span><span class="o">=</span><span class="n">ArterialCoupledRoot</span><span class="p">(</span><span class="n">tolerance</span><span class="o">=</span><span class="mf">1e-10</span><span class="p">,</span> <span class="n">residual_limit</span><span class="o">=</span><span class="mf">5e-12</span><span class="p">,</span> <span class="n">maximum_evaluations_per_unknown</span><span class="o">=</span><span class="mi">100</span><span class="p">),</span>
+    <span class="p">),</span> <span class="n">time_integrator</span><span class="o">=</span><span class="n">ArterialNetworkTrialMidpoint</span><span class="p">(),</span> <span class="n">step_policy</span><span class="o">=</span><span class="n">arterial_network_explicit_step</span><span class="p">,</span>
     <span class="n">times</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">final_time</span><span class="p">,</span> <span class="mi">6</span><span class="p">),</span>
     <span class="n">max_step</span><span class="o">=</span><span class="mf">1.0e-3</span><span class="p">,</span>
     <span class="n">initial_area</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;aorta&quot;</span><span class="p">:</span> <span class="n">initial_area</span><span class="p">},</span>

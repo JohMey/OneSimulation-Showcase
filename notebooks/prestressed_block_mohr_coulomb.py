@@ -46,6 +46,9 @@ Drucker-Prager cone fitted to the compression meridian is run alongside.
 # Analysis in Geotechnical Engineering: Theory*, Telford 1999).
 
 import numpy as np
+from onesim.numerics.nonlinear import DampedNewton
+from onesim.numerics.linear import SparseDirect
+from onesim.numerics.fem import FiniteElement, Lagrange
 from onesim.cad.exchange import load
 from onesim.meshing import TetrahedralMesher
 from onesim.physics.geotechnics import (
@@ -112,6 +115,7 @@ strain = np.linspace(0.0, 0.012, 25)
 young, poisson = parameters["youngs_modulus"], parameters["poisson_ratio"]
 results = {
     (name, p0): FrictionalSolid(material=material, kinematics="volume").solve(
+        spatial=FiniteElement(element=Lagrange(1)), nonlinear=DampedNewton(relative_tolerance=1e-10, absolute_tolerance=1e-12, linear_solver=SparseDirect(relative_tolerance=1e-10, absolute_tolerance=1e-13)),
         mesh=mesh,
         times=strain * side,
         normal_tractions=((faces.x_max, -p0), (faces.y_max, -p0)),

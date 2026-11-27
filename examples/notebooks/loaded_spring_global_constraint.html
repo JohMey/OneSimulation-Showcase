@@ -66,6 +66,9 @@
     <span class="n">TractionFree</span><span class="p">,</span>
     <span class="n">average_displacement_force</span><span class="p">,</span>
 <span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.solid_mechanics.elasticity.numerics.spatial_frame</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">assemble_frame</span><span class="p">,</span>
+<span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.simulation</span><span class="w"> </span><span class="kn">import</span> <span class="n">Problem</span><span class="p">,</span> <span class="n">Simulation</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.visualization</span><span class="w"> </span><span class="kn">import</span> <span class="n">plots</span><span class="p">,</span> <span class="n">theme</span>
 
@@ -162,6 +165,8 @@
     <span class="p">),</span>
 <span class="p">)</span>
 <span class="n">beam</span> <span class="o">=</span> <span class="n">helix</span><span class="o">.</span><span class="n">solve</span><span class="p">(</span>
+    <span class="n">assembly</span><span class="o">=</span><span class="n">assemble_frame</span><span class="p">,</span>
+    <span class="n">linear_solver</span><span class="o">=</span><span class="n">SparseDirect</span><span class="p">(),</span>
     <span class="n">supports</span><span class="o">=</span><span class="p">[(</span><span class="mi">0</span><span class="p">,</span> <span class="n">dof</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span> <span class="k">for</span> <span class="n">dof</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">,</span> <span class="s2">&quot;z&quot;</span><span class="p">,</span> <span class="s2">&quot;rx&quot;</span><span class="p">,</span> <span class="s2">&quot;ry&quot;</span><span class="p">,</span> <span class="s2">&quot;rz&quot;</span><span class="p">)],</span>
     <span class="n">forces</span><span class="o">=</span><span class="p">{</span><span class="nb">len</span><span class="p">(</span><span class="n">angles</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span> <span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">)},</span>
 <span class="p">)</span></code></pre></div><div class="nb-md"><h4>Comparison</h4>

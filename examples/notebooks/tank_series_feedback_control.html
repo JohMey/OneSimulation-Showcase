@@ -31,6 +31,7 @@
 <div class="table-wrap"><table><thead><tr><th scope="col">block</th><th scope="col">law</th><th scope="col">value</th></tr></thead><tbody><tr><td>tank <span class="math">\(i\)</span></td><td><span class="math">\(\tau\dot c_i = G c_{i-1} - c_i\)</span></td><td><span class="math">\(V=2\)</span> m³, <span class="math">\(q=0.01\)</span> m³/s, <span class="math">\(k=0.005\)</span> 1/s</td></tr><tr><td>controller</td><td><span class="math">\(c_0 = K_p e + K_i\int e\,dt\)</span>, <span class="math">\(\;e=c_\text{set}-c_3\)</span></td><td><span class="math">\(0 \le c_0 \le 20\)</span> mol/m³</td></tr></tbody></table></div>
 <p>The loop is integrated as a signal-flow graph with the classical Runge-Kutta method.</p>
 <p><strong>Reference.</strong> With proportional control the closed loop has the transfer function <span class="math">\(K_pG^3/\big((\tau s+1)^3+K_pG^3\big)\)</span>; its step response is computed independently by <code>scipy.signal</code>, and its steady offset is <span class="math">\(c_\text{set}/(1+K_pG^3)\)</span>. The Routh criterion gives the ultimate gain <span class="math">\(K_u = 8/G^3\)</span>, at which the loop oscillates with the period <span class="math">\(P_u = 2\pi\tau/\sqrt3\)</span> (Seborg, Edgar, Mellichamp &amp; Doyle, <em>Process Dynamics and Control</em>, chapter 11). Ziegler &amp; Nichols (<em>Trans. ASME</em> 64, 1942) tune a PI controller from these two numbers: <span class="math">\(K_p = 0.45\,K_u\)</span>, <span class="math">\(T_i = P_u/1.2\)</span>.</p></div><div class="nb-code"><pre class="code" data-lang="python"><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">onesim.numerics.time</span><span class="w"> </span><span class="kn">import</span> <span class="n">create_time_integrator</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.systems</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">ControlSignalFlowConfiguration</span><span class="p">,</span>
     <span class="n">ControlSignalFlowPublicApi</span><span class="p">,</span>
@@ -87,6 +88,7 @@
                 <span class="p">),</span>
                 <span class="n">final_time</span><span class="o">=</span><span class="mf">4000.0</span><span class="p">,</span>
                 <span class="n">time_step</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+                <span class="n">time_integrator</span><span class="o">=</span><span class="n">create_time_integrator</span><span class="p">(</span><span class="s2">&quot;classical_rk4&quot;</span><span class="p">),</span>
             <span class="p">)</span>
         <span class="p">)</span>
     <span class="p">)</span>
@@ -141,6 +143,7 @@
             <span class="p">),</span>
             <span class="n">final_time</span><span class="o">=</span><span class="mf">8000.0</span><span class="p">,</span>
             <span class="n">time_step</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+            <span class="n">time_integrator</span><span class="o">=</span><span class="n">create_time_integrator</span><span class="p">(</span><span class="s2">&quot;classical_rk4&quot;</span><span class="p">),</span>
             <span class="n">event_times</span><span class="o">=</span><span class="p">(</span><span class="mf">4000.0</span><span class="p">,),</span>
         <span class="p">)</span>
     <span class="p">)</span>

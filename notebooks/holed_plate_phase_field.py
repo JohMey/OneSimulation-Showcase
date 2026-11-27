@@ -45,6 +45,7 @@ toughness times the crack length measured in the damage field.
 import numpy as np
 from onesim.cad.exchange import load
 from onesim.meshing import TriangularMesher
+from onesim.numerics.linear import SparseDirect
 from onesim.physics.solid_mechanics import PhaseFieldFracture
 from onesim.visualization import plots, theme
 
@@ -112,6 +113,7 @@ result = PhaseFieldFracture(
     plane_stress=True,
 ).solve(
     mesh=mesh,
+    linear_solver=SparseDirect(),
     times=lift,
     tolerance=1e-3,
     max_iterations=3000,

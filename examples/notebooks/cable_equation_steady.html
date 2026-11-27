@@ -43,6 +43,8 @@
     <span class="n">MembraneKinetics</span><span class="p">,</span>
     <span class="n">MembraneVoltageClamp</span><span class="p">,</span>
     <span class="n">Monodomain</span><span class="p">,</span>
+    <span class="n">MonodomainCableSpace</span><span class="p">,</span>
+    <span class="n">MonodomainStrangSplitting</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.visualization</span><span class="w"> </span><span class="kn">import</span> <span class="n">plots</span><span class="p">,</span> <span class="n">theme</span>
 
@@ -84,6 +86,7 @@
 
 <span class="n">times</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">end_time</span><span class="p">,</span> <span class="mi">60</span><span class="p">)</span>
 <span class="n">result</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">solve</span><span class="p">(</span>
+    <span class="n">spatial</span><span class="o">=</span><span class="n">MonodomainCableSpace</span><span class="p">(</span><span class="n">mesh</span><span class="p">),</span> <span class="n">time_integrator</span><span class="o">=</span><span class="n">MonodomainStrangSplitting</span><span class="p">(),</span>
     <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
     <span class="n">linear_solver</span><span class="o">=</span><span class="n">SparseDirect</span><span class="p">(),</span>
     <span class="n">times</span><span class="o">=</span><span class="n">times</span><span class="p">,</span>

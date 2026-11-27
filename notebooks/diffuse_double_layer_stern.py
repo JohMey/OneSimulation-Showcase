@@ -15,7 +15,7 @@ import numpy as np
 from onesim.cad.d1 import Line
 from onesim.meshing import cartesian
 from onesim.numerics import Numerics
-from onesim.numerics.linear import GMRES
+from onesim.numerics.linear import GMRES, SparseDirect
 from onesim.numerics.nonlinear import Newton
 from onesim.numerics.time import BDF, BackwardEuler
 from onesim.physics.chemistry import (
@@ -40,7 +40,7 @@ stern = epsilon / capacitance
 half_length = 8 * debye
 line = Line(start=(0, 0, 0), end=(2 * half_length, 0, 0))
 numerics = Numerics(
-    spatial=ScharfetterGummelFiniteVolume(),
+    spatial=ScharfetterGummelFiniteVolume(linear_solver=SparseDirect()),
     time_integrator=BDF(order=2, startup=BackwardEuler()),
     nonlinear_solver=Newton(
         linear_solver=GMRES(relative_tolerance=1e-7, restart=220, maximum_iterations=650),

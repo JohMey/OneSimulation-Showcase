@@ -75,6 +75,7 @@
 <p>The crack grows while <span class="math">\(K_I=\sqrt{EG_c}\)</span>, which gives the force <span class="math">\(P(a)\)</span>; the compliance grows by <span class="math">\(\mathrm dC/\mathrm da=2S^2f^2/(BW^3E)\)</span>, which gives the deflection <span class="math">\(\delta=P\,C(a)\)</span>. A phase-field crack approaches this curve as <span class="math">\(\ell\)</span> becomes small against the ligament; on a mesh of size <span class="math">\(h\)</span> it dissipates <span class="math">\(G_c(1+h/2\ell)\)</span> per unit area.</p></div><div class="nb-code"><pre class="code" data-lang="python"><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.cad.exchange</span><span class="w"> </span><span class="kn">import</span> <span class="n">load</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.meshing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TriangularMesher</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">onesim.numerics.linear</span><span class="w"> </span><span class="kn">import</span> <span class="n">SparseDirect</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.solid_mechanics</span><span class="w"> </span><span class="kn">import</span> <span class="n">PhaseFieldFracture</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.visualization</span><span class="w"> </span><span class="kn">import</span> <span class="n">plots</span><span class="p">,</span> <span class="n">theme</span>
 
@@ -133,6 +134,7 @@
         <span class="n">plane_stress</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
     <span class="p">)</span><span class="o">.</span><span class="n">solve</span><span class="p">(</span>
         <span class="n">mesh</span><span class="o">=</span><span class="n">meshes</span><span class="p">[</span><span class="n">ell</span><span class="p">],</span>
+        <span class="n">linear_solver</span><span class="o">=</span><span class="n">SparseDirect</span><span class="p">(),</span>
         <span class="n">times</span><span class="o">=</span><span class="n">deflection</span><span class="p">,</span>
         <span class="n">tolerance</span><span class="o">=</span><span class="mf">1e-4</span><span class="p">,</span>
         <span class="n">max_iterations</span><span class="o">=</span><span class="mi">3000</span><span class="p">,</span>

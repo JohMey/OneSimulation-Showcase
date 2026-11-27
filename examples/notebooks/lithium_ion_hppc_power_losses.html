@@ -35,6 +35,9 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.chemistry</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">BatteryElectrodeLayer</span><span class="p">,</span>
     <span class="n">BatteryElectrolyteLayer</span><span class="p">,</span>
+    <span class="n">PorousBatteryBDF</span><span class="p">,</span>
+    <span class="n">PorousBatteryFiniteVolume</span><span class="p">,</span>
+    <span class="n">PorousBatteryMesh</span><span class="p">,</span>
     <span class="n">PorousElectrodeBattery</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.visualization</span><span class="w"> </span><span class="kn">import</span> <span class="n">plots</span><span class="p">,</span> <span class="n">theme</span>
@@ -98,7 +101,7 @@
     <span class="n">transference_number</span><span class="o">=</span><span class="mf">0.2594</span><span class="p">,</span>
 <span class="p">)</span></code></pre></div><div class="nb-md"><h4>HPPC test</h4>
 <p>Pulses of 1.5C (7.5 A) discharge and 1.125C charge at 80, 50 and 20 % state of charge; between the blocks the cell is discharged by 30 % at 1C and rests for 15 minutes.</p>
-<p>The current switches abruptly. The stiff BDF integrator (the default of the model) gets a maximum step of 2 s through the <code>time_solver</code> port, so that no pulse can fall between two steps.</p></div><div class="nb-code"><pre class="code" data-lang="python"><code><span class="n">one_c</span><span class="p">,</span> <span class="n">step</span> <span class="o">=</span> <span class="mf">5.0</span> <span class="o">/</span> <span class="n">area</span><span class="p">,</span> <span class="mf">0.3</span> <span class="o">*</span> <span class="mf">5.0904</span> <span class="o">/</span> <span class="mf">5.0</span> <span class="o">*</span> <span class="mi">3600</span>
+<p>The current switches abruptly. The stiff BDF integrator gets a maximum step of 2 s through the <code>time_solver</code> callable it is built with, so that no pulse can fall between two steps.</p></div><div class="nb-code"><pre class="code" data-lang="python"><code><span class="n">one_c</span><span class="p">,</span> <span class="n">step</span> <span class="o">=</span> <span class="mf">5.0</span> <span class="o">/</span> <span class="n">area</span><span class="p">,</span> <span class="mf">0.3</span> <span class="o">*</span> <span class="mf">5.0904</span> <span class="o">/</span> <span class="mf">5.0</span> <span class="o">*</span> <span class="mi">3600</span>
 <span class="n">starts</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mf">0.0</span><span class="p">,</span> <span class="mi">100</span> <span class="o">+</span> <span class="n">step</span> <span class="o">+</span> <span class="mi">900</span><span class="p">,</span> <span class="mi">2</span> <span class="o">*</span> <span class="p">(</span><span class="mi">100</span> <span class="o">+</span> <span class="n">step</span> <span class="o">+</span> <span class="mi">900</span><span class="p">)])</span>
 <span class="n">table</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span>
     <span class="nb">sorted</span><span class="p">(</span>
@@ -138,10 +141,11 @@
     <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;DFN&quot;</span><span class="p">,</span>
     <span class="n">current_density</span><span class="o">=</span><span class="n">program</span><span class="p">,</span>
     <span class="n">final_time</span><span class="o">=</span><span class="n">end</span><span class="p">,</span>
-    <span class="n">radial_cells</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
-    <span class="n">through_cells</span><span class="o">=</span><span class="n">counts</span><span class="p">,</span>
+    <span class="n">mesh</span><span class="o">=</span><span class="n">PorousBatteryMesh</span><span class="o">.</span><span class="n">from_model</span><span class="p">(</span><span class="n">cell</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="n">counts</span><span class="p">),</span>
+    <span class="n">spatial</span><span class="o">=</span><span class="n">PorousBatteryFiniteVolume</span><span class="p">(</span><span class="n">tolerance</span><span class="o">=</span><span class="mf">1e-12</span><span class="p">,</span> <span class="n">residual_limit</span><span class="o">=</span><span class="mf">2e-8</span><span class="p">),</span>
+    <span class="n">time_integrator</span><span class="o">=</span><span class="n">PorousBatteryBDF</span><span class="p">(</span><span class="n">stepping</span><span class="p">),</span>
     <span class="n">output_times</span><span class="o">=</span><span class="n">times</span><span class="p">,</span>
-    <span class="n">time_solver</span><span class="o">=</span><span class="n">stepping</span><span class="p">,</span>
+
 <span class="p">)</span></code></pre></div><div class="nb-md"><h4>Loss parts</h4>
 <p>All parts are evaluated on the finite-volume faces and cells of the solution, in W per m² of electrode.</p></div><div class="nb-code"><pre class="code" data-lang="python"><code><span class="n">nn</span><span class="p">,</span> <span class="n">ns</span><span class="p">,</span> <span class="n">nq</span> <span class="o">=</span> <span class="n">counts</span>
 <span class="n">current</span><span class="p">,</span> <span class="n">ionic</span><span class="p">,</span> <span class="n">phi_e</span><span class="p">,</span> <span class="n">salt</span> <span class="o">=</span> <span class="p">(</span>

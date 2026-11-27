@@ -156,7 +156,6 @@ model_for = lambda values: Magnetostatics(
             winding,
             turns=turns,
             current=values[f"I{k}"],
-            cross_section=(outer - inner) * height,
             within=domain.domain(),
         )
         for k, winding in zip((1, 2, 3), windings)

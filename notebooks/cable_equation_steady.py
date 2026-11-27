@@ -46,6 +46,8 @@ from onesim.physics.biophysics import (
     MembraneKinetics,
     MembraneVoltageClamp,
     Monodomain,
+    MonodomainCableSpace,
+    MonodomainStrangSplitting,
 )
 from onesim.visualization import plots, theme
 
@@ -103,6 +105,7 @@ electrodes = (
 
 times = np.linspace(0.0, end_time, 60)
 result = model.solve(
+    spatial=MonodomainCableSpace(mesh), time_integrator=MonodomainStrangSplitting(),
     mesh=mesh,
     linear_solver=SparseDirect(),
     times=times,

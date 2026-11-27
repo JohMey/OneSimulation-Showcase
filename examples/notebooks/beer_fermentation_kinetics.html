@@ -34,6 +34,7 @@
 <p><strong>Reference.</strong> J. Monod, <em>Annu. Rev. Microbiol.</em> 3 (1949) 371; for the yields see Bailey &amp; Ollis, <em>Biochemical Engineering Fundamentals</em>, chapter 7, and for brewing practice Briggs et al., <em>Brewing: Science and Practice</em>. Because <span class="math">\(X+Y_{X/S}S=M\)</span> is constant, the Monod equation integrates exactly:</p>
 <div class="math display">\[\mu_\mathrm{max}\,t=\Big(1+\frac{K_SY_{X/S}}{M}\Big)\ln\frac{X}{X_0}-\frac{K_SY_{X/S}}{M}\ln\frac{S}{S_0},\]</div>
 <p>and the products follow the sugar stoichiometrically, <span class="math">\(E=Y_{E/S}\,(S_0-S)\)</span>.</p></div><div class="nb-code"><pre class="code" data-lang="python"><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">onesim.numerics.time</span><span class="w"> </span><span class="kn">import</span> <span class="n">ClassicalRungeKutta4TimeIntegrator</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.systems</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">ProcessModelsConfiguration</span><span class="p">,</span>
     <span class="n">ProcessModelsPublicApi</span><span class="p">,</span>
@@ -70,6 +71,7 @@
                 <span class="p">),</span>
                 <span class="n">final_time</span><span class="o">=</span><span class="mi">14</span> <span class="o">*</span> <span class="mf">86400.0</span><span class="p">,</span>
                 <span class="n">time_step</span><span class="o">=</span><span class="mf">120.0</span><span class="p">,</span>
+                <span class="n">time_integrator</span><span class="o">=</span><span class="n">ClassicalRungeKutta4TimeIntegrator</span><span class="p">(),</span>
             <span class="p">)</span>
         <span class="p">)</span>
     <span class="p">)</span>

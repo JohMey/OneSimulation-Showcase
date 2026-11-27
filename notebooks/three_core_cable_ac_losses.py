@@ -76,7 +76,9 @@ plates = {"surroundings": load("three_core_cable_ac_losses.step")} | {
     for kind in ("conductor", "sheath")
     for k in "abc"
 }
-cut = lambda part: part.section((0, 0, 1), origin=(0, 0, 0.001))
+cut = lambda part: part.section(
+    (0, 0, 1), origin=(0, 0, 0.001), planar_thickness=1.0
+)
 disc = cut(plates["surroundings"])
 regions = {
     name: cut(part).named(name.replace(" ", "_"))

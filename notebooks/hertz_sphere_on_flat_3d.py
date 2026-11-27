@@ -51,6 +51,8 @@ from onesim.meshing import (
     Uniform,
 )
 from onesim.numerics.fem import FiniteElement, Lagrange
+from onesim.numerics.linear import ScipySparseDirectSolver
+from onesim.numerics.nonlinear import AffinePrimalDualActiveSet
 from onesim.physics.solid_mechanics import MortarBody, MortarContact, SmallStrainSolid
 from onesim.results.comparisons import convergence
 from onesim.results.derived import max_shear, strain_from_gradient, voigt
@@ -168,6 +170,8 @@ results = [
     ).solve(
         times=tuple(range(1, len(approaches) + 1)),
         normal_offset=lambda t: -approaches[int(round(t)) - 1],
+        normal_solver=AffinePrimalDualActiveSet(),
+        linear_solver=ScipySparseDirectSolver(),
     )
     for block_mesh, sphere_mesh in zip(block_meshes, sphere_meshes)
 ]

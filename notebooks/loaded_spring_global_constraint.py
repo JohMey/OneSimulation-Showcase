@@ -54,6 +54,9 @@ from onesim.physics.solid_mechanics import (
     TractionFree,
     average_displacement_force,
 )
+from onesim.physics.solid_mechanics.elasticity.numerics.spatial_frame import (
+    assemble_frame,
+)
 from onesim.simulation import Problem, Simulation
 from onesim.visualization import plots, theme
 
@@ -166,6 +169,8 @@ helix = SpatialFrame(
     ),
 )
 beam = helix.solve(
+    assembly=assemble_frame,
+    linear_solver=SparseDirect(),
     supports=[(0, dof, 0.0) for dof in ("x", "y", "z", "rx", "ry", "rz")],
     forces={len(angles) - 1: (0.0, 0.0, 1.0)},
 )

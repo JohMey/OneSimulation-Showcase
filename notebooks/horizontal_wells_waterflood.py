@@ -41,10 +41,13 @@ and the breakthrough and recovery on two grids.
 import numpy as np
 from onesim.cad.exchange import load
 from onesim.meshing import CadHexahedralMesher
+from onesim.numerics.linear import SparseDirect
 from onesim.physics.geotechnics import (
     ImmiscibleReservoir,
+    ReservoirFiniteVolume,
     ReservoirPerforation,
     ReservoirWell,
+    SequentialReservoirTransport,
 )
 from onesim.visualization import plots, theme
 
@@ -143,11 +146,14 @@ months = np.linspace(0.0, 10 * year, 61)
 results = {
     name: rock.solve(
         mesh=meshes[name],
+        linear_solver=SparseDirect(),
         water_saturation=0.0,
         times=months,
         max_step=10 * day,
         wells=wells[name],
         gravity=(0.0, 0.0, -9.81),
+        spatial=ReservoirFiniteVolume(),
+        time_integrator=SequentialReservoirTransport(),
     )
     for name in grids
 }

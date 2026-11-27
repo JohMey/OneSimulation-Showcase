@@ -114,7 +114,7 @@ model = Magnetostatics(
     domain=air.domain(),
     permeability=VacuumPermeability(),
     current_sources=tuple(
-        RegionCurrent.axial(wire, current, area=np.pi * radius**2, within=air.domain())
+        RegionCurrent.axial(wire, current, within=air.domain())
         for wire in (left, right)
     ),
 )

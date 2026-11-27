@@ -59,6 +59,7 @@
 <p><strong>Reference.</strong> Griffith's energy balance: the energy dissipated in forming the crack equals <span class="math">\(G_c\)</span> times the crack area, up to the overestimate <span class="math">\(h/2\ell\)</span> of the regularised functional on a mesh of size <span class="math">\(h\)</span>. The crack length is measured in the damage field: the area where <span class="math">\(d&gt;1/2\)</span>, divided by the width of this band on the straight last branch of the crack.</p></div><div class="nb-code"><pre class="code" data-lang="python"><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.cad.exchange</span><span class="w"> </span><span class="kn">import</span> <span class="n">load</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.meshing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TriangularMesher</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">onesim.numerics.linear</span><span class="w"> </span><span class="kn">import</span> <span class="n">SparseDirect</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.solid_mechanics</span><span class="w"> </span><span class="kn">import</span> <span class="n">PhaseFieldFracture</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.visualization</span><span class="w"> </span><span class="kn">import</span> <span class="n">plots</span><span class="p">,</span> <span class="n">theme</span>
 
@@ -113,6 +114,7 @@
     <span class="n">plane_stress</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
 <span class="p">)</span><span class="o">.</span><span class="n">solve</span><span class="p">(</span>
     <span class="n">mesh</span><span class="o">=</span><span class="n">mesh</span><span class="p">,</span>
+    <span class="n">linear_solver</span><span class="o">=</span><span class="n">SparseDirect</span><span class="p">(),</span>
     <span class="n">times</span><span class="o">=</span><span class="n">lift</span><span class="p">,</span>
     <span class="n">tolerance</span><span class="o">=</span><span class="mf">1e-3</span><span class="p">,</span>
     <span class="n">max_iterations</span><span class="o">=</span><span class="mi">3000</span><span class="p">,</span>

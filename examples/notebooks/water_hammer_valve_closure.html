@@ -35,11 +35,21 @@
 <p>stays there for <span class="math">\(2L/a\)</span>, then drops to <span class="math">\(p_r-\Delta p_J\)</span> for another <span class="math">\(2L/a\)</span>: without friction the valve pressure is a square wave of period <span class="math">\(T=4L/a\)</span>. The exact solution of the frictionless pipe follows from the characteristics: with the valve wave <span class="math">\(F(t)=Z\,(Q_0-Q_v(t))\)</span>, <span class="math">\(Z=\rho a/A\)</span>, and the reflection <span class="math">\(-1\)</span> at the reservoir,</p>
 <div class="math display">\[p_v(t)-p_r=F(t)+2\sum_{k\ge1}(-1)^k\,F\!\left(t-\frac{2kL}{a}\right),\]</div>
 <p>where <span class="math">\(Q_v\)</span> is the valve flow during the closure, from the valve law and the characteristic <span class="math">\(p_v=p_r+Z\,(Q_0-Q_v)\)</span>.</p></div><div class="nb-code"><pre class="code" data-lang="python"><code><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">onesim.cad.d1</span><span class="w"> </span><span class="kn">import</span> <span class="n">Line</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">onesim.meshing</span><span class="w"> </span><span class="kn">import</span> <span class="n">StructuredLineMesher</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">onesim.numerics.linear</span><span class="w"> </span><span class="kn">import</span> <span class="n">SparseDirect</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.systems</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
     <span class="n">HydraulicPressurePort</span><span class="p">,</span>
     <span class="n">HydraulicValvePort</span><span class="p">,</span>
     <span class="n">WaterHammerNetwork</span><span class="p">,</span>
     <span class="n">WaterHammerPipe</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.systems.hydraulic.numerics.backends.water_hammer</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">StaggeredPipeDiscretization</span><span class="p">,</span>
+    <span class="n">WaterHammerImplicitMidpoint</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">onesim.physics.systems.hydraulic.binding.water_hammer_components</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">WaterHammerMesh</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.results.sampling</span><span class="w"> </span><span class="kn">import</span> <span class="n">crossing_times</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">onesim.visualization</span><span class="w"> </span><span class="kn">import</span> <span class="n">plots</span><span class="p">,</span> <span class="n">theme</span>
@@ -60,17 +70,18 @@
     <span class="sa">f</span><span class="s2">&quot;Joukowsky rise ρ a v0 = </span><span class="si">{</span><span class="n">joukowsky</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mf">1e5</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> bar, period 4L/a = </span><span class="si">{</span><span class="n">period</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> s, closure in </span><span class="si">{</span><span class="n">closure_time</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="p">(</span><span class="mi">2</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">length</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">wave_speed</span><span class="p">)</span><span class="si">:</span><span class="s2">.0%</span><span class="si">}</span><span class="s2"> of 2L/a&quot;</span>
 <span class="p">)</span></code></pre></div><div class="nb-md"><h4>Simulation on three grids</h4>
 <p>Eight seconds (four periods) on 100, 200 and 400 cells with a time step of half the cell transit time. The pipe starts in the steady state: uniform reservoir pressure and the initial flow everywhere.</p></div><div class="nb-code"><pre class="code" data-lang="python"><code><span class="n">times</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">8.0</span><span class="p">,</span> <span class="mi">1601</span><span class="p">)</span>
-<span class="n">runs</span> <span class="o">=</span> <span class="p">{</span>
+<span class="n">main</span> <span class="o">=</span> <span class="n">Line</span><span class="p">(</span><span class="n">start</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">),</span> <span class="n">end</span><span class="o">=</span><span class="p">(</span><span class="n">length</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">))</span>
+<span class="n">networks</span> <span class="o">=</span> <span class="p">{</span>
     <span class="n">cells</span><span class="p">:</span> <span class="n">WaterHammerNetwork</span><span class="p">(</span>
         <span class="n">pipes</span><span class="o">=</span><span class="p">(</span>
             <span class="n">WaterHammerPipe</span><span class="p">(</span>
                 <span class="n">name</span><span class="o">=</span><span class="s2">&quot;main&quot;</span><span class="p">,</span>
                 <span class="n">start</span><span class="o">=</span><span class="s2">&quot;reservoir&quot;</span><span class="p">,</span>
                 <span class="n">end</span><span class="o">=</span><span class="s2">&quot;valve&quot;</span><span class="p">,</span>
-                <span class="n">length</span><span class="o">=</span><span class="n">length</span><span class="p">,</span>
+                <span class="n">mesh</span><span class="o">=</span><span class="n">StructuredLineMesher</span><span class="p">(</span><span class="n">cells</span><span class="o">=</span><span class="n">cells</span><span class="p">)</span><span class="o">.</span><span class="n">generate</span><span class="p">(</span><span class="n">main</span><span class="p">),</span>
                 <span class="n">diameter</span><span class="o">=</span><span class="n">diameter</span><span class="p">,</span>
                 <span class="n">wave_speed</span><span class="o">=</span><span class="n">wave_speed</span><span class="p">,</span>
-                <span class="n">cells</span><span class="o">=</span><span class="n">cells</span><span class="p">,</span>
+
             <span class="p">),</span>
         <span class="p">),</span>
         <span class="n">ports</span><span class="o">=</span><span class="p">(</span>
@@ -83,13 +94,25 @@
             <span class="p">),</span>
         <span class="p">),</span>
         <span class="n">density</span><span class="o">=</span><span class="n">density</span><span class="p">,</span>
-    <span class="p">)</span><span class="o">.</span><span class="n">solve</span><span class="p">(</span>
+    <span class="p">)</span>
+    <span class="k">for</span> <span class="n">cells</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">100</span><span class="p">,</span> <span class="mi">200</span><span class="p">,</span> <span class="mi">400</span><span class="p">)</span>
+<span class="p">}</span>
+<span class="n">runs</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="n">cells</span><span class="p">:</span> <span class="n">network</span><span class="o">.</span><span class="n">solve</span><span class="p">(</span>
+        <span class="n">mesh</span><span class="o">=</span><span class="n">WaterHammerMesh</span><span class="o">.</span><span class="n">from_network</span><span class="p">(</span><span class="n">network</span><span class="p">),</span>
+        <span class="n">spatial</span><span class="o">=</span><span class="n">StaggeredPipeDiscretization</span><span class="p">(</span><span class="n">linear_solver</span><span class="o">=</span><span class="n">SparseDirect</span><span class="p">()),</span>
+        <span class="n">time_integrator</span><span class="o">=</span><span class="n">WaterHammerImplicitMidpoint</span><span class="p">(</span>
+            <span class="n">linear_solver</span><span class="o">=</span><span class="n">SparseDirect</span><span class="p">(),</span>
+            <span class="n">relative_tolerance</span><span class="o">=</span><span class="mf">5e-13</span><span class="p">,</span>
+            <span class="n">maximum_iterations</span><span class="o">=</span><span class="mi">35</span><span class="p">,</span>
+            <span class="n">maximum_halvings</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span>
+        <span class="p">),</span>
         <span class="n">times</span><span class="o">=</span><span class="n">times</span><span class="p">,</span>
         <span class="n">max_step</span><span class="o">=</span><span class="mf">0.5</span> <span class="o">*</span> <span class="n">length</span> <span class="o">/</span> <span class="n">wave_speed</span> <span class="o">/</span> <span class="n">cells</span><span class="p">,</span>
         <span class="n">initial_pressure</span><span class="o">=</span><span class="n">reservoir_pressure</span><span class="p">,</span>
         <span class="n">initial_flow</span><span class="o">=</span><span class="n">flow</span><span class="p">,</span>
     <span class="p">)</span>
-    <span class="k">for</span> <span class="n">cells</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">100</span><span class="p">,</span> <span class="mi">200</span><span class="p">,</span> <span class="mi">400</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">cells</span><span class="p">,</span> <span class="n">network</span> <span class="ow">in</span> <span class="n">networks</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
 <span class="p">}</span>
 <span class="n">result</span> <span class="o">=</span> <span class="n">runs</span><span class="p">[</span><span class="mi">400</span><span class="p">]</span>
 <span class="n">surge</span> <span class="o">=</span> <span class="p">{</span>

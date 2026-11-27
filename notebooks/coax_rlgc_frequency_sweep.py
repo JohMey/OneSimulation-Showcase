@@ -67,7 +67,9 @@ theme.set()
 # quadratic elements.
 
 name = "coax_rlgc_frequency_sweep"
-cut = lambda part: load(f"{name}{part}.step").section((0, 0, 1), origin=(0, 0, 0.0005))
+cut = lambda part: load(f"{name}{part}.step").section(
+    (0, 0, 1), origin=(0, 0, 0.0005), planar_thickness=1.0
+)
 cable, inner, dielectric, shield = (
     cut(""),
     cut("_inner").named("inner"),
